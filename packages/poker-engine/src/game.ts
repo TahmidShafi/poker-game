@@ -87,7 +87,12 @@ export function createTable(config: TableConfig): TableState {
 /** Broadcast-safe snapshot. Hole cards are stripped later per seat by the server. */
 export function toPublicGameState(
   t: TableState,
-  extras?: { gameId?: string; roomCode?: string; turnDeadline?: number | null }
+  extras?: {
+    gameId?: string;
+    roomCode?: string;
+    turnDeadline?: number | null;
+    nextHandDeadline?: number | null;
+  }
 ): PublicGameState {
   return {
     gameId: extras?.gameId ?? "",
@@ -101,6 +106,7 @@ export function toPublicGameState(
     actingSeatIndex: t.actingSeatIndex,
     dealerSeatIndex: t.dealerSeatIndex,
     turnDeadline: extras?.turnDeadline ?? null,
+    nextHandDeadline: extras?.nextHandDeadline ?? null,
     smallBlind: t.smallBlind,
     bigBlind: t.bigBlind,
     handNumber: t.handNumber,

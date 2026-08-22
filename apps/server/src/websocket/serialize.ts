@@ -15,9 +15,10 @@ export function serializeForSeat(
   table: TableState,
   roomCode: string,
   viewerSeatIndex: number | null,
-  turnDeadline: number
+  turnDeadline: number,
+  nextHandDeadline = 0
 ): PublicGameState {
-  const state = toPublicGameState(table, { roomCode, turnDeadline });
+  const state = toPublicGameState(table, { roomCode, turnDeadline, nextHandDeadline });
 
   const revealAll =
     table.phase === GamePhase.SHOWDOWN || table.phase === GamePhase.PAYOUT;

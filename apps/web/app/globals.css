@@ -16,8 +16,7 @@ body {
 
 /* Felt texture (SVG turbulence, GPU-cheap) */
 .felt-surface {
-  background:
-    radial-gradient(ellipse at center, #1f6b4d 0%, #175a3f 45%, #0e3a29 100%);
+  background: radial-gradient(ellipse at 50% 35%, #237a53 0%, #1a5f40 45%, #0f4029 100%);
   position: relative;
 }
 .felt-surface::after {
@@ -25,22 +24,38 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  opacity: 0.16;
+  opacity: 0.14;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
 }
 
+/* Leather table rail */
+.rail-surface {
+  background:
+    linear-gradient(145deg, #3a2b1c 0%, #241a12 40%, #1a120c 100%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    inset 0 2px 3px rgba(255, 214, 140, 0.18),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* Gold inner ring on the felt */
+.gold-ring {
+  box-shadow:
+    inset 0 0 0 2px rgba(240, 199, 94, 0.35),
+    inset 0 0 60px rgba(0, 0, 0, 0.45);
+}
+
 .glass {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(18, 26, 38, 0.72);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .tabnum {
   font-variant-numeric: tabular-nums;
 }
 
-/* Card flip helper */
 .card-flip {
   transform-style: preserve-3d;
   perspective: 600px;

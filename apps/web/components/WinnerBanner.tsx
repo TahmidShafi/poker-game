@@ -31,8 +31,8 @@ export function WinnerBanner({
   }, [results]);
 
   return (
-    <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4">
-      <div className="glass w-full max-w-md rounded-3xl p-4 shadow-2xl animate-riseFade" role="status">
+    <div className="fixed inset-x-0 top-20 z-40 flex justify-center px-4">
+      <div className="w-full max-w-md rounded-3xl bg-panel p-4 shadow-panel ring-1 line animate-riseFade" role="status">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-black uppercase tracking-widest text-gold">Showdown</h3>
           <button className="text-xs text-white/50 hover:text-white" onClick={onClose}>

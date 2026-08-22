@@ -11,21 +11,24 @@ import React, {
 } from "react";
 import type {
   Card,
+  HandFinishedSummary,
   PlayerAction,
   PublicGameState,
   RoomConfig,
   RoomAck,
   ShowdownResult,
 } from "@poker/shared-types";
+import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
+import { isMuted, playChips, playTurn, playWin, setMuted } from "./sound";
 
 export type ConnStatus = "connecting" | "online" | "offline";
 
 interface Me {
-  config?: RoomConfig;
   roomCode: string;
   seatIndex: number;
   sessionToken: string;
+  config?: RoomConfig;
 }
 
 export interface LoanRequestView {
@@ -36,6 +39,37 @@ export interface LoanRequestView {
   amount: number;
   deadline: number;
 }
+
+/** Per-sitting statistics shown in the left sidebar. */
+export interface SessionStats {
+  handsPlayed: number;
+  handsWon: number;
+  bestHandLabel: string | null;
+  bestHandCategory: number;
+  biggestPotWon: number;
+}
+
+export interface RecentHand {
+  handNumber: number;
+  communityCards: Card[];
+  outcome: "Won" | "Lost";
+}
+
+export interface StreetTimeline {
+  preflop: number | null;
+  flop: number | null;
+  turn: number | null;
+  river: number | null;
+  showdown: number | null;
+}
+
+const EMPTY_STATS: SessionStats = {
+  handsPlayed: 0,
+  handsWon: 0,
+  bestHandLabel: null,
+  bestHandCategory: -1,
+  biggestPotWon: 0,
+};
 
 interface GameContextValue {
   serverUrl: string;
@@ -49,6 +83,11 @@ interface GameContextValue {
   pushToast: (message: string, kind?: "error" | "info") => void;
   incomingLoan: LoanRequestView | null;
   dismissIncomingLoan: () => void;
+  session: SessionStats;
+  recentHands: RecentHand[];
+  timeline: StreetTimeline;
+  soundOn: boolean;
+  toggleSound: () => void;
   createRoom: (username: string, cfg: RoomConfig) => Promise<RoomAck>;
   joinRoom: (roomCode: string, username: string) => Promise<RoomAck>;
   tryReconnect: (token: string) => void;
@@ -74,7 +113,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [showdown, setShowdown] = useState<ShowdownResult[] | null>(null);
   const [toast, setToast] = useState<{ message: string; kind: "error" | "info" } | null>(null);
   const [incomingLoan, setIncomingLoan] = useState<LoanRequestView | null>(null);
+  const [session, setSession] = useState<SessionStats>(EMPTY_STATS);
+  const [recentHands, setRecentHands] = useState<RecentHand[]>([]);
+  const [timeline, setTimeline] = useState<StreetTimeline>({
+    preflop: null, flop: null, turn: null, river: null, showdown: null,
+  });
+  const [soundOn, setSoundOn] = useState(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mutable refs used inside socket handlers (avoid stale closures).
+  const meRef = useRef<Me | null>(null);
+  useEffect(() => { meRef.current = me; }, [me]);
+  const handStartAt = useRef(0);
+  const myDealtIn = useRef(false);
+  const lastCommunity = useRef<Card[]>([]);
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
 
   const pushToast = useCallback((message: string, kind: "error" | "info" = "error") => {
     setToast({ message, kind });
@@ -92,22 +146,98 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     socket.on("GAME_STATE", (s) => setState(s));
 
-    socket.on("YOUR_HOLE_CARDS", (cards) => setMyCards(cards));
+    socket.on("YOUR_HOLE_CARDS", (cards) => {
+      setMyCards(cards);
+      myDealtIn.current = true;
+    });
 
-    socket.on("SHOWDOWN", ({ results }) => setShowdown(results));
+    socket.on("HAND_STARTED", () => {
+      handStartAt.current = Date.now();
+      myDealtIn.current = false;
+      lastCommunity.current = [];
+      setTimeline({ preflop: 0, flop: null, turn: null, river: null, showdown: null });
+    });
 
-    socket.on("HAND_FINISHED", () => {
-      // Keep the winner banner visible briefly, then clear.
+    const elapsed = () =>
+      handStartAt.current ? Math.round((Date.now() - handStartAt.current) / 1000) : null;
+
+    socket.on("COMMUNITY_CARDS", ({ cards }) => {
+      lastCommunity.current = cards;
+      const t = elapsed();
+      if (t === null) return;
+      setTimeline((prev) => {
+        if (cards.length === 3 && prev.flop === null) return { ...prev, flop: t };
+        if (cards.length === 4 && prev.turn === null) return { ...prev, turn: t };
+        if (cards.length === 5 && prev.river === null) return { ...prev, river: t };
+        return prev;
+      });
+    });
+
+    socket.on("SHOWDOWN", ({ results }) => {
+      setShowdown(results);
+      const t = elapsed();
+      if (t !== null) setTimeline((prev) => (prev.showdown === null ? { ...prev, showdown: t } : prev));
+
+      // Track my best hand this sitting.
+      const mine = results.find(
+        (r) => r.seatIndex === meRef.current?.seatIndex && r.amountWon > 0
+      );
+      if (mine) {
+        const label = describeHand(mine.hand);
+        const cat = mine.hand.category as unknown as number;
+        setSession((s) =>
+          cat > s.bestHandCategory
+            ? { ...s, bestHandLabel: label, bestHandCategory: cat }
+            : s
+        );
+      }
+    });
+
+    socket.on("HAND_FINISHED", (summary: HandFinishedSummary) => {
+      const dealtIn = myDealtIn.current;
+      const mySeat = meRef.current?.seatIndex ?? -1;
+      const winAmt = summary.awards
+        .filter((a) => a.seatIndex === mySeat)
+        .reduce((x, a) => x + a.amount, 0);
+
+      if (dealtIn) {
+        setSession((s) => ({
+          ...s,
+          handsPlayed: s.handsPlayed + 1,
+          handsWon: s.handsWon + (winAmt > 0 ? 1 : 0),
+          biggestPotWon: Math.max(s.biggestPotWon, winAmt),
+        }));
+        setRecentHands((list) =>
+          [
+            {
+              handNumber: summary.handNumber,
+              communityCards: [...lastCommunity.current],
+              outcome: (winAmt > 0 ? "Won" : "Lost") as "Won" | "Lost",
+            },
+            ...list,
+          ].slice(0, 20)
+        );
+        if (winAmt > 0) playWin();
+      }
+
+      setShowdown((cur) => cur); // winner banner clears on its own timer below
       setTimeout(() => setShowdown(null), 4200);
+      myDealtIn.current = false;
+    });
+
+    socket.on("TURN_CHANGED", ({ seatIndex }) => {
+      if (meRef.current?.seatIndex === seatIndex) playTurn();
     });
 
     socket.on("ACTION_REJECTED", ({ reason }) => pushToast(reason, "error"));
-
     socket.on("ERROR", ({ message }) => pushToast(message, "error"));
 
-    socket.on("LOAN_REQUESTED", (payload) => setIncomingLoan(payload));
-    socket.on("LOAN_RESOLVED", () => setIncomingLoan(null));
-    socket.on("LOAN_REPAID", () => pushToast("loan repaid", "info"));
+    socket.on("LOAN_REQUESTED", (payload) => { setIncomingLoan(payload); playChips(); });
+    socket.on("LOAN_RESOLVED", ({ approved }) => {
+      setIncomingLoan(null);
+      if (approved) playChips();
+    });
+    socket.on("LOAN_REPAID", () => { pushToast("loan repaid", "info"); playChips(); });
 
     return () => {
       socket.removeAllListeners();
@@ -124,7 +254,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     if (!s) return;
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
       if (ack.ok && ack.roomCode) {
-        setMe({ roomCode: ack.roomCode, seatIndex: ack.seatIndex!, sessionToken: token, config: ack.config });
+        setMe({
+          roomCode: ack.roomCode,
+          seatIndex: ack.seatIndex!,
+          sessionToken: token,
+          config: ack.config,
+        });
         setState(ack.state ?? null);
       } else {
         localStorage.removeItem(TOKEN_KEY);
@@ -132,6 +267,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     });
   }, [status, me]);
+
+  // Restore mute preference.
+  useEffect(() => { setSoundOn(!isMuted()); }, []);
 
   const bindAck = useCallback(
     (socket: PokerSocket, ack: RoomAck) => {
@@ -142,7 +280,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           roomCode: ack.roomCode,
           seatIndex: ack.seatIndex!,
           sessionToken: ack.sessionToken,
+          config: ack.config,
         });
+        setSession(EMPTY_STATS);
+        setRecentHands([]);
         if (typeof window !== "undefined") {
           const url = new URL(window.location.href);
           if (url.searchParams.get("room")) {
@@ -162,11 +303,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     (username: string, cfg: RoomConfig) => {
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
-        s.emit(
-          "CREATE_ROOM",
-          { username, ...cfg },
-          (ack) => resolve(bindAck(s, ack))
-        );
+        s.emit("CREATE_ROOM", { username, ...cfg }, (ack) => resolve(bindAck(s, ack)));
       });
     },
     [bindAck]
@@ -187,7 +324,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     if (!s) return;
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
       if (ack.ok && ack.roomCode) {
-        setMe({ roomCode: ack.roomCode, seatIndex: ack.seatIndex!, sessionToken: token, config: ack.config });
+        setMe({
+          roomCode: ack.roomCode,
+          seatIndex: ack.seatIndex!,
+          sessionToken: token,
+          config: ack.config,
+        });
       } else {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(ROOM_KEY);
@@ -203,6 +345,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setState(null);
     setMyCards(null);
     setShowdown(null);
+    setSession(EMPTY_STATS);
+    setRecentHands([]);
   }, []);
 
   const act = useCallback((action: PlayerAction, amount?: number) => {
@@ -225,6 +369,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("REPAY_LOAN", { creditorSeatIndex, amount });
   }, []);
 
+  const toggleSound = useCallback(() => {
+    setSoundOn((on) => {
+      setMuted(on); // flipping ON→off means muted=true
+      return !on;
+    });
+  }, []);
+
   const value = useMemo<GameContextValue>(
     () => ({
       serverUrl: SERVER_URL,
@@ -238,6 +389,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       pushToast,
       incomingLoan,
       dismissIncomingLoan: () => setIncomingLoan(null),
+      session,
+      recentHands,
+      timeline,
+      soundOn,
+      toggleSound,
       createRoom,
       joinRoom,
       tryReconnect,
@@ -249,7 +405,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       repayLoan: repayLoanFn,
     }),
     [
-      status, me, state, myCards, showdown, toast, incomingLoan, pushToast,
+      status, me, state, myCards, showdown, toast, incomingLoan,
+      session, recentHands, timeline, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,
     ]
@@ -263,3 +420,6 @@ export function useGame(): GameContextValue {
   if (!ctx) throw new Error("useGame must be used inside <GameProvider>");
   return ctx;
 }
+
+/** Kept for potential future direct use of category ordering. */
+export const BEST_CATEGORY = HandCategory.ROYAL_FLUSH;

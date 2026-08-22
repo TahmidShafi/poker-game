@@ -63,6 +63,8 @@ export interface PublicGameState {
   actingSeatIndex: number | null;
   dealerSeatIndex: number | null;
   turnDeadline: number | null; // server unix-ms timestamp; client computes remaining time locally
+  /** When phase is between hands and ≥2 eligible players exist: ms epoch of the scheduled deal. */
+  nextHandDeadline?: number | null;
   smallBlind: number;
   bigBlind: number;
   handNumber: number;

@@ -79,6 +79,7 @@ export class GameManager {
   private seatToPlayer = new Map<number, string>();
   private turnTimer: NodeJS.Timeout | null = null;
   private turnDeadline = 0;
+  private nextHandDeadline = 0;
   private autoStartTimer: NodeJS.Timeout | null = null;
   private pendingLoans = new Map<string, PendingLoan>();
   private pendingSeatRemovals = new Set<number>();
@@ -127,6 +128,7 @@ export class GameManager {
    */
   disableAutoStart(): void {
     this.autoStartEnabled = false;
+    this.nextHandDeadline = 0;
     if (this.autoStartTimer) {
       clearTimeout(this.autoStartTimer);
       this.autoStartTimer = null;
@@ -576,10 +578,16 @@ export class GameManager {
     if (this.destroyed || !this.autoStartEnabled) return;
     const { table } = this;
     if (table.phase !== GamePhase.WAITING_FOR_PLAYERS && table.phase !== GamePhase.NEXT_HAND) return;
-    if (eligibleForHand(table).length < 2) return;
+    if (eligibleForHand(table).length < 2) {
+      this.nextHandDeadline = 0;
+      return;
+    }
     if (this.autoStartTimer) return; // already scheduled
+    this.nextHandDeadline = Date.now() + this.limits.autoStartDelayMs;
+    this.broadcastState();
     this.autoStartTimer = setTimeout(() => {
       this.autoStartTimer = null;
+      this.nextHandDeadline = 0;
       this.autoStart();
     }, this.limits.autoStartDelayMs);
   }
@@ -816,7 +824,13 @@ export class GameManager {
     for (const [, sio] of this.io.of("/").sockets) {
       const rec = this.findPlayerBySocket(sio.id);
       if (!rec) continue; // not a member of this room
-      const state = serializeForSeat(this.table, this.roomCode, rec.seatIndex, this.turnDeadline);
+      const state = serializeForSeat(
+        this.table,
+        this.roomCode,
+        rec.seatIndex,
+        this.turnDeadline,
+        this.nextHandDeadline
+      );
       sio.emit("GAME_STATE", state);
     }
   }
