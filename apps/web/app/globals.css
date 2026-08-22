@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 50% -10%, rgba(216, 179, 106, 0.08), transparent),
+    radial-gradient(900px 500px at 85% 110%, rgba(27, 94, 67, 0.18), transparent),
+    #0b0f14;
+  min-height: 100vh;
+}
+
+/* Felt texture (SVG turbulence, GPU-cheap) */
+.felt-surface {
+  background:
+    radial-gradient(ellipse at center, #1f6b4d 0%, #175a3f 45%, #0e3a29 100%);
+  position: relative;
+}
+.felt-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.16;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Card flip helper */
+.card-flip {
+  transform-style: preserve-3d;
+  perspective: 600px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(216, 179, 106, 0.25);
+  border-radius: 8px;
+}

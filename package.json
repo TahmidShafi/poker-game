@@ -1,0 +1,23 @@
+{
+  "name": "poker-game",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n SERVER,WEB -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w packages/poker-engine && npm run build -w packages/shared-types && npm run build -w apps/server && npm run build -w apps/web",
+    "test": "npm run test -w packages/poker-engine && npm run test -w apps/server",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prisma": "^5.20.0",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0"
+  }
+}

@@ -1,0 +1,38 @@
+# Render Blueprint for the game server.
+# Deploy: Render Dashboard -> New -> Blueprint -> point at this repo.
+# Set `root directory` if Render asks: leave blank (repo root).
+# The Next.js frontend deploys separately on Vercel (root directory: apps/web).
+
+services:
+  - type: web
+    name: poker-game-server
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build -w packages/shared-types && npm run build -w packages/poker-engine && npm run build -w apps/server
+    startCommand: node apps/server/dist/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Comma-separated browser origins allowed to connect (your Vercel URL).
+      - key: CLIENT_ORIGIN
+        sync: false
+      # Postgres connection string (Render Postgres / Neon).
+      - key: DATABASE_URL
+        sync: false
+      # Optional defaults for room creators (server clamps to sane ranges).
+      - key: INITIAL_COINS
+        value: "1000"
+      - key: SMALL_BLIND
+        value: "10"
+      - key: BIG_BLIND
+        value: "20"
+      - key: TURN_TIME_SECONDS
+        value: "20"
+
+# NOTE (V1): live table state is in-memory on this single instance.
+# A restart/deploy ends all active rooms. Players reconnect to the lobby
+# and open a fresh room. Do not scale beyond 1 instance.

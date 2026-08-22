@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Player {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  createdAt DateTime @default(now())
+
+  sessions PlayerSession[]
+  stats    PlayerStats?
+}
+
+model GameSession {
+  id              String    @id @default(cuid())
+  roomCode        String    @unique
+  status          String // WAITING_FOR_PLAYERS | IN_PROGRESS | ENDED
+  startingCoins   Int
+  smallBlind      Int
+  bigBlind        Int
+  turnTimeSeconds Int
+  createdAt       DateTime  @default(now())
+  endedAt         DateTime?
+
+  playerSessions PlayerSession[]
+  hands          HandHistory[]
+  loans          LoanRecord[]
+}
+
+model PlayerSession {
+  id           String @id @default(cuid())
+  gameId       String
+  playerId     String
+  seat         Int
+  currentCoins Int
+
+  game   GameSession @relation(fields: [gameId], references: [id])
+  player Player      @relation(fields: [playerId], references: [id])
+
+  @@unique([gameId, playerId])
+}
+
+model HandHistory {
+  id             String   @id @default(cuid())
+  gameId         String
+  handNumber     Int
+  communityCards String // serialized e.g. "AS,10H,7D,4C,KS"
+  winnerData     Json // [{ username, amount, handLabel }] - supports split pots
+  potData        Json // [{ amount, eligibleSeatIndexes }] incl. side pots
+  pot            Int // total chips in all pots this hand
+  createdAt      DateTime @default(now())
+
+  game GameSession @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, handNumber])
+}
+
+// Ledger of player-to-player transfers; balances are derivable by summing.
+model LoanRecord {
+  id        String   @id @default(cuid())
+  gameId    String
+  fromName  String // lender (LOAN) or repayer (REPAY) username
+  toName    String
+  amount    Int
+  kind      String // LOAN | REPAY
+  createdAt DateTime @default(now())
+
+  game GameSession @relation(fields: [gameId], references: [id])
+}
+
+// Denormalized rollup table for the leaderboard.
+// Updated whenever a hand finishes rather than aggregated live on every read.
+model PlayerStats {
+  playerId      String  @id
+  gamesPlayed   Int     @default(0)
+  handsPlayed   Int     @default(0)
+  handsWon      Int     @default(0)
+  totalWinnings Int     @default(0)
+  totalLosses   Int     @default(0)
+  biggestPotWon Int     @default(0)
+  bestHandLabel String?
+
+  player Player @relation(fields: [playerId], references: [id])
+}
