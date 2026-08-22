@@ -15,9 +15,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: NODE_ENV
-        value: production
-      # Comma-separated browser origins allowed to connect (your Vercel URL).
+      # NOTE: no NODE_ENV here — Render injects production at runtime, and
+      # setting it during build makes npm ci skip devDependencies that the
+      # TypeScript build requires (type packages are shipped as dependencies).
       - key: CLIENT_ORIGIN
         sync: false
       # Postgres connection string (Render Postgres / Neon).

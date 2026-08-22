@@ -8,10 +8,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "typescript": "5.9.3",
     "@poker/shared-types": "*"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
     "vitest": "^2.1.4"
   }
 }
