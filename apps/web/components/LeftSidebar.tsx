@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useGame } from "../lib/store";
 
-function Panel({
+export function Panel({
   title,
   children,
 }: {
@@ -29,66 +29,81 @@ function Row({ label, value, gold }: { label: string; value: React.ReactNode; go
   );
 }
 
-export function LeftSidebar({ onOpenRepay }: { onOpenRepay: () => void }) {
-  const { me, state, session } = useGame();
+/** Buy-in / blinds / turn-time summary. */
+export function GameInfoPanel() {
+  const { me, state } = useGame();
   if (!me) return null;
-
   const cfg = me.config ?? {
     startingCoins: 1000,
     smallBlind: state?.smallBlind ?? 10,
     bigBlind: state?.bigBlind ?? 20,
     turnTimeSeconds: 20,
   };
+  return (
+    <Panel title="Game Info">
+      <Row label="Buy-in (Starting Chips)" value={cfg.startingCoins.toLocaleString()} />
+      <Row label="Small Blind" value={cfg.smallBlind.toLocaleString()} />
+      <Row label="Big Blind" value={cfg.bigBlind.toLocaleString()} />
+      <Row label="Turn Time" value={`${cfg.turnTimeSeconds}s`} gold />
+    </Panel>
+  );
+}
 
-  // Loan bookkeeping for MY seat.
-  const mySeat = state?.seats[me.seatIndex];
-  const debts = Object.entries(mySeat?.debtTo ?? {}).filter(([, v]) => v > 0);
-  const outstanding = debts.reduce((s, [, v]) => s + v, 0);
-  const creditorName = (seatIdx: number) =>
-    state?.seats[seatIdx]?.username ?? `seat ${seatIdx}`;
-
+/** Per-sitting personal statistics. */
+export function StatsPanel() {
+  const { session } = useGame();
   const winRate =
     session.handsPlayed > 0
       ? `${((session.handsWon / session.handsPlayed) * 100).toFixed(1)}%`
       : "—";
+  return (
+    <Panel title="Player Stats (You)">
+      <Row label="Hands Played" value={session.handsPlayed} />
+      <Row label="Hands Won" value={session.handsWon} />
+      <Row label="Win Rate" value={winRate} />
+      <Row label="Best Hand" value={session.bestHandLabel ?? "—"} gold />
+      <Row label="Biggest Pot Won" value={session.biggestPotWon.toLocaleString()} gold />
+    </Panel>
+  );
+}
 
+/** Outstanding loans for MY seat + repay action. Hidden when debt-free. */
+export function LoanPanel({ onOpenRepay }: { onOpenRepay: () => void }) {
+  const { me, state } = useGame();
+  if (!me || !state) return null;
+
+  const mySeat = state.seats[me.seatIndex];
+  const debts = Object.entries(mySeat?.debtTo ?? {}).filter(([, v]) => v > 0);
+  const outstanding = debts.reduce((s, [, v]) => s + v, 0);
+  if (outstanding === 0) return null;
+
+  const creditorName = (seatIdx: number) => state?.seats[seatIdx]?.username ?? `seat ${seatIdx}`;
+  return (
+    <Panel title="Loan">
+      <div className="mb-1 text-xs font-semibold text-fuchsia-300">You have an active loan</div>
+      {debts.map(([seatStr, amt]) => {
+        const idx = Number(seatStr);
+        return (
+          <Row key={seatStr} label={`Borrowed from: ${creditorName(idx)}`} value={amt.toLocaleString()} />
+        );
+      })}
+      <Row label="Outstanding" value={outstanding.toLocaleString()} gold />
+      <button
+        onClick={onOpenRepay}
+        className="mt-2.5 w-full rounded-xl bg-accent py-2.5 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] active:scale-[0.98]"
+      >
+        Repay Loan
+      </button>
+    </Panel>
+  );
+}
+
+export function LeftSidebar({ onOpenRepay }: { onOpenRepay: () => void }) {
   return (
     <div className="space-y-3">
-      <Panel title="Game Info">
-        <Row label="Buy-in (Starting Chips)" value={cfg.startingCoins.toLocaleString()} />
-        <Row label="Small Blind" value={cfg.smallBlind.toLocaleString()} />
-        <Row label="Big Blind" value={cfg.bigBlind.toLocaleString()} />
-        <Row label="Turn Time" value={`${cfg.turnTimeSeconds}s`} gold />
-      </Panel>
-
-      <Panel title="Player Stats (You)">
-        <Row label="Hands Played" value={session.handsPlayed} />
-        <Row label="Hands Won" value={session.handsWon} />
-        <Row label="Win Rate" value={winRate} />
-        <Row label="Best Hand" value={session.bestHandLabel ?? "—"} gold />
-        <Row label="Biggest Pot Won" value={session.biggestPotWon.toLocaleString()} gold />
-      </Panel>
-
-      {outstanding > 0 && (
-        <Panel title="Loan">
-          <div className="mb-1 text-xs font-semibold text-fuchsia-300">
-            You have an active loan
-          </div>
-          {debts.map(([seatStr, amt]) => {
-            const idx = Number(seatStr);
-            return (
-              <Row key={seatStr} label={`Borrowed from: ${creditorName(idx)}`} value={amt.toLocaleString()} />
-            );
-          })}
-          <Row label="Outstanding" value={outstanding.toLocaleString()} gold />
-          <button
-            onClick={onOpenRepay}
-            className="mt-2.5 w-full rounded-xl bg-accent py-2.5 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] active:scale-[0.98]"
-          >
-            Repay Loan
-          </button>
-        </Panel>
-      )}
+      <GameInfoPanel />
+      <StatsPanel />
+      <LoanPanel onOpenRepay={onOpenRepay} />
     </div>
   );
 }

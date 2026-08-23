@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { PlayerAction, PublicGameState, Seat } from "@poker/shared-types";
 import { useGame } from "../lib/store";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { ChipStack } from "./ChipStack";
 import { TimerRing, useCountdown } from "./TimerRing";
 
@@ -64,8 +65,11 @@ export function ActionBar({
   };
 
   // Keyboard shortcuts: F/C/R/A + arrows nudge raise by one big blind.
+  // Desktop-viewport only (width and height): the mobile action bar is mounted
+  // alongside this one on compact screens, and both must never fire together.
+  const isDesktopViewport = useMediaQuery("(min-width: 768px) and (min-height: 520px)");
   useEffect(() => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || !isDesktopViewport) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
@@ -80,7 +84,7 @@ export function ActionBar({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMyTurn, legal, raiseTo, state.bigBlind]);
+  }, [isMyTurn, isDesktopViewport, legal, raiseTo, state.bigBlind]);
 
   const presets = useMemo(() => {
     const pot = state.seats.reduce((s, x) => s + x.totalInvestedThisHand, 0);
@@ -328,7 +332,7 @@ export function ActionBar({
   );
 }
 
-function BustedPanel({ seat }: { seat: Seat }) {
+export function BustedPanel({ seat }: { seat: Seat }) {
   const { requestLoan, state, me } = useGame();
   const [amount, setAmount] = useState(state?.bigBlind ?? 20);
   const [creditor, setCreditor] = useState<number | null>(null);

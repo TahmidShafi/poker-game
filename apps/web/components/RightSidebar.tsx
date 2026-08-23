@@ -29,10 +29,9 @@ function Panel({
 
 const STREET_LABELS = ["Pre-flop", "Flop", "Turn", "River", "Showdown"] as const;
 
-export function RightSidebar({ state }: { state: PublicGameState }) {
-  const { timeline, recentHands, me } = useGame();
-  const [showAll, setShowAll] = useState(false);
-
+/** Street-by-street elapsed times for the current hand. */
+export function StreetTimelinePanel({ state }: { state: PublicGameState }) {
+  const { timeline } = useGame();
   const times = [timeline.preflop, timeline.flop, timeline.turn, timeline.river, timeline.showdown];
   const currentStreetIdx = (() => {
     if (state.phase === "SHOWDOWN" || state.phase === "PAYOUT") return 4;
@@ -44,34 +43,38 @@ export function RightSidebar({ state }: { state: PublicGameState }) {
     return 0;
   })();
 
-  const occupied = state.seats.filter((s) => s.username);
+  return (
+    <Panel title="Hand History">
+      <ul className="space-y-1">
+        {STREET_LABELS.map((label, i) => {
+          const t = times[i];
+          const active = i === currentStreetIdx && t !== null;
+          return (
+            <li
+              key={label}
+              className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs ${
+                active ? "bg-accent/25 font-bold text-violet-100" : "text-white/60"
+              }`}
+            >
+              <span>{label}</span>
+              <span className={`tabnum ${active ? "" : "text-white/35"}`}>
+                {t === null ? "—" : `${t}s`}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
+  );
+}
+
+/** Recent finished hands + view-all modal. */
+export function RecentHandsPanel() {
+  const { recentHands } = useGame();
+  const [showAll, setShowAll] = useState(false);
 
   return (
-    <div className="space-y-3">
-      {/* Street timeline */}
-      <Panel title="Hand History">
-        <ul className="space-y-1">
-          {STREET_LABELS.map((label, i) => {
-            const t = times[i];
-            const active = i === currentStreetIdx && t !== null;
-            return (
-              <li
-                key={label}
-                className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs ${
-                  active ? "bg-accent/25 font-bold text-violet-100" : "text-white/60"
-                }`}
-              >
-                <span>{label}</span>
-                <span className={`tabnum ${active ? "" : "text-white/35"}`}>
-                  {t === null ? "—" : `${t}s`}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </Panel>
-
-      {/* Recent hands */}
+    <>
       <Panel
         title="Recent Hands"
         action={
@@ -114,60 +117,10 @@ export function RightSidebar({ state }: { state: PublicGameState }) {
         )}
       </Panel>
 
-      {/* Players list */}
-      <Panel title={`Players (${occupied.length}/10)`}>
-        <ul className="space-y-1">
-          {occupied.map((s) => (
-            <li
-              key={s.seatIndex}
-              className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs ${
-                s.seatIndex === me?.seatIndex ? "bg-gold/10 ring-1 ring-gold/25" : ""
-              }`}
-            >
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-panel2 text-[9px] font-bold text-white/50 ring-1 line">
-                {s.seatIndex + 1}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-semibold">
-                {s.username}
-                {s.seatIndex === me?.seatIndex && (
-                  <span className="ml-1 text-[9px] text-gold">(you)</span>
-                )}
-              </span>
-              {s.status === "ALL_IN" && (
-                <span className="text-[9px] font-black uppercase text-crimson">All-In</span>
-              )}
-              {s.isSmallBlind && (
-                <span className="rounded bg-sky-500 px-1 text-[8px] font-black text-white">SB</span>
-              )}
-              {s.isBigBlind && (
-                <span className="rounded bg-amber-500 px-1 text-[8px] font-black text-ink">BB</span>
-              )}
-              <span className="font-bold text-gold tabnum">{s.coins.toLocaleString()}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-2 flex items-center gap-3 border-t border-white/5 pt-2 text-[9px] text-white/35">
-          <span className="flex items-center gap-1">
-            <span className="grid h-3.5 w-3.5 place-items-center rounded-full bg-violet-600 text-[7px] font-black text-white">
-              D
-            </span>
-            Dealer
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="rounded bg-sky-500 px-0.5 text-[7px] font-black text-white">SB</span>
-            Small Blind
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="rounded bg-amber-500 px-0.5 text-[7px] font-black text-ink">BB</span>
-            Big Blind
-          </span>
-        </div>
-      </Panel>
-
       {/* View-all modal */}
       {showAll && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
           onClick={() => setShowAll(false)}
         >
           <div
@@ -207,6 +160,78 @@ export function RightSidebar({ state }: { state: PublicGameState }) {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+/** Occupied-seat roster with blinds / all-in tags. */
+export function PlayersListPanel({ state }: { state: PublicGameState }) {
+  const { me } = useGame();
+  const occupied = state.seats.filter((s) => s.username);
+
+  return (
+    <Panel title={`Players (${occupied.length}/10)`}>
+      <ul className="space-y-1">
+        {occupied.map((s) => (
+          <li
+            key={s.seatIndex}
+            className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs ${
+              s.seatIndex === me?.seatIndex ? "bg-gold/10 ring-1 ring-gold/25" : ""
+            }`}
+          >
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-panel2 text-[9px] font-bold text-white/50 ring-1 line">
+              {s.seatIndex + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-semibold">
+              {s.username}
+              {s.seatIndex === me?.seatIndex && (
+                <span className="ml-1 text-[9px] text-gold">(you)</span>
+              )}
+            </span>
+            {s.status === "ALL_IN" && (
+              <span className="text-[9px] font-black uppercase text-crimson">All-In</span>
+            )}
+            {s.isDealer && (
+              <span className="grid h-4 w-4 place-items-center rounded-full bg-violet-600 text-[8px] font-black text-white">
+                D
+              </span>
+            )}
+            {s.isSmallBlind && (
+              <span className="rounded bg-sky-500 px-1 text-[8px] font-black text-white">SB</span>
+            )}
+            {s.isBigBlind && (
+              <span className="rounded bg-amber-500 px-1 text-[8px] font-black text-ink">BB</span>
+            )}
+            <span className="font-bold text-gold tabnum">{s.coins.toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex items-center gap-3 border-t border-white/5 pt-2 text-[9px] text-white/35">
+        <span className="flex items-center gap-1">
+          <span className="grid h-3.5 w-3.5 place-items-center rounded-full bg-violet-600 text-[7px] font-black text-white">
+            D
+          </span>
+          Dealer
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="rounded bg-sky-500 px-0.5 text-[7px] font-black text-white">SB</span>
+          Small Blind
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="rounded bg-amber-500 px-0.5 text-[7px] font-black text-ink">BB</span>
+          Big Blind
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+export function RightSidebar({ state }: { state: PublicGameState }) {
+  return (
+    <div className="space-y-3">
+      <StreetTimelinePanel state={state} />
+      <RecentHandsPanel />
+      <PlayersListPanel state={state} />
     </div>
   );
 }

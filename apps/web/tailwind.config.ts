@@ -3,6 +3,15 @@ import type { Config } from "tailwindcss";
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
+    screens: {
+      sm: "640px",
+      // "Desktop" layout needs width AND usable height, so landscape phones
+      // (e.g. 844×390) stay on the dedicated mobile table.
+      dt: { raw: "(min-width: 768px) and (min-height: 520px)" },
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    },
     extend: {
       colors: {
         room: "#0B0F14",

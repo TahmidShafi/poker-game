@@ -127,9 +127,9 @@ export function TableOval({
   return (
     <>
       {/* ===================== Desktop / tablet oval ===================== */}
-      <div className="relative mx-auto hidden aspect-[16/9] w-full max-w-[860px] md:block">
+      <div className="relative mx-auto hidden aspect-[16/9] w-full max-w-[860px] dt:block">
         {/* Leather rail + felt */}
-        <div className="rail-surface absolute inset-[5%] rounded-[50%] p-3 md:p-4">
+        <div className="rail-surface absolute inset-[5%] rounded-[50%] p-3 dt:p-4">
           <div className="felt-surface gold-ring relative h-full w-full overflow-hidden rounded-[50%]">
             {/* Watermark */}
             <div className="pointer-events-none absolute inset-0 grid place-items-center">
@@ -207,7 +207,7 @@ export function TableOval({
       </div>
 
       {/* ===================== Mobile stacked ===================== */}
-      <div className="flex flex-col gap-4 md:hidden">
+      <div className="flex flex-col gap-4 dt:hidden">
         <div className="grid grid-cols-3 gap-2 place-items-center">
           {state.seats
             .filter((s) => s.username && s.seatIndex !== mySeat)
