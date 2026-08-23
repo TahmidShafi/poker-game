@@ -119,7 +119,7 @@ export function HeaderBar({
   );
 
   return (
-    <header className="rounded-xl bg-panel/90 px-2 py-1.5 ring-1 line backdrop-blur dt:rounded-2xl dt:px-3 dt:py-2.5">
+    <header className="relative z-30 rounded-xl bg-panel/90 px-2 py-1.5 ring-1 line backdrop-blur dt:rounded-2xl dt:px-3 dt:py-2.5">
       {/* ================= MOBILE ROW (<md): ☰ ♠ ROOM ⚙ ================= */}
       <div className="flex items-center gap-2 dt:hidden">
         <button className={iconBtnSm} onClick={onOpenSheet} title="Players · stats · history" aria-label="Open game info sheet">

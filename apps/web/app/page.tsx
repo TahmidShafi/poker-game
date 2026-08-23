@@ -15,6 +15,33 @@ import { LeftSidebar } from "../components/LeftSidebar";
 import { RightSidebar } from "../components/RightSidebar";
 import { InfoSheet } from "../components/InfoSheet";
 
+function Drawer({
+  open,
+  onClose,
+  side,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  side: "left" | "right";
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-40 flex" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        className={`relative h-full w-[290px] overflow-y-auto bg-room p-3 shadow-panel ${
+          side === "left" ? "mr-auto ml-0" : "ml-auto"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const {
     status,
@@ -47,36 +74,6 @@ export default function HomePage() {
   if (!me) return <JoinScreen />;
 
   const mySeat = me.seatIndex;
-
-  /**
-   * Seated view = fixed gameplay viewport on mobile:
-   * header / stage / action dock all fit one 100dvh screen, zero page scroll.
-   * Desktop (md+) keeps the original flowing document layout.
-   */
-  const Drawer = ({
-    open,
-    onClose,
-    side,
-    children,
-  }: {
-    open: boolean;
-    onClose: () => void;
-    side: "left" | "right";
-    children: React.ReactNode;
-  }) =>
-    open ? (
-      <div className="fixed inset-0 z-40 flex" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-        <div
-          className={`relative h-full w-[290px] overflow-y-auto bg-room p-3 shadow-panel ${
-            side === "left" ? "mr-auto ml-0" : "ml-auto"
-          }`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-        </div>
-      </div>
-    ) : null;
 
   return (
     <div className="flex h-dvh min-h-dvh flex-col overflow-hidden dt:h-auto dt:min-h-screen dt:overflow-visible">

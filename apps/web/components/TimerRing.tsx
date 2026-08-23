@@ -1,25 +1,23 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 /**
- * rAF-driven countdown ring (conic gradient). Renders nothing when inactive.
- * Turns amber under 10s, pulsing red under 5s.
+ * Interval-driven countdown ring (~200ms tick; a per-frame rAF loop
+ * re-rendered seats/bars 60x/s and drained mobile battery).
+ * Renders nothing when inactive. Turns amber under 10s, pulsing red under 5s.
  */
 export function useCountdown(deadline: number | null, active: boolean): number {
   const [remaining, setRemaining] = useState(0);
-  const raf = useRef<number>(0);
   useEffect(() => {
     if (!deadline || !active) {
       setRemaining(0);
       return;
     }
-    const tick = () => {
-      setRemaining(Math.max(0, deadline - Date.now()));
-      raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
+    const update = () => setRemaining(Math.max(0, deadline - Date.now()));
+    update();
+    const iv = setInterval(update, 200);
+    return () => clearInterval(iv);
   }, [deadline, active]);
   return remaining;
 }

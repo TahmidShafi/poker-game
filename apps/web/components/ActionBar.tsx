@@ -77,7 +77,7 @@ export function ActionBar({
       else if (k === "c" && legal.actions.includes("CHECK")) doAct("CHECK");
       else if (k === "c" && legal.actions.includes("CALL")) doAct("CALL");
       else if (k === "r" && legal.actions.includes("RAISE")) doAct("RAISE", raiseTo);
-      else if (k === "a") doAct("ALL_IN");
+      else if (k === "a" && legal.actions.includes("ALL_IN")) doAct("ALL_IN");
       else if (e.key === "ArrowUp") setRaiseTo((v) => Math.min(legal.maxRaiseTo, v + state.bigBlind));
       else if (e.key === "ArrowDown") setRaiseTo((v) => Math.max(legal.minRaiseTo, v - state.bigBlind));
     };
