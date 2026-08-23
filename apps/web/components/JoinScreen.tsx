@@ -8,7 +8,7 @@ const DEFAULTS: RoomConfig = {
   startingCoins: 1000,
   smallBlind: 10,
   bigBlind: 20,
-  turnTimeSeconds: 20,
+  turnTimeSeconds: 60,
 };
 
 /** Entry screen: create a private table or join one by code. */

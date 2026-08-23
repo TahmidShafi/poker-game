@@ -30,7 +30,7 @@ export function MobileActionBar({
   const isMyTurn = state.actingSeatIndex === mySeat && seat.status === "ACTIVE";
   const inHand = seat.status === "ACTIVE";
   const legal = useMemo(() => computeLegal(state, seat), [state, seat]);
-  const totalMs = (me?.config?.turnTimeSeconds ?? 20) * 1000;
+  const totalMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
   const remaining = useCountdown(isMyTurn ? turnDeadline : null, isMyTurn);
 
   const canRaise = legal.actions.includes("BET") || legal.actions.includes("RAISE");

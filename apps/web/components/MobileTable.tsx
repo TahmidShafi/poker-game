@@ -125,7 +125,7 @@ export function MobileTable({
   const { me, myCards } = useGame();
   const landscape = useMediaQuery("(orientation: landscape)");
   const narrow = useMediaQuery("(max-width: 430px)");
-  const totalMs = (me?.config?.turnTimeSeconds ?? 20) * 1000;
+  const totalMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
 
   const potTotal =
     state.pots.reduce((s, p) => s + p.amount, 0) ||

@@ -46,7 +46,7 @@ export function ActionBar({
   const isMyTurn = state.actingSeatIndex === mySeat && seat.status === "ACTIVE";
   const legal = useMemo(() => computeLegal(state, seat), [state, seat]);
   const inHand = seat.status === "ACTIVE";
-  const turnTimeMs = (me?.config?.turnTimeSeconds ?? 20) * 1000;
+  const turnTimeMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
   const remaining = useCountdown(isMyTurn ? turnDeadline : null, isMyTurn);
 
   const [raiseTo, setRaiseTo] = useState(legal.minRaiseTo);

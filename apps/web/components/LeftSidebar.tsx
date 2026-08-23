@@ -37,7 +37,7 @@ export function GameInfoPanel() {
     startingCoins: 1000,
     smallBlind: state?.smallBlind ?? 10,
     bigBlind: state?.bigBlind ?? 20,
-    turnTimeSeconds: 20,
+    turnTimeSeconds: 60,
   };
   return (
     <Panel title="Game Info">

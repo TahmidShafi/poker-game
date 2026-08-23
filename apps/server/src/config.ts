@@ -41,7 +41,7 @@ export function loadConfig(): ServerConfig {
       startingCoins: intEnv("INITIAL_COINS", 1000),
       smallBlind: intEnv("SMALL_BLIND", 10),
       bigBlind: intEnv("BIG_BLIND", 20),
-      turnTimeSeconds: intEnv("TURN_TIME_SECONDS", 20),
+      turnTimeSeconds: intEnv("TURN_TIME_SECONDS", 60),
     },
     limits: {
       minStartingCoins: 50,
