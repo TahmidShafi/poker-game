@@ -6,7 +6,6 @@ import type { RoomConfig } from "@poker/shared-types";
 import { AvatarStrip } from "./join/AvatarStrip";
 import { CodeBoxes } from "./join/CodeBoxes";
 import { CreateForm } from "./join/CreateForm";
-import { TnCreateForm, type TnSettings } from "./join/TnCreateForm";
 import { PlayingCard } from "./PlayingCard";
 
 const DEFAULTS: RoomConfig = {
@@ -16,8 +15,6 @@ const DEFAULTS: RoomConfig = {
   turnTimeSeconds: 60,
 };
 
-const TN_DEFAULTS: TnSettings = { trumpMode: "REGULAR", roundsToWin: 6 };
-
 const USERNAME_KEY = "poker.username";
 const AVATAR_KEY = "poker.avatar";
 
@@ -26,7 +23,7 @@ export function JoinScreen() {
   const { joinRoom, createRoom, pushToast, status } = useGame();
   const [tab, setTab] = useState<"join" | "create">("join");
   const [game, setGame] = useState<"POKER" | "TWENTY_NINE">("POKER");
-  const [tnCfg, setTnCfg] = useState<TnSettings>(TN_DEFAULTS);
+  const [tnVsBots, setTnVsBots] = useState(false);
   const [username, setUsername] = useState("");
   const [avatar, setAvatar] = useState<number | null>(null);
   const [code, setCode] = useState("");
@@ -71,9 +68,8 @@ export function JoinScreen() {
         bigBlind: DEFAULTS.bigBlind,
         turnTimeSeconds: DEFAULTS.turnTimeSeconds,
         gameType: "TWENTY_NINE",
-        twentyNine: tnCfg,
       };
-      const ack = await createRoom(name, cfg, avatar ?? undefined);
+      const ack = await createRoom(name, cfg, avatar ?? undefined, { vsBots: tnVsBots });
       setBusy(false);
       if (ack.ok) rememberIdentity(name, avatar);
     } else {
@@ -82,7 +78,7 @@ export function JoinScreen() {
       setBusy(false);
       if (ack.ok) rememberIdentity(name, avatar);
     }
-  }, [username, avatar, code, tab, game, tnCfg, cfg, joinRoom, createRoom, pushToast]);
+  }, [username, avatar, code, tab, game, tnVsBots, cfg, joinRoom, createRoom, pushToast]);
 
   const nameOk = username.trim().length >= 1 && username.trim().length <= 16;
   const canSubmit = nameOk && (tab === "create" || code.length === 6) && !busy;
@@ -227,7 +223,33 @@ export function JoinScreen() {
                 />
               </div>
             ) : game === "TWENTY_NINE" ? (
-              <TnCreateForm cfg={tnCfg} onChange={setTnCfg} />
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { bots: false, icon: "👥", title: "Play with friends", hint: "share the room code" },
+                    { bots: true, icon: "🤖", title: "Play with bots", hint: "single player · instant start" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.bots ? "bots" : "friends"}
+                    type="button"
+                    onClick={() => setTnVsBots(opt.bots)}
+                    className={`rounded-2xl px-3 py-3 text-left ring-1 transition-all ${
+                      tnVsBots === opt.bots
+                        ? "bg-gold/15 ring-gold/60"
+                        : "bg-black/30 ring-white/10 hover:ring-white/25"
+                    }`}
+                  >
+                    <span className={`block text-sm font-black ${tnVsBots === opt.bots ? "text-gold" : "text-white/70"}`}>
+                      {opt.icon} {opt.title}
+                    </span>
+                    <span className="block text-[9.5px] leading-tight text-white/40">{opt.hint}</span>
+                  </button>
+                ))}
+                <p className="col-span-2 text-center text-[10px] text-white/35">
+                  First team to 6 rounds wins · no turn timers
+                </p>
+              </div>
             ) : (
               <CreateForm cfg={cfg} onChange={(next) => setCfg({ ...next, gameType: "POKER" })} />
             )}
@@ -244,7 +266,9 @@ export function JoinScreen() {
                     ? `Take my seat → ${code}`
                     : "Take a seat"
                   : game === "TWENTY_NINE"
-                    ? "Open the 29 table"
+                    ? tnVsBots
+                      ? "Deal me in vs 🤖"
+                      : "Open the 29 table"
                     : "Open the table"}
             </button>
 

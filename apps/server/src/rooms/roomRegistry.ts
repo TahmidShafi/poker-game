@@ -46,17 +46,22 @@ export class RoomRegistry {
   }
 
   /** Factory dispatch on the creator-chosen game type. */
-  createRoom(config: RoomConfig): RoomLike {
+  createRoom(config: RoomConfig, meta: { vsBots?: boolean } = {}): RoomLike {
     if (this.rooms.size >= this.config.limits.maxRooms) {
       throw new Error("server is at capacity - try again later");
     }
     const code = this.allocateCode();
     const manager =
       config.gameType === "TWENTY_NINE"
-        ? new TwentyNineGameManager(this.io, code, config, this.config.limits, this.tnHooks)
+        ? new TwentyNineGameManager(this.io, code, config, this.config.limits, this.tnHooks, {
+            vsBots: meta.vsBots,
+          })
         : new GameManager(this.io, code, config, this.config.limits, this.hooks);
     this.rooms.set(code, manager);
-    void ensureGameSession(code, config);
+    // Bot-only rooms skip persistence entirely - keep leaderboards human.
+    if (!(config.gameType === "TWENTY_NINE" && meta.vsBots)) {
+      void ensureGameSession(code, config);
+    }
     return manager;
   }
 

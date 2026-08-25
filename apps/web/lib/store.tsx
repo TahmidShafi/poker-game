@@ -111,7 +111,12 @@ interface GameContextValue {
   clearCelebration: () => void;
   soundOn: boolean;
   toggleSound: () => void;
-  createRoom: (username: string, cfg: RoomConfig, avatar?: number) => Promise<RoomAck>;
+  createRoom: (
+    username: string,
+    cfg: RoomConfig,
+    avatar?: number,
+    extra?: { vsBots?: boolean },
+  ) => Promise<RoomAck>;
   joinRoom: (roomCode: string, username: string, avatar?: number) => Promise<RoomAck>;
   tryReconnect: (token: string) => void;
   leaveRoom: () => void;
@@ -122,7 +127,7 @@ interface GameContextValue {
   repayLoan: (creditorSeatIndex: number, amount: number) => void;
   // ---- Twenty-Nine actions ----
   tnBid: (bid?: number) => void;
-  tnDeclareTrump: (suit: TnSuit) => void;
+  tnDeclareTrump: (choice: TnSuit | "SEVENTH_CARD" | "JOKER") => void;
   tnCallTrump: () => void;
   tnDeclareMarriage: (suit: TnSuit) => void;
   tnPlayCard: (card: TnCard) => void;
@@ -312,9 +317,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("TN_BIDDER_PRIVATE", (p) => {
       setTnBidderPrivate(p);
       pushToast(
-        p.mode === "SEVENTH_CARD"
-          ? `your 7th card is ${p.indicatorCard.rank >= 11 ? "" : ""}${p.indicatorCard.suit[0]}${p.indicatorCard.rank} — trump is hidden until called`
-          : "you won the bid — secretly choose trump",
+        p.kind === "SEVENTH_INDICATOR"
+          ? "7th card set your trump — hidden until called"
+          : "you won the bid — choose how to set trump",
         "info"
       );
     });
@@ -401,10 +406,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createRoom = useCallback(
-    (username: string, cfg: RoomConfig, avatar?: number) => {
+    (username: string, cfg: RoomConfig, avatar?: number, extra?: { vsBots?: boolean }) => {
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
-        s.emit("CREATE_ROOM", { username, ...cfg, avatar }, (ack) => resolve(bindAck(s, ack)));
+        s.emit(
+          "CREATE_ROOM",
+          { username, ...cfg, avatar, ...(extra ?? {}) },
+          (ack) => resolve(bindAck(s, ack))
+        );
       });
     },
     [bindAck]
@@ -479,8 +488,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const tnBidFn = useCallback((bid?: number) => {
     socketRef.current?.emit("GAME29_BID", bid === undefined ? {} : { bid });
   }, []);
-  const tnDeclareTrumpFn = useCallback((suit: TnSuit) => {
-    socketRef.current?.emit("GAME29_DECLARE_TRUMP", { suit });
+const tnDeclareTrumpFn = useCallback((choice: TnSuit | "SEVENTH_CARD" | "JOKER") => {
+    socketRef.current?.emit("GAME29_DECLARE_TRUMP", { choice });
   }, []);
   const tnCallTrumpFn = useCallback(() => {
     socketRef.current?.emit("GAME29_CALL_TRUMP", {});

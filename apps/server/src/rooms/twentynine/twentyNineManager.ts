@@ -9,14 +9,16 @@ import type {
   TnRoundSummary,
   TnSeatView,
   TnSuit,
-  TwentyNineRoomSettings,
+  TnTrumpChoice,
 } from "@poker/shared-types";
+import { isTnTrumpChoice } from "@poker/shared-types";
+import { tnCardPoints, tnTeamOfSeat } from "@poker/shared-types";
 import {
   applyBid,
   callTrump,
   createMatch,
   declareMarriage,
-  declareTrump,
+  declareTrumpPlan,
   getBidderPrivatePayload,
   lowestLegalCard,
   playCard,
@@ -25,10 +27,10 @@ import {
   toPublicTwentyNineState,
   TwentyNineState,
 } from "@poker/twentynine-engine";
-import { tnCardPoints, tnTeamOfSeat } from "@poker/shared-types";
 import { randomBytes, randomUUID } from "crypto";
 import type { RoomLike, JoinOpts, JoinResult, RoomPlayerRef } from "../roomLike";
 import type { ServerConfig } from "../../config";
+import { chooseTrumpStyle, decideBidding, decidePlay } from "./botBrain";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -47,6 +49,8 @@ interface TnPlayerRecord extends RoomPlayerRef {
   socketIds: Set<string>;
   lastSeen: number;
   avatar?: number;
+  /** Server-side bot seat (single-player mode); never owns a socket. */
+  isBot?: boolean;
 }
 
 /** Pre-move values needed to detect and describe public side effects. */
@@ -83,6 +87,9 @@ export class TwentyNineGameManager implements RoomLike {
   readonly gameType = "TWENTY_NINE" as const;
   match: TwentyNineState;
 
+  /** Single-player mode: three server-side bots fill the remaining seats. */
+  private readonly vsBots: boolean;
+
   private readonly io: IO;
   private readonly limits: ServerConfig["limits"];
   private readonly hooks: TnManagerHooks;
@@ -93,6 +100,7 @@ export class TwentyNineGameManager implements RoomLike {
   private autoStartTimer: NodeJS.Timeout | null = null;
   private fallbackTimer: NodeJS.Timeout | null = null;
   private fallbackDeadline = 0;
+  private botTimer: NodeJS.Timeout | null = null;
   /** `${roundNumber}` -> set of batch numbers already delivered per seat. */
   private deliveredBatches = new Map<number, Set<string>>();
   private lastBidderPrivateKey: string | null = null;
@@ -107,18 +115,17 @@ export class TwentyNineGameManager implements RoomLike {
     roomCode: string,
     config: RoomConfig,
     limits: ServerConfig["limits"],
-    hooks: TnManagerHooks = {}
+    hooks: TnManagerHooks = {},
+    opts: { vsBots?: boolean } = {}
   ) {
     this.io = io;
     this.roomCode = roomCode;
     this.config = config;
     this.limits = limits;
     this.hooks = hooks;
-    const settings: TwentyNineRoomSettings =
-      config.twentyNine ?? { trumpMode: "REGULAR", roundsToWin: 6 };
+    this.vsBots = !!opts.vsBots;
     this.match = createMatch({
       gameId: roomCode,
-      settings,
       seats: [],
     });
   }
@@ -130,6 +137,7 @@ export class TwentyNineGameManager implements RoomLike {
     if (this.autoStartTimer) clearTimeout(this.autoStartTimer);
     this.autoStartTimer = null;
     this.clearFallbackTimer();
+    this.clearBotTimer();
     this.hooks.onRoomClosed?.(this.roomCode);
   }
 
@@ -223,6 +231,9 @@ export class TwentyNineGameManager implements RoomLike {
     seat.connected = true;
 
     this.io.to(this.socketRoom()).emit("PLAYER_JOINED", { seatIndex, username: name });
+    if (this.vsBots) {
+      this.fillBots(); // single-player mode: complete the table instantly
+    }
     this.broadcastState();
     this.maybeScheduleAutoStart();
     return { ok: true, seatIndex, playerId, sessionToken };
@@ -304,9 +315,10 @@ export class TwentyNineGameManager implements RoomLike {
     });
   }
 
-  game29DeclareTrump(socketId: string, suit: TnSuit): void {
+  game29DeclareTrump(socketId: string, choice: TnTrumpChoice): void {
     this.move(socketId, (seatIndex) => {
-      declareTrump(this.match, seatIndex, suit);
+      if (!isTnTrumpChoice(choice)) throw new Error("invalid trump choice");
+      declareTrumpPlan(this.match, seatIndex, choice);
     });
   }
 
@@ -422,7 +434,7 @@ export class TwentyNineGameManager implements RoomLike {
     if (plays.length !== 4) return;
     const ledSuit = plays[0]!.card.suit;
     const winner = resolveWinner(plays, ledSuit, {
-      jokerMode: this.match.trumpMode === "JOKER",
+      jokerMode: this.match.trumpStyle === "JOKER",
       trumpSuit: this.match.trumpSuit,
       // Resolution used the reveal state AT PLAY TIME of the final card.
       trumpRevealed: trumpWasRevealed,
@@ -589,6 +601,13 @@ export class TwentyNineGameManager implements RoomLike {
     this.fallbackDeadline = 0;
   }
 
+  private clearBotTimer(): void {
+    if (this.botTimer) {
+      clearTimeout(this.botTimer);
+      this.botTimer = null;
+    }
+  }
+
   private armFallbackIfNeeded(): void {
     this.clearFallbackTimer();
     if (this.destroyed) return;
@@ -597,6 +616,7 @@ export class TwentyNineGameManager implements RoomLike {
     const acting = this.match.actingSeatIndex;
     if (acting === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
+    if (rec?.isBot) return; // bots arm their own think-delay timer instead
     const offline = !rec || rec.socketIds.size === 0;
     if (!offline) return;
     const seconds = Math.max(1, this.limits.tnOfflineFallbackSeconds);
@@ -653,9 +673,10 @@ export class TwentyNineGameManager implements RoomLike {
       const seat = this.match.seats[i];
       if (!seat || seat.username === null) continue;
       const rec = [...this.players.values()].find((r) => r.seatIndex === i);
-      seat.connected = !!rec && rec.socketIds.size > 0;
+      seat.connected = !!rec && (rec.isBot || rec.socketIds.size > 0);
     }
     this.armFallbackIfNeeded();
+    this.armBotIfNeeded();
     this.syncBidderPrivate();
 
     const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
@@ -669,6 +690,100 @@ export class TwentyNineGameManager implements RoomLike {
       const rec = this.findPlayerBySocket(sio.id);
       if (!rec) continue;
       sio.emit("TN_STATE", pub);
+    }
+  }
+
+  // ------------------------------------------------------------------ bots
+
+  /**
+   * Single-player mode: fills every empty seat with a named bot the moment
+   * the human creator takes their seat. Bots are plain player records with
+   * no socket — they act through performBotMove() below.
+   */
+  private fillBots(): void {
+    const NAMES = ["Bot Rana", "Bot Mithu", "Bot Shapan"];
+    const AVATARS = [8, 4, 6];
+    let n = 0;
+    for (let i = 0; i < 4; i++) {
+      const seat = this.match.seats[i];
+      if (!seat || seat.username !== null) continue;
+      const name = NAMES[n % NAMES.length]!;
+      seat.username = name;
+      seat.avatar = AVATARS[n % AVATARS.length]!;
+      seat.connected = true;
+      const record: TnPlayerRecord = {
+        playerId: randomUUID(),
+        username: name,
+        seatIndex: i,
+        sessionToken: randomBytes(12).toString("hex"),
+        socketIds: new Set<string>(),
+        lastSeen: Date.now(),
+        avatar: seat.avatar,
+        isBot: true,
+      };
+      this.players.set(record.playerId, record);
+      n++;
+      this.io.to(this.socketRoom()).emit("PLAYER_JOINED", { seatIndex: i, username: name });
+    }
+  }
+
+  /** Arms (or rearms) the bot think-delay whenever it is a bot's turn. */
+  private armBotIfNeeded(): void {
+    this.clearBotTimer();
+    if (this.destroyed) return;
+    const phase = this.match.phase;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
+    const acting = this.match.actingSeatIndex;
+    if (acting === null) return;
+    const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
+    if (!rec?.isBot) return; // humans drive themselves; empty seats use offline fallback
+    // Human-like think delay, deterministic-ish per round/seat.
+    const delay = 650 + ((this.match.roundNumber * 37 + acting * 13) % 500);
+    this.botTimer = setTimeout(() => {
+      this.botTimer = null;
+      this.performBotMove(acting);
+    }, delay);
+    if (typeof this.botTimer.unref === "function") this.botTimer.unref();
+  }
+
+  /** Applies the bot brain's decision through the same pipeline as humans. */
+  private performBotMove(seatIndex: number): void {
+    if (this.destroyed) return;
+    const phase = this.match.phase;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
+    if (this.match.actingSeatIndex !== seatIndex) return; // stale tick
+    try {
+      const snap = Snapshot.of(this.match);
+      let playedCard: TnCard | null = null;
+
+      if (phase === "BIDDING") {
+        const d = decideBidding(this.match, seatIndex);
+        if (d.kind === "BID") applyBid(this.match, seatIndex, d.bid);
+        else applyBid(this.match, seatIndex); // pass
+      } else if (phase === "TRUMP_SETUP") {
+        declareTrumpPlan(this.match, seatIndex, chooseTrumpStyle(this.match, seatIndex));
+      } else {
+        const d = decidePlay(this.match, seatIndex);
+        if (!d) return;
+        if (d.kind === "MARRIAGE") {
+          declareMarriage(this.match, seatIndex, d.suit);
+        } else if (d.kind === "CALL_TRUMP") {
+          callTrump(this.match, seatIndex);
+        } else if (d.kind === "PLAY") {
+          playedCard = d.card;
+          playCard(this.match, seatIndex, d.card);
+        }
+      }
+
+      if (playedCard) this.emitCompletedTrick(snap, seatIndex, playedCard);
+      this.emitDerivedEvents(snap, seatIndex);
+      this.syncHandDeliveries();
+      this.maybeScheduleAutoStart();
+      this.broadcastState();
+    } catch (err) {
+      console.error(`[tn ${this.roomCode}] bot move failed (seat ${seatIndex}):`, (err as Error).message);
+      // Never let one bad decision wedge the table - broadcast keeps others in sync.
+      this.broadcastState();
     }
   }
 }

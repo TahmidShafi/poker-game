@@ -1,17 +1,12 @@
 import { TnSuit } from "@poker/shared-types";
-import { TnTrumpMode } from "@poker/shared-types";
 
 /**
- * REGULAR TRUMP: the bid winner freely chooses any of the four suits.
- * The choice is validated for shape only; every suit is always legal.
- * Secrecy is enforced upstream (server broadcast layer) — this module
- * intentionally knows nothing about sockets or visibility.
+ * SUIT-style trump declaration (integrated per-hand choice): the bid winner
+ * freely picks any of the four suits. Validation is shape-only here; secrecy
+ * is enforced upstream by the server broadcast layer.
  */
-export function validateRegularTrumpChoice(mode: TnTrumpMode, suit: TnSuit): void {
-  if (mode !== "REGULAR" && mode !== "MARRIAGE") {
-    throw new Error("trump declaration is only available in REGULAR or MARRIAGE mode");
-  }
-  if (!["SPADES", "HEARTS", "DIAMONDS", "CLUBS"].includes(suit)) {
-    throw new Error("invalid trump suit");
-  }
+const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
+
+export function isValidSuitChoice(suit: TnSuit): boolean {
+  return SUITS.includes(suit);
 }

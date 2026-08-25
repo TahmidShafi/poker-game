@@ -4,16 +4,17 @@ import {
   TnBidState,
   TnCard,
   tnCardPoints,
+  isTnTrumpChoice,
   TnPhase,
   tnTeamOfSeat,
   TnTeam,
   TnTeamTotals,
   TnSeatView,
   TnSuit,
-  TnTrumpMode,
+  TnTrumpChoice,
+  TnTrumpStyle,
   TnTrumpView,
   TnTrickPlay,
-  TwentyNineRoomSettings,
 } from "@poker/shared-types";
 import { createTnDeck, shuffleTnDeck, tnNextSeat } from "./deck";
 import { activeBidders, createBidState, nextActiveBidder, validateBid } from "./bidding";
@@ -25,10 +26,12 @@ import { holdsMarriage, marriageAdjustedRequirement } from "./trump/marriage";
 export const TN_SEAT_COUNT = 4;
 export const TN_HAND_SIZE = 8;
 export const TN_TRICKS_PER_HAND = 8;
+/** The traditional target: first team to six round-wins takes the match. */
+export const TN_DEFAULT_ROUNDS_TO_WIN = 6;
 
-const TRUMP_MODES: TnTrumpMode[] = ["REGULAR", "SEVENTH_CARD", "JOKER", "MARRIAGE"];
-
-/** Server-side per-seat record. Hands/batches are PRIVATE — never broadcast. */
+/**
+ * Server-side per-seat record. Hands/batches are PRIVATE — never broadcast.
+ */
 export interface TnEngineSeat {
   seatIndex: number;
   username: string | null;
@@ -46,7 +49,6 @@ export interface TnEngineSeat {
 export interface TwentyNineState {
   gameId: string;
   phase: TnPhase;
-  trumpMode: TnTrumpMode;
   roundsToWin: number;
   seats: TnEngineSeat[]; // fixed length 4
   dealerSeatIndex: number; // first dealer is seat 0
@@ -57,10 +59,12 @@ export interface TwentyNineState {
   bids: TnBidState | null;
   bidderSeatIndex: number | null;
   bid: number | null;
-  trumpSuit: TnSuit | null; // hidden truth; null in JOKER mode / pre-choice
+  /** How THIS hand's trump is established — chosen by the bidder at setup. */
+  trumpStyle: TnTrumpStyle | null;
+  trumpSuit: TnSuit | null; // hidden truth; null in JOKER hands / pre-choice
   trumpSet: boolean;
   trumpRevealed: boolean;
-  indicatorCard: TnCard | null; // SEVENTH_CARD mode only
+  indicatorCard: TnCard | null; // seventh-card hands only
   marriageDeclaredBy: TnTeam | null;
   currentTrick: TnTrickPlay[];
   ledSeatIndex: number | null;
@@ -78,7 +82,8 @@ export type TnSeatRef = { seatIndex: number; username?: string; avatar?: number 
 
 export interface CreateMatchOptions {
   gameId: string;
-  settings: TwentyNineRoomSettings;
+  /** Universally 6; overridable only for tests/determinism. */
+  roundsToWin?: number;
   seats: TnSeatRef[];
 }
 
@@ -90,20 +95,19 @@ function emptySeat(seatIndex: number): TnEngineSeat {
   return { seatIndex, username: null, connected: false, hand: [], batch1: [], batch2: [] };
 }
 
-/** Creates a match shell. All four seats must be provided (manager enforces join order). */
+/**
+ * Creates a match shell. All four seats are filled in later by the room
+ * manager (players and/or bots); rules start once everyone is seated.
+ */
 export function createMatch(opts: CreateMatchOptions): TwentyNineState {
-  const { settings } = opts;
-  if (!TRUMP_MODES.includes(settings.trumpMode)) {
-    throw new Error(`invalid trump mode: ${String(settings.trumpMode)}`);
-  }
-  if (!Number.isInteger(settings.roundsToWin) || settings.roundsToWin < 1 || settings.roundsToWin > 15) {
+  const roundsToWin = opts.roundsToWin ?? TN_DEFAULT_ROUNDS_TO_WIN;
+  if (!Number.isInteger(roundsToWin) || roundsToWin < 1 || roundsToWin > 15) {
     throw new Error(`roundsToWin must be an integer between 1 and 15`);
   }
   const state: TwentyNineState = {
     gameId: opts.gameId,
     phase: TnPhase.WAITING_FOR_PLAYERS,
-    trumpMode: settings.trumpMode,
-    roundsToWin: settings.roundsToWin,
+    roundsToWin,
     seats: Array.from({ length: TN_SEAT_COUNT }, (_, i) => emptySeat(i)),
     dealerSeatIndex: 0,
     dealerAdvancePending: false,
@@ -112,6 +116,7 @@ export function createMatch(opts: CreateMatchOptions): TwentyNineState {
     bids: null,
     bidderSeatIndex: null,
     bid: null,
+    trumpStyle: null,
     trumpSuit: null,
     trumpSet: false,
     trumpRevealed: false,
@@ -142,10 +147,6 @@ export function createMatch(opts: CreateMatchOptions): TwentyNineState {
   return state;
 }
 
-export function biddingTeamOf(bidderSeatIndex: number): TnTeam {
-  return tnTeamOfSeat(bidderSeatIndex);
-}
-
 // ---------------------------------------------------------------------------
 // Hand lifecycle
 // ---------------------------------------------------------------------------
@@ -155,8 +156,7 @@ export function biddingTeamOf(bidderSeatIndex: number): TnTeam {
  * normally, reshuffles and deals batch 1 (4 cards each), then opens bidding.
  * Redealt hands (all-pass / invalid seventh-card) keep the same dealer
  * because dealerAdvancePending was never set for them.
- * `opts.deck` injects a specific 32-card order (tests/determinism only);
- * it must contain every card exactly once.
+ * `opts.deck` injects a specific 32-card order (tests/determinism only).
  */
 export function startHand(state: TwentyNineState, opts?: { deck?: TnCard[] }): void {
   requireAllSeated(state);
@@ -197,6 +197,7 @@ function resetHand(state: TwentyNineState, deckOverride?: TnCard[]): void {
   state.bids = null;
   state.bidderSeatIndex = null;
   state.bid = null;
+  state.trumpStyle = null;
   state.trumpSuit = null;
   state.trumpSet = false;
   state.trumpRevealed = false;
@@ -259,7 +260,11 @@ function openBidding(state: TwentyNineState): void {
 }
 
 /**
- * Applies a bid or pass. Omitting `bid` means PASS (permanent for this hand).
+ * Applies a bid or pass (v2 rules):
+ * - first bid any 16..28; pass = permanently out of this hand's auction
+ * - when YOUR OWN TEAM holds the high bid you may only go strictly higher
+ * - when the OPPOSING team holds it you may go higher OR exactly MATCH their
+ *   value — but each value can be matched only once (no ping-pong)
  * Ends the auction the moment exactly one non-passed player remains (they win
  * at their own last bid). If ALL FOUR pass, the hand is cancelled and flagged
  * for redeal with the SAME dealer.
@@ -278,7 +283,7 @@ export function applyBid(state: TwentyNineState, seatIndex: number, bid?: number
     bids.passedSeatIndexes.push(seatIndex);
     state.lastMove = { seatIndex, kind: "PASS" };
   } else {
-    validateBid(bids, bid);
+    validateBid(bids, seatIndex, bid);
     bids.highestBid = bid;
     bids.bidderSeatIndex = seatIndex;
     bids.history.push({ seatIndex, bid });
@@ -327,41 +332,49 @@ function cancelForRedeal(state: TwentyNineState): void {
 }
 
 // ---------------------------------------------------------------------------
-// Trump setup
+// Trump setup — the bid winner integrates the mechanics by CHOOSING one
 // ---------------------------------------------------------------------------
 
 function enterTrumpSetup(state: TwentyNineState): void {
-  switch (state.trumpMode) {
-    case "JOKER":
-      // No suit exists; skip straight to second deal + play.
-      state.trumpSet = true;
-      beginPlayAfterTrump(state);
-      break;
-    case "SEVENTH_CARD":
-      // Trump depends on the bidder's full 8 cards, so deal batch 2 first,
-      // resolve the indicator automatically, and validate the hand.
-      dealBatch2(state);
-      resolveSeventhTrump(state);
-      break;
-    case "REGULAR":
-    case "MARRIAGE":
-    default:
-      state.phase = TnPhase.TRUMP_SETUP;
-      state.actingSeatIndex = state.bidderSeatIndex;
-      break;
-  }
+  // Every hand: the bid winner decides how trump is established.
+  state.phase = TnPhase.TRUMP_SETUP;
+  state.actingSeatIndex = state.bidderSeatIndex;
 }
 
-/** Bid winner declares the trump suit (REGULAR / MARRIAGE modes). */
-export function declareTrump(state: TwentyNineState, seatIndex: number, suit: TnSuit): void {
+/**
+ * The bid winner's decision: declare a hidden suit, take the automatic
+ * seventh card, or play a joker hand (no suit). Dispatches into the same
+ * isolated mechanic modules as before.
+ */
+export function declareTrumpPlan(
+  state: TwentyNineState,
+  seatIndex: number,
+  choice: TnTrumpChoice
+): void {
   if (state.phase !== TnPhase.TRUMP_SETUP) throw new Error("not waiting for a trump declaration");
   if (seatIndex !== state.bidderSeatIndex) throw new Error("only the bid winner may declare trump");
-  if (state.trumpMode !== "REGULAR" && state.trumpMode !== "MARRIAGE") {
-    throw new Error("this room's trump mode does not use a declaration");
+  if (!isTnTrumpChoice(choice)) throw new Error("invalid trump choice");
+
+  if (choice === "JOKER") {
+    state.trumpStyle = "JOKER";
+    state.trumpSet = true; // no suit exists
+    state.lastMove = { seatIndex, kind: "TRUMP_DECLARED" };
+    beginPlayAfterTrump(state);
+    return;
   }
-  if (!["SPADES", "HEARTS", "DIAMONDS", "CLUBS"].includes(suit)) {
-    throw new Error("invalid trump suit");
+
+  if (choice === "SEVENTH_CARD") {
+    // Trump depends on the bidder's full 8 cards: deal the second batch,
+    // resolve the fixed indicator automatically, validate the hand.
+    state.trumpStyle = "SEVENTH_CARD";
+    dealBatch2(state);
+    resolveSeventhTrump(state);
+    return;
   }
+
+  // A suit declaration — hidden regular trump; K+Q marriage potential applies.
+  const suit = choice as TnSuit;
+  state.trumpStyle = "SUIT";
   state.trumpSuit = suit;
   state.trumpSet = true;
   state.lastMove = { seatIndex, kind: "TRUMP_DECLARED" };
@@ -371,7 +384,7 @@ export function declareTrump(state: TwentyNineState, seatIndex: number, suit: Tn
 /** Automatic SEVENTH_CARD resolution incl. invalid-hand redeal check. */
 function resolveSeventhTrump(state: TwentyNineState): void {
   const bidder = state.bidderSeatIndex;
-  if (bidder === null) throw new Error("engine bug: no bidder for seventh-card mode");
+  if (bidder === null) throw new Error("engine bug: no bidder for seventh-card hand");
   const seat = state.seats[bidder];
   if (!seat) throw new Error("engine bug: missing bidder seat");
   const indicator = seventhCardIndicator(seat.batch2);
@@ -393,8 +406,8 @@ function countOtherOfSuit(all8: TnCard[], indicator: TnCard): number {
 }
 
 function beginPlayAfterTrump(state: TwentyNineState): void {
-  // Every mode needs the second batch before play; SEVENTH_CARD already
-  // dealt it during trump resolution.
+  // Every style needs the second batch before play; SEVENTH_CARD already
+  // dealt it during resolution.
   if (state.seats.every((s) => s.batch2.length === 0)) {
     dealBatch2(state); // sets phase DEALING_BATCH_2
   }
@@ -409,24 +422,22 @@ function beginPlayAfterTrump(state: TwentyNineState): void {
 
 /**
  * Private info destined for the bid winner ONLY (server routes it to that
- * one socket). Returns null whenever there is nothing new to tell them.
+ * one socket): the choose-trump prompt, then the seventh-card indicator if
+ * they picked that style.
  */
 export function getBidderPrivatePayload(state: TwentyNineState): TnBidderPrivatePayload | null {
-  if (state.bidderSeatIndex === null) return null;
   const handNumber = state.roundNumber;
-  switch (state.trumpMode) {
-    case "SEVENTH_CARD":
-      if (!state.indicatorCard) return null;
-      return { mode: "SEVENTH_CARD", handNumber, indicatorCard: state.indicatorCard };
-    case "REGULAR":
-    case "MARRIAGE":
-      if (!state.trumpSet && state.phase === TnPhase.TRUMP_SETUP) {
-        return { mode: state.trumpMode, handNumber };
-      }
-      return null;
-    default:
-      return null;
+  if (state.phase === TnPhase.TRUMP_SETUP && !state.trumpSet) {
+    return { kind: "CHOOSE_TRUMP", handNumber };
   }
+  if (
+    state.trumpStyle === "SEVENTH_CARD" &&
+    state.indicatorCard &&
+    !state.trumpRevealed
+  ) {
+    return { kind: "SEVENTH_INDICATOR", handNumber, indicatorCard: state.indicatorCard };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +448,7 @@ export function getBidderPrivatePayload(state: TwentyNineState): TnBidderPrivate
 export function callTrump(state: TwentyNineState, seatIndex: number): void {
   if (state.phase !== TnPhase.PLAYING) throw new Error("not in the playing phase");
   if (state.actingSeatIndex !== seatIndex) throw new Error("not your turn");
-  if (state.trumpMode === "JOKER") throw new Error("joker mode has no trump to reveal");
+  if (state.trumpStyle === "JOKER") throw new Error("joker hands have no trump to reveal");
   if (!state.trumpSet) throw new Error("trump has not been determined yet");
   if (state.trumpRevealed) throw new Error("trump is already revealed");
   if (state.currentTrick.length === 0) throw new Error("cannot call trump before a card is led");
@@ -450,11 +461,11 @@ export function callTrump(state: TwentyNineState, seatIndex: number): void {
   state.lastMove = { seatIndex, kind: "CALL_TRUMP" };
 }
 
-/** Declare a marriage: caller must hold K+Q of the TRUE trump suit. Reveals trump. */
+/** Declare a marriage: caller must hold K+Q of the ACTIVE trump suit. Reveals trump. */
 export function declareMarriage(state: TwentyNineState, seatIndex: number, suit: TnSuit): void {
   if (state.phase !== TnPhase.PLAYING) throw new Error("marriage can only be declared during play");
-  if (state.trumpMode !== "MARRIAGE") throw new Error("marriage is not enabled in this room");
   if (state.marriageDeclaredBy !== null) throw new Error("marriage already declared this round");
+  if (state.trumpStyle === "JOKER") throw new Error("joker hands have no suit for marriages");
   if (!state.trumpSet || !state.trumpSuit) throw new Error("trump not determined yet");
   if (suit !== state.trumpSuit) {
     throw new Error("that suit is not trump - invalid marriage claim");
@@ -509,7 +520,7 @@ function completeTrick(state: TwentyNineState): void {
   const ledPlay = plays[0];
   if (!ledPlay) throw new Error("engine bug: completing an empty trick");
   const winner = resolveWinner(plays, ledPlay.card.suit, {
-    jokerMode: state.trumpMode === "JOKER",
+    jokerMode: state.trumpStyle === "JOKER",
     trumpSuit: state.trumpSuit,
     trumpRevealed: state.trumpRevealed,
   });
@@ -565,6 +576,7 @@ function finishHand(state: TwentyNineState): void {
     winnerTeam: roundWinner,
     marriageTeam: state.marriageDeclaredBy,
     matchScoreAfter: { A: state.matchScore.A, B: state.matchScore.B },
+    trumpStyle: state.trumpStyle ?? "SUIT",
   };
 
   if (state.matchScore[roundWinner] >= state.roundsToWin) {
@@ -596,20 +608,19 @@ export function moveOptionsForSeat(state: TwentyNineState, seatIndex: number): S
   const hand = handOf(state, seatIndex);
   const led = state.currentTrick.length > 0 ? ledSuitOf(state) : null;
   const canCallTrump =
-    state.trumpMode !== "JOKER" &&
+    state.trumpStyle !== "JOKER" &&
     state.trumpSet &&
     !state.trumpRevealed &&
     state.currentTrick.length > 0 &&
     !hand.some((c) => c.suit === led);
   const canDeclareMarriage =
-    state.trumpMode === "MARRIAGE" &&
     state.marriageDeclaredBy === null &&
     !!state.trumpSuit &&
     holdsMarriage(hand, state.trumpSuit);
   return { legalCards: legalCards(hand, led), canCallTrump, canDeclareMarriage };
 }
 
-/** Lowest-ranked legal card by normal ranking — used for offline-fallback autoplay. */
+/** Lowest-ranked legal card by normal ranking — used for offline-fallback autoplay + bots. */
 export function lowestLegalCard(state: TwentyNineState, seatIndex: number): TnCard | null {
   const { legalCards: legal } = moveOptionsForSeat(state, seatIndex);
   if (legal.length === 0) return null;
@@ -626,10 +637,10 @@ export function toPublicTwentyNineState(
   extras?: { roomCode?: string }
 ): PublicTwentyNineState {
   const trumpView: TnTrumpView =
-    state.trumpMode === "JOKER"
-      ? { state: "JOKER_MODE" }
-      : !state.trumpSet
-        ? { state: "NOT_SET" }
+    state.trumpStyle === null
+      ? { state: "NOT_SET" }
+      : state.trumpStyle === "JOKER"
+        ? { state: "JOKER_MODE" }
         : state.trumpRevealed
           ? { state: "REVEALED", suit: state.trumpSuit as TnSuit }
           : { state: "HIDDEN" };
@@ -650,7 +661,7 @@ export function toPublicTwentyNineState(
     phase: state.phase,
     seats,
     dealerSeatIndex: state.dealerSeatIndex,
-    trumpMode: state.trumpMode,
+    trumpStyle: state.trumpStyle,
     trump: trumpView,
     marriageDeclaredBy: state.marriageDeclaredBy,
     bids: state.bids

@@ -20,7 +20,7 @@ function AvatarChip({ username, avatar }: { username: string | null; avatar?: nu
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={`/avatars/${avatar}.png`}
+        src={`/avatars/avatar-${avatar}.png`}
         alt=""
         className="h-8 w-8 rounded-full object-cover ring-1 ring-white/20"
       />
@@ -31,6 +31,18 @@ function AvatarChip({ username, avatar }: { username: string | null; avatar?: nu
       {(username ?? "?").slice(0, 1).toUpperCase()}
     </span>
   );
+}
+
+/**
+ * Anti-clockwise seat -> viewer-relative screen position.
+ * rel = (seatIndex - mySeat + 4) % 4:
+ *   0 = you (bottom) · 2 = partner (top)
+ *   3 = next actor (right) · 1 = previous actor (left)
+ * This keeps the true anti-clockwise flow visible from the player's chair.
+ */
+export function seatRel(mySeat: number | null, seatIndex: number): number {
+  if (mySeat === null) return seatIndex;
+  return (seatIndex - mySeat + 4) % 4;
 }
 
 export function SeatCard({
@@ -92,34 +104,43 @@ export function SeatCard({
   );
 }
 
-/** Center of the felt: current trick plays positioned by seat. */
+/** Center of the felt: current trick plays positioned by viewer-relative seat. */
 export function TrickArea({
   state,
+  mySeat,
   flashSeat,
 }: {
   state: PublicTwentyNineState;
+  mySeat: number | null;
   flashSeat: number | null;
 }) {
   const bySeat = new Map<number, TnCard>();
   for (const p of state.trick) bySeat.set(p.seatIndex, p.card);
-  const slot: Record<number, string> = { 0: "left-3", 1: "top-2 left-1/2 -translate-x-1/2", 2: "right-3", 3: "bottom-2 left-1/2 -translate-x-1/2" };
+  // rel 0 = bottom(you) · 1 = left · 2 = top · 3 = right
+  const slot: Record<number, string> = {
+    0: "left-1/2 bottom-3 -translate-x-1/2",
+    1: "left-4 top-1/2 -translate-y-1/2",
+    2: "left-1/2 top-3 -translate-x-1/2",
+    3: "right-4 top-1/2 -translate-y-1/2",
+  };
   return (
     <div className="pointer-events-none absolute inset-6 rounded-[999px] border border-white/10">
-      {[0, 1, 2, 3].map((i) => {
-        const card = bySeat.get(i);
+      {[0, 1, 2, 3].map((rel) => {
+        const play = state.trick.find((p) => seatRel(mySeat, p.seatIndex) === rel);
+        const owner = play?.seatIndex ?? null;
         return (
-          <div key={i} className={`absolute ${slot[i]} ${flashSeat === i ? "animate-pulse" : ""}`}>
-            {card ? (
-              <PlayingCard card={card} size="sm" />
+          <div key={rel} className={`absolute ${slot[rel]} ${flashSeat === owner ? "animate-pulse" : ""}`}>
+            {play ? (
+              <PlayingCard card={play.card} size="sm" />
             ) : (
               <span className="block h-[3.4rem] w-0" aria-hidden />
             )}
           </div>
         );
       })}
-      {state.trick.length === 0 && (
+      {state.trick.length === 0 && state.phase === "PLAYING" && (
         <span className="absolute inset-0 grid place-items-center text-[10px] uppercase tracking-[0.3em] text-white/25">
-          {state.phase === "PLAYING" ? `${state.ledSeatIndex !== null ? "trick " + (state.roundNumber ? "" : "") : ""}waiting…` : ""}
+          waiting…
         </span>
       )}
     </div>
@@ -128,20 +149,21 @@ export function TrickArea({
 
 export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
   let value: React.ReactNode;
-  if (state.trump.state === "JOKER_MODE") value = <span className="text-violet-300">JOKER MODE</span>;
+  if (state.trumpStyle === null && state.trump.state === "NOT_SET")
+    value = <span className="text-white/40">awaiting bid winner</span>;
+  else if (state.trumpStyle === "JOKER") value = <span className="text-violet-300">JOKER HAND</span>;
+  else if (state.trumpStyle === "SEVENTH_CARD" && state.trump.state !== "REVEALED")
+    value = <span>7th card · 🔒 HIDDEN</span>;
   else if (state.trump.state === "REVEALED")
     value = (
       <span className="text-gold">
         {TN_SUIT_SYMBOLS[state.trump.suit]} {state.trump.suit.toLowerCase()}
       </span>
     );
-  else if (state.trump.state === "HIDDEN") value = <span>🔒 HIDDEN</span>;
-  else value = <span className="text-white/40">not set</span>;
+  else value = <span>🔒 HIDDEN</span>;
 
   return (
     <div className="inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/55 ring-1 ring-white/10">
-      <span>{state.trumpMode.replace("_", " ").toLowerCase()}</span>
-      <span className="text-white/20">·</span>
       {value}
       {state.marriageDeclaredBy && (
         <>

@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
-import type { ClientToServerEvents, ServerToClientEvents, TnCard, TnSuit, TnTrumpMode } from "@poker/shared-types";
+import type { ClientToServerEvents, ServerToClientEvents, TnCard, TnSuit } from "@poker/shared-types";
+import { isTnTrumpChoice } from "@poker/shared-types";
 import type { GameManager, GameManagerHooks } from "../rooms/gameManager";
 import type { RoomLike, RoomPlayerRef } from "../rooms/roomLike";
 import type { TwentyNineGameManager } from "../rooms/twentynine/twentyNineManager";
@@ -10,7 +11,6 @@ import type { Socket } from "socket.io";
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type SocketType = Socket<ClientToServerEvents, ServerToClientEvents>;
 
-const TN_TRUMP_MODES: TnTrumpMode[] = ["REGULAR", "SEVENTH_CARD", "JOKER", "MARRIAGE"];
 const TN_SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
 /**
@@ -57,20 +57,8 @@ export function registerSocketHandlers(
       return { ok: false, error: "room values must be positive integers" };
     }
 
-    // ---- Twenty-Nine rooms: no blinds/coins economy; validate mode + target.
+    // ---- Twenty-Nine rooms: no settings economy; single-player bots flag only.
     if (raw.gameType === "TWENTY_NINE") {
-      const t = (raw.twentyNine ?? raw.twentynine ?? {}) as Record<string, unknown>;
-      const trumpMode = t.trumpMode;
-      if (typeof trumpMode !== "string" || !TN_TRUMP_MODES.includes(trumpMode as TnTrumpMode)) {
-        return { ok: false, error: "invalid trump mode" };
-      }
-      let roundsToWin = 6;
-      if (t.roundsToWin !== undefined) {
-        if (!Number.isInteger(t.roundsToWin) || (t.roundsToWin as number) < 1 || (t.roundsToWin as number) > 15) {
-          return { ok: false, error: "roundsToWin must be an integer between 1 and 15" };
-        }
-        roundsToWin = t.roundsToWin as number;
-      }
       return {
         ok: true,
         config: {
@@ -79,7 +67,6 @@ export function registerSocketHandlers(
           bigBlind: 0,
           turnTimeSeconds: 60,
           gameType: "TWENTY_NINE",
-          twentyNine: { trumpMode: trumpMode as TnTrumpMode, roundsToWin },
         },
       };
     }
@@ -121,7 +108,8 @@ export function registerSocketHandlers(
       const validated = validateRoomConfig(payload, config);
       if (!validated.ok) return ack?.({ ok: false, error: validated.error });
       try {
-        const room = registry.createRoom(validated.config);
+        const vsBots = validated.config.gameType === "TWENTY_NINE" && payload.vsBots === true;
+        const room = registry.createRoom(validated.config, { vsBots });
         const joined = room.join(payload.username, {
           socketId: socket.id,
           avatar: sanitizeAvatar((payload as { avatar?: unknown }).avatar),
@@ -312,10 +300,10 @@ export function registerSocketHandlers(
     socket.on("GAME29_DECLARE_TRUMP", (payload) => {
       const tn = tnRoomOf();
       if (!tn) return;
-      if (typeof payload !== "object" || payload === null || typeof payload.suit !== "string" || !TN_SUITS.includes(payload.suit as TnSuit)) {
+      if (typeof payload !== "object" || payload === null || !isTnTrumpChoice(payload.choice)) {
         return tn.reject(socket.id, "malformed trump declaration");
       }
-      tn.game29DeclareTrump(socket.id, payload.suit as TnSuit);
+      tn.game29DeclareTrump(socket.id, payload.choice);
     });
 
     socket.on("GAME29_CALL_TRUMP", () => {

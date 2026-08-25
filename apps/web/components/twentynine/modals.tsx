@@ -1,28 +1,31 @@
 "use client";
 
 import React from "react";
-import type { TnSuit, TnTrumpMode } from "@poker/shared-types";
+import type { TnSuit } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { useGame } from "../../lib/store";
+
+const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
 export function TrumpPickerModal() {
   const { tnState, tnBidderPrivate, tnDeclareTrump } = useGame();
   if (!tnState || !tnBidderPrivate) return null;
   if (tnState.phase !== "TRUMP_SETUP") return null;
-  if (tnBidderPrivate.mode === "SEVENTH_CARD") return null; // automatic
+  if (tnBidderPrivate.kind !== "CHOOSE_TRUMP") return null;
 
-  const suits: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-sm">
-      <div className="glass mx-4 w-full max-w-sm rounded-3xl p-6 shadow-panel animate-riseFade">
+      <div className="glass mx-4 w-full max-w-md rounded-3xl p-6 shadow-panel animate-riseFade">
         <h2 className="text-lg font-black tracking-tight">
-          Choose trump <span className="text-crimson">(secret)</span>
+          Set trump <span className="text-crimson">(secret)</span>
         </h2>
         <p className="mt-1 text-[11px] text-white/50">
-          Only you will know the suit until it is called. {tnBidderPrivate.mode === "MARRIAGE" && "Hold K+Q of your pick to unlock the marriage bonus."}
+          Pick a suit to hide it, take your 7th card, or go Joker — no suit at
+          all, J&nbsp;9&nbsp;A&nbsp;10 rule the tricks.
         </p>
+
         <div className="mt-4 grid grid-cols-4 gap-2">
-          {suits.map((s) => (
+          {SUITS.map((s) => (
             <button
               key={s}
               onClick={() => tnDeclareTrump(s)}
@@ -30,10 +33,30 @@ export function TrumpPickerModal() {
             >
               <span className="block text-2xl">{TN_SUIT_SYMBOLS[s]}</span>
               <span className="mt-1 block text-[9px] font-bold uppercase tracking-widest text-white/45">
-                {s.slice(0, 3)}
+                hidden
               </span>
             </button>
           ))}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => tnDeclareTrump("SEVENTH_CARD")}
+            className="rounded-2xl bg-black/40 px-3 py-3 ring-1 ring-white/12 transition-all hover:ring-violet-300/60 hover:bg-violet-400/10 active:scale-[0.97]"
+          >
+            <span className="block text-sm font-black">7th Card ♢</span>
+            <span className="block text-[9px] leading-tight text-white/45">
+              auto trump from your 7th card (redeal if dead)
+            </span>
+          </button>
+          <button
+            onClick={() => tnDeclareTrump("JOKER")}
+            className="rounded-2xl bg-black/40 px-3 py-3 ring-1 ring-white/12 transition-all hover:ring-violet-300/60 hover:bg-violet-400/10 active:scale-[0.97]"
+          >
+            <span className="block text-sm font-black">Joker 🃏</span>
+            <span className="block text-[9px] leading-tight text-white/45">
+              no suit — J 9 A 10 are power cards
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -106,40 +129,35 @@ export function MatchOverBanner() {
   );
 }
 
-const MODE_BLURBS: Record<TnTrumpMode, string> = {
-  REGULAR: "The bid winner secretly picks any suit as trump.",
-  SEVENTH_CARD: "Trump is automatically the suit of the bid winner's 7th card (3rd of their second batch). Redealt if it's their only card of that suit.",
-  JOKER: "No suit is trump. J > 9 > A > 10 are universal power cards (in that order) among legally played cards.",
-  MARRIAGE: "Like regular hidden trump — but whoever holds K+Q of trump may declare a marriage: bidding team needs bid−4, defending team pushes it to bid+4.",
-};
-
 export function RulesModal({ onClose }: { onClose: () => void }) {
   const { tnState } = useGame();
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 backdrop-blur-md px-4" onClick={onClose}>
       <div
-        className="glass w-full max-w-lg overflow-y-auto rounded-3xl p-6 shadow-panel animate-riseFade"
-        style={{ maxHeight: "82dvh" }}
+        className="glass max-h-[82dvh] w-full max-w-lg overflow-y-auto rounded-3xl p-6 shadow-panel animate-riseFade"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-black tracking-tight">
           Twenty-Nine <span className="text-gold">rules</span>
         </h2>
         <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-white/65">
-          <li>• Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0→3→2→1→0.</li>
-          <li>• 32-card deck (7–A). Eight cards each, dealt in two batches of four.</li>
-          <li>• Bid 16–28 to name the contract; passes are final. Last remaining bidder wins.</li>
-          <li>• Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
-          <li>• Points: J=3, 9=2, A=1, 10=1. Last trick +1 → always 29 total.</li>
-          <li>• Trump stays 🔒 HIDDEN until someone void in the led suit calls it.</li>
-          <li>• Bidding team scores the round at points ≥ requirement; otherwise defenders do.</li>
-          <li>• First team to {tnState?.roundsToWin ?? 6} round wins takes the match.</li>
+          <li>� Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0?3?2?1?0.</li>
+          <li>� 32-card deck (7�A). Eight cards each, dealt in two batches of four.</li>
+          <li>� Bid 16�28. Raise the other team by any amount, or MATCH their value once; your own side must always go strictly higher.</li>
+          <li>� Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
+          <li>� Points: J=3, 9=2, A=1, 10=1. Last trick +1 ? always 29 total.</li>
+          <li>� Trump stays ?? HIDDEN until someone void in the led suit calls it � reveal and playing are separate actions.</li>
+          <li>� Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it � bidding team needs bid-4, defending team pushes it to bid+4.</li>
+          <li>� Bidding team scores at captured = requirement; otherwise defenders do. First team to {tnState?.roundsToWin ?? 6} round-wins takes the match.</li>
         </ul>
         <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
-          trump mode: {(tnState?.trumpMode ?? "REGULAR").replace("_", " ")}
+          this hand: {(tnState?.trumpStyle ?? "bidder chooses").replace("_", " ").toLowerCase()}
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
-          {MODE_BLURBS[tnState?.trumpMode ?? "REGULAR"]}
+          Every hand the bid winner integrates the classic mechanics themselves:
+          declare a hidden suit, take the automatic 7th card (redeal if that card
+          is their only one of its suit), or play Joker � no suit, where
+          J&nbsp;&gt;&nbsp;9&nbsp;&gt;&nbsp;A&nbsp;&gt;&nbsp;10 act as universal power cards.
         </p>
         <button
           onClick={onClose}

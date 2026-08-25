@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import type { PublicTwentyNineState, TnCard } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { PlayingCard } from "../PlayingCard";
+import { ScoreCard, ScorePairCaption } from "./ScoreCard";
 import { useGame } from "../../lib/store";
 
 /** Client-side mirror of the engine's follow-suit rule (server re-validates). */
@@ -58,11 +59,26 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
     bids?.turnSeatIndex !== null &&
     bids?.turnSeatIndex === mySeat;
 
-  // Keep the stepper above the current high bid.
-  const min = Math.max(16, (bids?.highestBid ?? 15) + 1);
+  // v2 mirror of the server rule: own side holds -> strictly higher;
+  // opponents hold an UNMATCHED value -> matching that value is allowed.
+  const teamOf = (s: number) => (s % 2 === 0 ? "A" : "B");
+  const H = bids?.highestBid ?? null;
+  let floor = 16;
+  let canMatch = false;
+  if (H !== null && bids?.bidderSeatIndex != null && mySeat !== null) {
+    const mine = teamOf(mySeat);
+    const holders = teamOf(bids.bidderSeatIndex);
+    const priorMatches = bids.history.filter((h) => h.bid === H).length;
+    if (mine === holders) floor = Math.max(16, H + 1);
+    else if (priorMatches === 1) {
+      floor = H;
+      canMatch = true;
+    } else floor = Math.max(16, H + 1);
+  }
+
   React.useEffect(() => {
-    setBidValue((v) => Math.max(v, min));
-  }, [min]);
+    setBidValue((v) => Math.max(v, floor));
+  }, [floor]);
 
   if (state.phase !== "BIDDING") return null;
 
@@ -96,25 +112,30 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
 
       {myTurn ? (
         <div className="mt-3 space-y-2.5">
+          {canMatch && (
+            <p className="text-center text-[10px] font-bold uppercase tracking-widest text-violet-300">
+              match {floor} available
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <input
               type="range"
-              min={min}
+              min={floor}
               max={28}
-              value={Math.min(Math.max(bidValue, min), 28)}
+              value={Math.min(Math.max(bidValue, floor), 28)}
               onChange={(e) => setBidValue(Number(e.target.value))}
               className="w-full accent-gold"
             />
             <span className="w-8 text-right tabnum text-sm font-black text-gold">
-              {Math.min(Math.max(bidValue, min), 28)}
+              {Math.min(Math.max(bidValue, floor), 28)}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => tnBid(Math.min(Math.max(bidValue, min), 28))}
+              onClick={() => tnBid(Math.min(Math.max(bidValue, floor), 28))}
               className="rounded-xl bg-gold py-2 text-xs font-black tracking-wide text-ink hover:brightness-105 active:scale-[0.98]"
             >
-              BID {Math.min(Math.max(bidValue, min), 28)}
+              BID {Math.min(Math.max(bidValue, floor), 28)}
             </button>
             <button
               onClick={() => tnBid()}
@@ -133,29 +154,48 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
-export function ScoreBoard({ state }: { state: PublicTwentyNineState }) {
-  const teamRow = (team: "A" | "B") => (
-    <div className="flex items-center justify-between rounded-xl bg-black/30 px-3 py-2 ring-1 ring-white/10">
-      <span className={`text-[11px] font-black ${team === "A" ? "text-gold" : "text-violet-300"}`}>
-        TEAM {team}
-      </span>
-      <span className="text-[11px] text-white/55">
-        rounds <b className="tabnum text-white/90">{state.matchScore[team]}</b>
-        /{state.roundsToWin}
-        <span className="mx-1.5 text-white/20">·</span>
-        tricks <b className="tabnum text-white/90">{state.tricksWon[team]}</b>
-        <span className="mx-1.5 text-white/20">·</span>
-        pts <b className="tabnum text-white/90">{state.capturedPoints[team]}</b>
-      </span>
-    </div>
-  );
+/**
+ * Traditional Bangladeshi score cards: each team shows a ♥/♦ card for round
+ * WINS and an upside-down ♠/♣ card marking LOSSES (= the opponent's wins).
+ */
+export function TraditionalScoreCards({ state }: { state: PublicTwentyNineState }) {
+  const { me } = useGame();
+  const myTeam = me && me.seatIndex % 2 === 0 ? "A" : "B";
+  const target = state.roundsToWin;
+
   return (
-    <div className="space-y-1.5">
-      <p className="px-1 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-        round {state.roundNumber} · first to {state.roundsToWin}
-      </p>
-      {teamRow("A")}
-      {teamRow("B")}
+    <div className="flex items-start justify-center gap-8 rounded-3xl bg-black/35 px-6 py-4 ring-1 ring-white/10">
+      {(["A", "B"] as const).map((team) => {
+        const wins = state.matchScore[team];
+        const losses = state.matchScore[team === "A" ? "B" : "A"];
+        return (
+          <div key={team} className="flex flex-col items-center gap-2">
+            <ScorePairCaption
+              team={team}
+              label={`team ${team}`}
+              mine={myTeam === team}
+            />
+            <div className="flex items-end gap-3">
+              <ScoreCard
+                count={wins}
+                suit={team === "A" ? "HEARTS" : "DIAMONDS"}
+                size={86}
+                highlight={wins >= target}
+                animKey={state.roundNumber * 10 + wins}
+              />
+              <div style={{ transform: "rotate(180deg)" }}>
+                <ScoreCard
+                  count={losses}
+                  suit={team === "A" ? "SPADES" : "CLUBS"}
+                  inverted
+                  size={64}
+                  animKey={state.roundNumber * 10 + losses}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -169,13 +209,15 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
 
   const canCall =
     myTurn &&
-    state.trumpMode !== "JOKER" &&
+    state.trumpStyle !== "JOKER" &&
     state.trump.state === "HIDDEN" &&
     state.trick.length > 0 &&
     !myTnCards.some((c) => c.suit === state.trick[0]!.card.suit);
 
   const marriageSuits = (() => {
-    if (state.trumpMode !== "MARRIAGE" || state.marriageDeclaredBy) return [] as string[];
+    // The active suit is SECRET — offer every K+Q pair the player actually
+    // holds; the server verifies it against the real trump on declare.
+    if (state.trumpStyle === "JOKER" || state.marriageDeclaredBy) return [] as string[];
     const suits = [];
     for (const s of ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"] as const) {
       const hasK = myTnCards.some((c) => c.suit === s && c.rank === 13);

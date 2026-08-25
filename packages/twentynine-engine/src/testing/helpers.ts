@@ -1,4 +1,4 @@
-import { TnCard, TnPhase, TnTrumpMode } from "@poker/shared-types";
+import { TnCard, TnPhase } from "@poker/shared-types";
 import {
   applyBid,
   createMatch,
@@ -9,10 +9,10 @@ import {
 } from "../game";
 import { createTnDeck, tnNextSeat } from "../deck";
 
-export function makeMatch(trumpMode: TnTrumpMode = "REGULAR", roundsToWin = 6): TwentyNineState {
+export function makeMatch(roundsToWin = 6): TwentyNineState {
   return createMatch({
     gameId: "test-game",
-    settings: { trumpMode, roundsToWin },
+    roundsToWin,
     seats: [0, 1, 2, 3].map((i) => ({ seatIndex: i, username: `P${i}` })),
   });
 }

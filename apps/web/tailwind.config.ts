@@ -67,6 +67,12 @@ const config: Config = {
           "60%": { transform: "translateX(-4px)" },
           "80%": { transform: "translateX(4px)" },
         },
+        scorePop: {
+          "0%": { transform: "scale(1) rotate(0deg)" },
+          "40%": { transform: "scale(1.18) rotate(-3deg)" },
+          "70%": { transform: "scale(0.96) rotate(2deg)" },
+          "100%": { transform: "scale(1) rotate(0deg)" },
+        },
       },
       animation: {
         dealIn: "dealIn .38s cubic-bezier(.22,.9,.34,1.05) both",
@@ -76,6 +82,7 @@ const config: Config = {
         riseFade: "riseFade .25s ease-out both",
         floatY: "floatY 5.5s ease-in-out infinite",
         shakeX: "shakeX .4s ease-in-out both",
+        scorePop: "scorePop .5s cubic-bezier(.34,1.56,.64,1) both",
       },
     },
   },

@@ -4,6 +4,10 @@
 // The public state below must NEVER carry: other players' hands, the hidden
 // trump suit (pre-reveal), deck order or future cards. Hands travel only via
 // the private YOUR_TN_HAND / TN_BIDDER_PRIVATE events, one socket at a time.
+//
+// All four traditional trump mechanics are INTEGRATED into gameplay: there is
+// no room-level mode. Each hand, the bid winner chooses how to set trump —
+// declare a suit, take the automatic 7th card, or go Joker (no suit).
 // =============================================================================
 
 // ---- Cards ------------------------------------------------------------------
@@ -60,16 +64,26 @@ export function tnCardToString(card: TnCard): string {
   return `${TN_RANK_LABELS[card.rank]}${TN_SUIT_SYMBOLS[card.suit]}`;
 }
 
-// ---- Room-level configuration ------------------------------------------------
+// ---- Game type ----------------------------------------------------------------
 
 export type GameType = "POKER" | "TWENTY_NINE";
 
-export type TnTrumpMode = "REGULAR" | "SEVENTH_CARD" | "JOKER" | "MARRIAGE";
+/**
+ * How trump is established for the CURRENT hand — chosen by the bid winner
+ * at trump setup (there is no room-level mode):
+ *  - SUIT: bidder declares a hidden suit (marriage K+Q bonus applies to it)
+ *  - SEVENTH_CARD: automatic — suit of the fixed 3rd card of the bidder's
+ *    second batch (redeal if it is their sole card of that suit)
+ *  - JOKER: no suit; J > 9 > A > 10 are universal power ranks
+ */
+export type TnTrumpStyle = "SUIT" | "SEVENTH_CARD" | "JOKER";
 
-export interface TwentyNineRoomSettings {
-  trumpMode: TnTrumpMode;
-  /** First team to win this many rounds wins the match. Default 6. */
-  roundsToWin: number;
+/** What the bid winner may pick at trump setup. */
+export type TnTrumpChoice = TnSuit | TnTrumpStyle;
+
+export function isTnTrumpChoice(v: unknown): v is TnTrumpChoice {
+  if (v === "SEVENTH_CARD" || v === "JOKER") return true;
+  return typeof v === "string" && ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"].includes(v);
 }
 
 // ---- Seats & teams ------------------------------------------------------------
@@ -98,15 +112,15 @@ export interface TnSeatView {
 
 /**
  * Lifecycle of one 29 room.
- * REDEALING is the cancelled-hand path (all-pass bidding or invalid
- * seventh-card trump): cards are collected, reshuffled and redealt with the
- * SAME dealer — the dealer only advances after a hand completes normally.
+ * REDEALING is the cancelled-hand path (all-pass bidding or invalid seventh-
+ * card trump): cards are collected, reshuffled and redealt with the SAME
+ * dealer — the dealer only advances after a hand completes normally.
  */
 export enum TnPhase {
   WAITING_FOR_PLAYERS = "WAITING_FOR_PLAYERS",
   DEALING_BATCH_1 = "DEALING_BATCH_1",
   BIDDING = "BIDDING",
-  TRUMP_SETUP = "TRUMP_SETUP", // bidder declares suit (REGULAR/MARRIAGE) or seventh-card resolution
+  TRUMP_SETUP = "TRUMP_SETUP", // bid winner chooses style (+suit when SUIT)
   DEALING_BATCH_2 = "DEALING_BATCH_2",
   PLAYING = "PLAYING",
   ROUND_SCORED = "ROUND_SCORED", // round summary on screen before next deal
@@ -123,7 +137,7 @@ export interface TnBidState {
   passedSeatIndexes: number[];
   /** Seat whose turn it is to bid/pass right now. */
   turnSeatIndex: number | null;
-  /** Chronological log for UI display. */
+  /** Chronological log for UI display (and match-once tie legality). */
   history: { seatIndex: number; bid?: number }[];
 }
 
@@ -149,7 +163,7 @@ export type TnTrumpView =
   | { state: "NOT_SET" }
   | { state: "HIDDEN" }
   | { state: "REVEALED"; suit: TnSuit }
-  | { state: "JOKER_MODE" }; // joker mode has no suit by design
+  | { state: "JOKER_MODE" }; // joker hand: no suit by design
 
 // ---- Round summary -------------------------------------------------------------
 
@@ -164,6 +178,7 @@ export interface TnRoundSummary {
   /** Team that declared a valid marriage this round, if any. */
   marriageTeam: TnTeam | null;
   matchScoreAfter: TnTeamTotals;
+  trumpStyle: TnTrumpStyle;
 }
 
 // ---- Turn timing (offline fallback only) ----------------------------------------
@@ -172,7 +187,7 @@ export interface TnRoundSummary {
  * Connected players NEVER have deadlines. This appears only while a
  * DISCONNECTED seat's turn is pending: if they do not reconnect before
  * `deadline` (server epoch-ms) the server auto-plays for them
- * (bidding → pass, card play → lowest legal card).
+ * (bidding → pass, card play → lowest legal card). Bots never appear here.
  */
 export interface TnOfflineFallback {
   seatIndex: number;
@@ -211,9 +226,13 @@ export interface PublicTwentyNineState {
   phase: TnPhase;
   seats: TnSeatView[]; // always length 4
   dealerSeatIndex: number | null;
-  trumpMode: TnTrumpMode;
+  /**
+   * How THIS hand's trump is being established — null until the bid winner
+   * picks at TRUMP_SETUP. Replaces the old room-level mode.
+   */
+  trumpStyle: TnTrumpStyle | null;
   trump: TnTrumpView;
-  /** Set once any side validly declares marriage (MARRIAGE mode). */
+  /** Set once any side validly declares a K+Q marriage on the active suit. */
   marriageDeclaredBy: TnTeam | null;
   bids: TnBidState | null; // non-null during BIDDING/REDEALING-from-bids
   trick: TnTrickPlay[]; // current trick's plays, in play order
@@ -222,7 +241,7 @@ export interface PublicTwentyNineState {
   capturedPoints: TnTeamTotals; // running card-point totals (public info)
   roundNumber: number;
   matchScore: TnTeamTotals;
-  roundsToWin: number;
+  roundsToWin: number; // universally 6
   winnerTeam: TnTeam | null; // set when MATCH_OVER
   lastRoundSummary: TnRoundSummary | null;
   actingSeatIndex: number | null;
@@ -241,14 +260,14 @@ export interface YourTnHandPayload {
 
 /**
  * TN_BIDDER_PRIVATE — sent to the bid winner only.
- * REGULAR / MARRIAGE: empty marker ("you may choose a suit").
- * SEVENTH_CARD: carries the indicator card so the bidder knows which card's
- * suit is trump. This card stays in their hand; it cannot be played until
- * trump is revealed through the normal CALL_TRUMP flow.
+ * CHOOSE_TRUMP: your call — pick a suit / 7th card / joker.
+ * SEVENTH_INDICATOR: sent AFTER they chose the seventh-card option; carries
+ * the indicator card so they know which suit became trump (it stays in their
+ * hand and cannot be played until revealed via CALL_TRUMP).
  */
 export type TnBidderPrivatePayload =
-  | { mode: "REGULAR" | "MARRIAGE"; handNumber: number }
-  | { mode: "SEVENTH_CARD"; handNumber: number; indicatorCard: TnCard };
+  | { kind: "CHOOSE_TRUMP"; handNumber: number }
+  | { kind: "SEVENTH_INDICATOR"; handNumber: number; indicatorCard: TnCard };
 
 // ---- Client -> Server moves ---------------------------------------------------------
 
@@ -257,8 +276,12 @@ export interface TnBidPayload {
   bid?: number;
 }
 
+/**
+ * The bid winner's trump-setup decision: a suit (hidden regular trump with
+ * marriage potential), the automatic 7th card, or a joker hand.
+ */
 export interface TnDeclareTrumpPayload {
-  suit: TnSuit;
+  choice: TnTrumpChoice;
 }
 
 /** Reveal the hidden trump (caller must be void in the led suit; server validates). */
@@ -268,7 +291,7 @@ export interface TnCallTrumpPayload {
 
 /**
  * Declare a marriage (K+Q of `suit` currently held by the declaring side;
- * server verifies possession AND that `suit` is the true trump suit).
+ * server verifies possession AND that `suit` is the active hand's trump suit).
  */
 export interface TnDeclareMarriagePayload {
   suit: TnSuit;

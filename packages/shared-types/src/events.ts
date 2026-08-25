@@ -15,7 +15,6 @@ import {
   TnTeam,
   TnTeamTotals,
   TnTrickPlay,
-  TwentyNineRoomSettings,
   YourTnHandPayload,
 } from "./twentynine";
 
@@ -28,8 +27,6 @@ export interface RoomConfig {
   turnTimeSeconds: number;
   /** Absent/undefined on legacy clients => POKER. */
   gameType?: GameType;
-  /** Required when gameType is TWENTY_NINE; ignored otherwise. */
-  twentyNine?: TwentyNineRoomSettings;
 }
 
 // ---- Client -> Server (locked V1 protocol) ----
@@ -44,8 +41,8 @@ export interface CreateRoomPayload {
   turnTimeSeconds: number;
   /** Absent => POKER (legacy clients). */
   gameType?: GameType;
-  /** Required when gameType is TWENTY_NINE; ignored otherwise. */
-  twentyNine?: TwentyNineRoomSettings;
+  /** TWENTY_NINE only: fill the other three seats with server-side bots (single player). */
+  vsBots?: boolean;
 }
 
 export interface JoinRoomPayload {
