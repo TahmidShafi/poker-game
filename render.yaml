@@ -8,7 +8,9 @@ services:
     name: poker-game-server
     runtime: node
     plan: free
-    buildCommand: npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build -w packages/shared-types && npm run build -w packages/poker-engine && npm run build -w packages/twentynine-engine && npm run build -w apps/server
+    # `migrate deploy` applies pending migrations idempotently before the
+    # client is generated - safe on every deploy, no-op when up to date.
+    buildCommand: npm ci && npx prisma migrate deploy --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.prisma && npm run build -w packages/shared-types && npm run build -w packages/poker-engine && npm run build -w packages/twentynine-engine && npm run build -w apps/server
     startCommand: node apps/server/dist/index.js
     healthCheckPath: /health
     autoDeploy: true
