@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { ShowdownResult } from "@poker/shared-types";
 import { describeHand } from "@poker/shared-types";
 import { PlayingCard } from "./PlayingCard";
+import { useGame } from "../lib/store";
+import { SeatAvatar } from "./SeatAvatar";
 
 /**
  * Showdown overlay: each revealed player with their rich hand name,
@@ -16,6 +18,7 @@ export function WinnerBanner({
   results: ShowdownResult[];
   onClose: () => void;
 }) {
+  const { state } = useGame();
   const grouped = useMemo(() => {
     // Group by seat so split-pot winners show one combined row.
     const map = new Map<number, { username: string; total: number; hand: ShowdownResult["hand"] | null }>();
@@ -43,7 +46,15 @@ export function WinnerBanner({
           {grouped.map(([seatIndex, info]) => (
             <li key={seatIndex} className="rounded-2xl bg-white/[0.05] p-3">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-bold">{info.username}</span>
+                <span className="flex items-center gap-2 font-bold">
+                  <span className="h-6 w-6 shrink-0 overflow-hidden rounded-full ring-1 ring-white/15">
+                    <SeatAvatar
+                      username={info.username}
+                      avatar={state?.seats[seatIndex]?.avatar}
+                    />
+                  </span>
+                  {info.username}
+                </span>
                 <span className="text-gold font-bold tabnum">+{info.total.toLocaleString()}</span>
               </div>
               <div className="mt-0.5 flex items-center justify-between gap-2">

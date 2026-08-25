@@ -3,8 +3,7 @@
 import React from "react";
 import type { Seat } from "@poker/shared-types";
 import { TimerRing, useCountdown } from "./TimerRing";
-
-const SEAT_HUES = [200, 260, 150, 20, 320, 55, 100, 175, 285, 0];
+import { SeatAvatar } from "./SeatAvatar";
 
 const STATUS_MICRO: Partial<Record<Seat["status"], string>> = {
   FOLDED: "folded",
@@ -32,23 +31,19 @@ export function CompactSeat({
   totalMs: number;
 }) {
   const remaining = useCountdown(isActing ? turnDeadline : null, isActing);
-  const initial = (seat.username ?? "?").charAt(0).toUpperCase();
-  const hue = SEAT_HUES[seat.seatIndex % SEAT_HUES.length] ?? 200;
-  const avatarBg = `linear-gradient(160deg, hsl(${hue} 45% 38%), hsl(${hue} 55% 22%))`;
   const secs = Math.ceil(remaining / 1000);
 
   const avatar = (
     <div
-      className={`grid h-10 w-10 place-items-center rounded-full text-base font-bold ring-2 transition-shadow ${
+      className={`grid h-10 w-10 place-items-center overflow-hidden rounded-full text-base font-bold ring-2 transition-shadow ${
         isMe && isActing
           ? "ring-emerald-400 shadow-glowGreen"
           : isActing
           ? "ring-gold shadow-glowGold"
           : "ring-white/10"
       }`}
-      style={{ background: avatarBg }}
     >
-      <span className={seat.status === "DISCONNECTED" ? "opacity-40" : ""}>{initial}</span>
+      <SeatAvatar username={seat.username} avatar={seat.avatar} dimmed={seat.status === "DISCONNECTED"} />
     </div>
   );
 

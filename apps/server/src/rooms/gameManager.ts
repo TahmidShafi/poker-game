@@ -62,6 +62,8 @@ interface PlayerRecord {
   sessionToken: string;
   socketIds: Set<string>;
   lastSeen: number;
+  /** Avatar picture index chosen at join (1-10). */
+  avatar?: number;
 }
 
 /**
@@ -149,7 +151,7 @@ export class GameManager {
 
   join(
     username: string,
-    opts: { sessionToken?: string; socketId: string }
+    opts: { sessionToken?: string; socketId: string; avatar?: number }
   ): { ok: true; seatIndex: number; playerId: string; sessionToken: string } | { ok: false; error: string } {
     if (this.destroyed) return { ok: false, error: "room no longer exists" };
     const name = username.trim();
@@ -196,12 +198,14 @@ export class GameManager {
       sessionToken,
       socketIds: new Set([opts.socketId]),
       lastSeen: Date.now(),
+      avatar: opts.avatar,
     };
     this.players.set(playerId, record);
     this.seatToPlayer.set(seat.seatIndex, playerId);
 
     seat.playerId = playerId;
     seat.username = name;
+    seat.avatar = opts.avatar;
     seat.coins = this.config.startingCoins;
     seat.status = "SITTING_OUT"; // waits for the next hand if one is running
     seat.preAction = null;

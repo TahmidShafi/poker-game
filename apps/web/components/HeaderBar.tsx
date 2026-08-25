@@ -3,6 +3,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { PublicGameState } from "@poker/shared-types";
 import { useGame } from "../lib/store";
+import { SeatAvatar } from "./SeatAvatar";
+import {
+  requestTurnAlertPermission,
+  setTurnAlertsEnabled,
+  turnAlertsBlocked,
+  turnAlertsEnabled,
+} from "../lib/notify";
 
 function Logo() {
   return (
@@ -38,9 +45,16 @@ export function HeaderBar({
   const { me, status, leaveRoom, soundOn, toggleSound } = useGame();
   const [copied, setCopied] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
+  const [alertsOn, setAlertsOn] = useState(false);
+  const [alertsBlocked, setAlertsBlocked] = useState(false);
   const [now, setNow] = useState(Date.now());
   const gearRefM = useRef<HTMLDivElement>(null);
   const gearRefD = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setAlertsOn(turnAlertsEnabled());
+    setAlertsBlocked(turnAlertsBlocked());
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -86,6 +100,21 @@ export function HeaderBar({
   const iconBtnSm =
     "grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-panel ring-1 line text-white/75 active:bg-white/10";
 
+  const toggleAlerts = async () => {
+    if (alertsOn) {
+      setTurnAlertsEnabled(false);
+      setAlertsOn(false);
+      return;
+    }
+    const granted = await requestTurnAlertPermission();
+    if (!granted) {
+      // Still allow title-flash/vibrate-only mode; surface blocked state.
+      setAlertsBlocked(turnAlertsBlocked());
+    }
+    setTurnAlertsEnabled(true);
+    setAlertsOn(true);
+  };
+
   const gearMenu = (
     <div className="absolute right-0 top-11 z-50 w-52 rounded-2xl bg-panel p-2 text-sm shadow-panel ring-1 line animate-riseFade">
       <label className="flex cursor-pointer items-center justify-between rounded-xl px-3 py-2 hover:bg-white/5">
@@ -94,6 +123,31 @@ export function HeaderBar({
           type="checkbox"
           checked={soundOn}
           onChange={toggleSound}
+          className="h-4 w-4 accent-violet-500"
+        />
+      </label>
+      <label
+        className={`flex items-center justify-between rounded-xl px-3 py-2 hover:bg-white/5 ${
+          alertsOn ? "cursor-pointer" : "cursor-pointer"
+        }`}
+        title={
+          alertsBlocked
+            ? "Browser notifications are blocked — title flash & vibration still work"
+            : "Flash the tab title, notify and vibrate when it's your turn"
+        }
+      >
+        <span>
+          Turn alerts
+          {alertsBlocked && (
+            <span className="block text-[9px] uppercase tracking-wider text-amber-300/80">
+              notifications blocked
+            </span>
+          )}
+        </span>
+        <input
+          type="checkbox"
+          checked={alertsOn}
+          onChange={toggleAlerts}
           className="h-4 w-4 accent-violet-500"
         />
       </label>
@@ -204,8 +258,10 @@ export function HeaderBar({
 
           {/* Self chip */}
           <div className="flex items-center gap-2 rounded-xl bg-panel2 py-1 pl-1 pr-3 ring-1 line">
-            <span className="relative grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-emerald-700 to-emerald-900 text-sm font-bold ring-1 ring-white/15">
-              {(mySeat?.username ?? me.roomCode).charAt(0).toUpperCase()}
+            <span className="relative h-8 w-8">
+              <span className="block h-8 w-8 overflow-hidden rounded-full ring-1 ring-white/15">
+                <SeatAvatar username={mySeat?.username} avatar={mySeat?.avatar} />
+              </span>
               <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-panel2" />
             </span>
             <div className="leading-none">

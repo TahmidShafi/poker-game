@@ -27,6 +27,8 @@ export interface Seat {
   seatIndex: number; // 0-9
   playerId: string | null;
   username: string | null;
+  /** Chosen avatar picture index (1-10); undefined = letter-disc fallback. */
+  avatar?: number;
   coins: number;
   currentBetThisRound: number;
   totalInvestedThisHand: number;

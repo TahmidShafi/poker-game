@@ -3,6 +3,7 @@
 import React from "react";
 import type { Seat } from "@poker/shared-types";
 import { ChipStack } from "./ChipStack";
+import { SeatAvatar } from "./SeatAvatar";
 
 const STATUS_LABEL: Partial<Record<Seat["status"], string>> = {
   FOLDED: "folded",
@@ -10,8 +11,6 @@ const STATUS_LABEL: Partial<Record<Seat["status"], string>> = {
   BUSTED: "busted",
   SITTING_OUT: "waiting",
 };
-
-const SEAT_HUES = [200, 260, 150, 20, 320, 55, 100, 175, 285, 0];
 
 export function PlayerBadge({
   seat,
@@ -24,10 +23,6 @@ export function PlayerBadge({
   isMe: boolean;
   compact?: boolean;
 }) {
-  const initial = (seat.username ?? "?").charAt(0).toUpperCase();
-  const hue = SEAT_HUES[seat.seatIndex % SEAT_HUES.length] ?? 200;
-  const avatarBg = `linear-gradient(160deg, hsl(${hue} 45% 38%), hsl(${hue} 55% 22%))`;
-
   return (
     <div
       className={`flex flex-col items-center gap-1 transition-opacity duration-200 ${
@@ -37,7 +32,7 @@ export function PlayerBadge({
       <div className="relative">
         {/* Avatar disc */}
         <div
-          className={`grid place-items-center rounded-full font-bold text-lg ring-2 transition-shadow ${
+          className={`grid place-items-center rounded-full ring-2 transition-shadow ${
             compact ? "h-11 w-11" : "h-14 w-14"
           } ${
             isMe && isActing
@@ -46,9 +41,8 @@ export function PlayerBadge({
               ? "ring-gold shadow-glowGold"
               : "ring-white/10"
           }`}
-          style={{ background: avatarBg }}
         >
-          <span className={seat.status === "DISCONNECTED" ? "opacity-40" : ""}>{initial}</span>
+          <SeatAvatar username={seat.username} avatar={seat.avatar} dimmed={seat.status === "DISCONNECTED"} />
         </div>
 
         {/* Seat number */}

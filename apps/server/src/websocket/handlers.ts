@@ -28,6 +28,11 @@ export function registerSocketHandlers(
   // of every loan as creditor or debtor.
   const isValidSeatIndex = (v: unknown): v is number =>
     typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 10;
+  // Avatar pictures are 1-10; anything else falls back to the letter disc.
+  const isValidAvatar = (v: unknown): v is number =>
+    typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 10;
+  const sanitizeAvatar = (v: unknown): number | undefined =>
+    isValidAvatar(v) ? v : undefined;
 
   const clampConfig = (raw: {
     startingCoins: unknown;
@@ -78,7 +83,10 @@ export function registerSocketHandlers(
       if (!validated.ok) return ack?.({ ok: false, error: validated.error });
       try {
         const room = registry.createRoom(validated.config);
-        const joined = room.join(payload.username, { socketId: socket.id });
+        const joined = room.join(payload.username, {
+          socketId: socket.id,
+          avatar: sanitizeAvatar((payload as { avatar?: unknown }).avatar),
+        });
         if (!joined.ok) {
           registry.removeRoom(room.roomCode); // don't leave an orphan empty room
           return ack?.({ ok: false, error: joined.error });
@@ -111,6 +119,7 @@ export function registerSocketHandlers(
       const joined = room.join(payload.username, {
         sessionToken: typeof payload.sessionToken === "string" ? payload.sessionToken : undefined,
         socketId: socket.id,
+        avatar: sanitizeAvatar((payload as { avatar?: unknown }).avatar),
       });
       if (!joined.ok) return ack?.({ ok: false, error: joined.error });
       socket.join(room.socketRoom());

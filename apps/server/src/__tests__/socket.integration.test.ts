@@ -87,12 +87,13 @@ const CONFIG = { startingCoins: 1000, smallBlind: 10, bigBlind: 20, turnTimeSeco
 
 async function makeRoom(
   username: string,
-  cfgOverride?: Partial<typeof CONFIG>
+  cfgOverride?: Partial<typeof CONFIG>,
+  avatar?: number
 ): Promise<{ socket: ClientSocket; res: RoomAck; w: ReturnType<typeof watch> }> {
   const socket = connect();
   const w = watch(socket);
   const res = await new Promise<RoomAck>((resolve) => {
-    socket.emit("CREATE_ROOM", { ...CONFIG, ...cfgOverride, username }, (r: RoomAck) => resolve(r));
+    socket.emit("CREATE_ROOM", { ...CONFIG, ...cfgOverride, username, avatar }, (r: RoomAck) => resolve(r));
   });
   return { socket, res, w };
 }
@@ -224,6 +225,50 @@ describe("joining rules", () => {
     expect(JSON.stringify(room.config)).not.toBe(cfgBefore);
     host.disconnect();
   }, 10000);
+});
+
+describe("avatars", () => {
+  it("stores a valid avatar on the seat and it survives reconnect", async () => {
+    const { socket: host, res, w } = await makeRoom("avaHost", undefined, 3);
+    expect(res.ok).toBe(true);
+    expect(w.latest().seats[0]!.avatar).toBe(3);
+
+    const token = res.sessionToken!;
+    host.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+    const again = connect();
+    const stateP = once(again, "GAME_STATE");
+    const rec = await new Promise<RoomAck>((resolve) => {
+      again.emit("RECONNECT", { sessionToken: token }, (r: RoomAck) => resolve(r));
+    });
+    expect(rec.ok).toBe(true);
+    const state = await stateP;
+    expect(state.seats[0]!.avatar).toBe(3);
+    again.disconnect();
+  }, 15000);
+
+  it("joins carry avatars; out-of-range values fall back to undefined", async () => {
+    const { socket: host, res, w: hostW } = await makeRoom("host");
+    const good = connect();
+    const joined = await joinRoom(good, res.roomCode!, "good");
+    void joined;
+    // Re-join with avatar through a second guest.
+    const g2 = connect();
+    await new Promise<RoomAck>((resolve) => {
+      g2.emit("JOIN_ROOM", { username: "picky", roomCode: res.roomCode!, avatar: 10 }, (r) => resolve(r));
+    });
+    const bad = connect();
+    await new Promise<RoomAck>((resolve) => {
+      bad.emit("JOIN_ROOM", { username: "bad", roomCode: res.roomCode!, avatar: 99 }, (r) => resolve(r));
+    });
+
+    const st = hostW.latest();
+    const byName = new Map(st.seats.map((s) => [s.username, s.avatar]));
+    expect(byName.get("good")).toBeUndefined(); // joined without avatar
+    expect(byName.get("picky")).toBe(10);
+    expect(byName.get("bad")).toBeUndefined(); // 99 rejected
+    host.disconnect(); good.disconnect(); g2.disconnect(); bad.disconnect();
+  }, 20000);
 });
 
 function v_foldLoop(socket: ClientSocket, seats: number[]): void {

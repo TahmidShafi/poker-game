@@ -21,6 +21,8 @@ import type {
 import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
 import { isMuted, playChips, playTurn, playWin, setMuted } from "./sound";
+import { beginTurnAlerts, endTurnAlerts } from "./notify";
+import { fireConfetti, prefersReducedMotion } from "./celebrations";
 
 export type ConnStatus = "connecting" | "online" | "offline";
 
@@ -63,6 +65,12 @@ export interface StreetTimeline {
   showdown: number | null;
 }
 
+/** Big-moment takeover shown above the table. */
+export interface CelebrationView {
+  kind: "royal" | "quads";
+  label: string;
+}
+
 const EMPTY_STATS: SessionStats = {
   handsPlayed: 0,
   handsWon: 0,
@@ -86,10 +94,12 @@ interface GameContextValue {
   session: SessionStats;
   recentHands: RecentHand[];
   timeline: StreetTimeline;
+  celebration: CelebrationView | null;
+  clearCelebration: () => void;
   soundOn: boolean;
   toggleSound: () => void;
-  createRoom: (username: string, cfg: RoomConfig) => Promise<RoomAck>;
-  joinRoom: (roomCode: string, username: string) => Promise<RoomAck>;
+  createRoom: (username: string, cfg: RoomConfig, avatar?: number) => Promise<RoomAck>;
+  joinRoom: (roomCode: string, username: string, avatar?: number) => Promise<RoomAck>;
   tryReconnect: (token: string) => void;
   leaveRoom: () => void;
   act: (action: PlayerAction, amount?: number) => void;
@@ -118,12 +128,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [timeline, setTimeline] = useState<StreetTimeline>({
     preflop: null, flop: null, turn: null, river: null, showdown: null,
   });
+  const [celebration, setCelebration] = useState<CelebrationView | null>(null);
   const [soundOn, setSoundOn] = useState(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mutable refs used inside socket handlers (avoid stale closures).
   const meRef = useRef<Me | null>(null);
   useEffect(() => { meRef.current = me; }, [me]);
+  const stateRef = useRef<PublicGameState | null>(null);
+  useEffect(() => { stateRef.current = state; }, [state]);
   const handStartAt = useRef(0);
   const myDealtIn = useRef(false);
   const lastCommunity = useRef<Card[]>([]);
@@ -136,6 +150,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const clearCelebration = useCallback(() => {
+    if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
+    celebrationTimer.current = null;
+    setCelebration(null);
+  }, []);
+
+  const triggerCelebration = useCallback((kind: CelebrationView["kind"], label: string) => {
+    if (prefersReducedMotion()) return;
+    setCelebration({ kind, label });
+    if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
+    celebrationTimer.current = setTimeout(() => setCelebration(null), 2400);
+  }, []);
+
   useEffect(() => {
     const socket = createSocket();
     socketRef.current = socket;
@@ -144,7 +171,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("disconnect", () => setStatus("offline"));
     socket.on("connect_error", () => setStatus("offline"));
 
-    socket.on("GAME_STATE", (s) => setState(s));
+    socket.on("GAME_STATE", (s) => {
+      setState(s);
+      // Disarm turn alerts the moment it is no longer our action.
+      const mine = meRef.current;
+      if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
+    });
 
     socket.on("YOUR_HOLE_CARDS", (cards) => {
       setMyCards(cards);
@@ -177,6 +209,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setShowdown(results);
       const t = elapsed();
       if (t !== null) setTimeline((prev) => (prev.showdown === null ? { ...prev, showdown: t } : prev));
+
+      // Big-moment takeover for the best winning category.
+      const winners = results.filter((r) => r.amountWon > 0);
+      const royal = winners.find((r) => r.hand.category === HandCategory.ROYAL_FLUSH);
+      if (royal) triggerCelebration("royal", describeHand(royal.hand));
+      else {
+        const quads = winners.find((r) => r.hand.category === HandCategory.FOUR_OF_A_KIND);
+        if (quads) triggerCelebration("quads", describeHand(quads.hand));
+      }
 
       // Track my best hand this sitting.
       const mine = results.find(
@@ -218,6 +259,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           ].slice(0, 20)
         );
         if (winAmt > 0) playWin();
+        // Confetti on genuinely big pots (>= 50 big blinds).
+        const bb = stateRef.current?.bigBlind ?? 20;
+        if (winAmt >= bb * 50) fireConfetti();
       }
 
       setShowdown((cur) => cur); // winner banner clears on its own timer below
@@ -225,8 +269,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       myDealtIn.current = false;
     });
 
-    socket.on("TURN_CHANGED", ({ seatIndex }) => {
-      if (meRef.current?.seatIndex === seatIndex) playTurn();
+    socket.on("TURN_CHANGED", ({ seatIndex, deadline }) => {
+      const mine = meRef.current;
+      if (mine?.seatIndex === seatIndex) {
+        playTurn();
+        beginTurnAlerts({
+          roomCode: mine.roomCode,
+          seconds: Math.max(1, Math.round((deadline - Date.now()) / 1000)),
+        });
+      }
     });
 
     socket.on("ACTION_REJECTED", ({ reason }) => pushToast(reason, "error"));
@@ -240,10 +291,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("LOAN_REPAID", () => { pushToast("loan repaid", "info"); playChips(); });
 
     return () => {
+      endTurnAlerts();
+      if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [pushToast]);
+  }, [pushToast, triggerCelebration]);
 
   // Auto-reconnect via stored token whenever the socket comes online.
   useEffect(() => {
@@ -300,20 +353,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createRoom = useCallback(
-    (username: string, cfg: RoomConfig) => {
+    (username: string, cfg: RoomConfig, avatar?: number) => {
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
-        s.emit("CREATE_ROOM", { username, ...cfg }, (ack) => resolve(bindAck(s, ack)));
+        s.emit("CREATE_ROOM", { username, ...cfg, avatar }, (ack) => resolve(bindAck(s, ack)));
       });
     },
     [bindAck]
   );
 
   const joinRoom = useCallback(
-    (roomCode: string, username: string) => {
+    (roomCode: string, username: string, avatar?: number) => {
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
-        s.emit("JOIN_ROOM", { username, roomCode }, (ack) => resolve(bindAck(s, ack)));
+        s.emit("JOIN_ROOM", { username, roomCode, avatar }, (ack) => resolve(bindAck(s, ack)));
       });
     },
     [bindAck]
@@ -339,6 +392,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const leaveRoom = useCallback(() => {
     socketRef.current?.emit("LEAVE_ROOM");
+    endTurnAlerts();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROOM_KEY);
     setMe(null);
@@ -392,6 +446,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       session,
       recentHands,
       timeline,
+      celebration,
+      clearCelebration,
       soundOn,
       toggleSound,
       createRoom,
@@ -406,7 +462,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       status, me, state, myCards, showdown, toast, incomingLoan,
-      session, recentHands, timeline, soundOn, toggleSound,
+      session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,
     ]

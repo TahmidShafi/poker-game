@@ -10,6 +10,7 @@ import { MobileActionBar } from "../components/MobileActionBar";
 import { HandRankingsModal } from "../components/HandRankingsModal";
 import { WinnerBanner } from "../components/WinnerBanner";
 import { LoanRequestModal, RepayDialog } from "../components/LoanModals";
+import { Celebration } from "../components/Celebration";
 import { HeaderBar } from "../components/HeaderBar";
 import { LeftSidebar } from "../components/LeftSidebar";
 import { RightSidebar } from "../components/RightSidebar";
@@ -51,6 +52,8 @@ export default function HomePage() {
     clearShowdown,
     toast,
     incomingLoan,
+    celebration,
+    clearCelebration,
     leaveRoom,
     serverUrl,
   } = useGame();
@@ -134,6 +137,7 @@ export default function HomePage() {
               {showdown && showdown.length > 0 && (
                 <WinnerBanner results={showdown} onClose={clearShowdown} />
               )}
+              <Celebration celebration={celebration} onDone={clearCelebration} />
               {incomingLoan && <LoanRequestModal request={incomingLoan} state={state} />}
               {showRepay && (
                 <RepayDialog state={state} mySeat={mySeat} onClose={() => setShowRepay(false)} />

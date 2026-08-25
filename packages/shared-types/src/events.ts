@@ -15,6 +15,8 @@ export interface RoomConfig {
 
 export interface CreateRoomPayload {
   username: string;
+  /** Avatar picture index (1-10); ignored if out of range. */
+  avatar?: number;
   startingCoins: number;
   smallBlind: number;
   bigBlind: number;
@@ -24,6 +26,8 @@ export interface CreateRoomPayload {
 export interface JoinRoomPayload {
   username: string;
   roomCode: string;
+  /** Avatar picture index (1-10); ignored if out of range. */
+  avatar?: number;
   /** Present when rejoining a room you were previously seated in. */
   sessionToken?: string;
 }
