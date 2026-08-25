@@ -73,6 +73,7 @@ interface PlayerRecord {
 export class GameManager {
   readonly roomCode: string;
   readonly config: RoomConfig;
+  readonly gameType = "POKER" as const;
   table: TableState;
   private readonly io: IO;
   private readonly limits: ServerConfig["limits"];

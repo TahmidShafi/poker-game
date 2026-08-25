@@ -26,6 +26,7 @@ export async function ensureGameSession(
       create: {
         roomCode,
         status: "WAITING_FOR_PLAYERS",
+        gameType: config.gameType === "TWENTY_NINE" ? "TWENTY_NINE" : "POKER",
         startingCoins: config.startingCoins,
         smallBlind: config.smallBlind,
         bigBlind: config.bigBlind,
@@ -171,6 +172,62 @@ export async function recordRoomClosed(roomCode: string): Promise<void> {
     }),
     `recordRoomClosed(${roomCode})`
   );
+}
+
+/**
+ * Twenty-Nine round summary. Reuses the HandHistory table with a JSON payload
+ * (communityCards is empty - 29 has no board).
+ */
+export async function recordTnRoundFinished(
+  roomCode: string,
+  summary: import("@poker/shared-types").TnRoundSummary,
+  players: { seatIndex: number; username: string | null; team: string }[]
+): Promise<void> {
+  const prisma = db();
+  const gameId = await gameIdFor(roomCode);
+  if (!prisma || !gameId) return;
+
+  try {
+    await markInProgress(gameId);
+    for (const p of players) {
+      if (!p.username) continue;
+      const playerId = await upsertPlayerByUsername(p.username);
+      if (!playerId) continue;
+      await prisma.playerSession.upsert({
+        where: { gameId_playerId: { gameId, playerId } },
+        create: {
+          gameId,
+          playerId,
+          seat: p.seatIndex,
+          currentCoins: summary.matchScoreAfter[p.team as "A" | "B"] ?? 0,
+        },
+        update: { seat: p.seatIndex },
+      });
+    }
+    await prisma.handHistory.upsert({
+      where: { gameId_handNumber: { gameId, handNumber: summary.roundNumber } },
+      create: {
+        gameId,
+        handNumber: summary.roundNumber,
+        communityCards: "",
+        winnerData: json([
+          {
+            winnerTeam: summary.winnerTeam,
+            biddingTeam: summary.biddingTeam,
+            bid: summary.bid,
+            requirement: summary.requirement,
+            captured: summary.captured,
+            marriageTeam: summary.marriageTeam,
+          },
+        ]),
+        potData: json(summary.captured),
+        pot: 29,
+      },
+      update: {},
+    });
+  } catch (err) {
+    console.error("[persistence] recordTnRoundFinished failed:", (err as Error).message);
+  }
 }
 
 export async function recordLoanEvent(

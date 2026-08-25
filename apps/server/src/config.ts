@@ -18,6 +18,8 @@ export interface ServerConfig {
     debtCeilingMultiple: number; // x startingCoins
     autoStartDelayMs: number;
     disconnectGraceMs: number; // seat freed after being gone this long between hands
+    /** Twenty-Nine only: countdown for a DISCONNECTED seat whose turn is up (connected players never have timers). */
+    tnOfflineFallbackSeconds: number;
   };
 }
 
@@ -55,6 +57,7 @@ export function loadConfig(): ServerConfig {
       debtCeilingMultiple: 2,
       autoStartDelayMs: 4000,
       disconnectGraceMs: 60_000,
+      tnOfflineFallbackSeconds: intEnv("TN_OFFLINE_FALLBACK_SECONDS", 120),
     },
   };
 }

@@ -1,6 +1,8 @@
 import { Server } from "socket.io";
-import type { ClientToServerEvents, ServerToClientEvents } from "@poker/shared-types";
+import type { ClientToServerEvents, ServerToClientEvents, TnCard, TnSuit, TnTrumpMode } from "@poker/shared-types";
 import type { GameManager, GameManagerHooks } from "../rooms/gameManager";
+import type { RoomLike, RoomPlayerRef } from "../rooms/roomLike";
+import type { TwentyNineGameManager } from "../rooms/twentynine/twentyNineManager";
 import { RoomRegistry } from "../rooms/roomRegistry";
 import { ServerConfig } from "../config";
 import type { Socket } from "socket.io";
@@ -8,17 +10,21 @@ import type { Socket } from "socket.io";
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type SocketType = Socket<ClientToServerEvents, ServerToClientEvents>;
 
+const TN_TRUMP_MODES: TnTrumpMode[] = ["REGULAR", "SEVENTH_CARD", "JOKER", "MARRIAGE"];
+const TN_SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
+
 /**
  * Wires every socket event to the room layer. This layer does NO game
- * decisions - it only validates payload shapes, routes to the right
- * GameManager and translates errors into ACTION_REJECTED / acks.
+ * decisions - it only validates payload shapes, routes to the right room
+ * manager and translates errors into ACTION_REJECTED / acks.
  */
 export function registerSocketHandlers(
   io: IO,
   config: ServerConfig,
-  hooks: GameManagerHooks = {}
+  hooks: GameManagerHooks = {},
+  tnHooks: import("../rooms/twentynine/twentyNineManager").TnManagerHooks = {}
 ): RoomRegistry {
-  const registry = new RoomRegistry(io, config, hooks);
+  const registry = new RoomRegistry(io, config, hooks, tnHooks);
 
   const isNonEmptyString = (v: unknown): v is string =>
     typeof v === "string" && v.trim().length > 0;
@@ -34,24 +40,52 @@ export function registerSocketHandlers(
   const sanitizeAvatar = (v: unknown): number | undefined =>
     isValidAvatar(v) ? v : undefined;
 
-  const clampConfig = (raw: {
-    startingCoins: unknown;
-    smallBlind: unknown;
-    bigBlind: unknown;
-    turnTimeSeconds: unknown;
-  }): ReturnType<typeof validateRoomConfig> => validateRoomConfig(raw, config);
-
   function validateRoomConfig(
     raw: {
       startingCoins: unknown;
       smallBlind: unknown;
       bigBlind: unknown;
       turnTimeSeconds: unknown;
+      gameType?: unknown;
+      twentyNine?: unknown;
+      twentynine?: unknown;
     },
     cfg: ServerConfig
   ): { ok: true; config: import("@poker/shared-types").RoomConfig } | { ok: false; error: string } {
     const L = cfg.limits;
-    if (!isPositiveInt(raw.startingCoins) || !isPositiveInt(raw.smallBlind) || !isPositiveInt(raw.bigBlind) || !isPositiveInt(raw.turnTimeSeconds)) {
+    if (!isPositiveInt(raw.startingCoins)) {
+      return { ok: false, error: "room values must be positive integers" };
+    }
+
+    // ---- Twenty-Nine rooms: no blinds/coins economy; validate mode + target.
+    if (raw.gameType === "TWENTY_NINE") {
+      const t = (raw.twentyNine ?? raw.twentynine ?? {}) as Record<string, unknown>;
+      const trumpMode = t.trumpMode;
+      if (typeof trumpMode !== "string" || !TN_TRUMP_MODES.includes(trumpMode as TnTrumpMode)) {
+        return { ok: false, error: "invalid trump mode" };
+      }
+      let roundsToWin = 6;
+      if (t.roundsToWin !== undefined) {
+        if (!Number.isInteger(t.roundsToWin) || (t.roundsToWin as number) < 1 || (t.roundsToWin as number) > 15) {
+          return { ok: false, error: "roundsToWin must be an integer between 1 and 15" };
+        }
+        roundsToWin = t.roundsToWin as number;
+      }
+      return {
+        ok: true,
+        config: {
+          startingCoins: raw.startingCoins as number,
+          smallBlind: 0,
+          bigBlind: 0,
+          turnTimeSeconds: 60,
+          gameType: "TWENTY_NINE",
+          twentyNine: { trumpMode: trumpMode as TnTrumpMode, roundsToWin },
+        },
+      };
+    }
+
+    // ---- Poker rooms (legacy default).
+    if (!isPositiveInt(raw.smallBlind) || !isPositiveInt(raw.bigBlind) || !isPositiveInt(raw.turnTimeSeconds)) {
       return { ok: false, error: "room values must be positive integers" };
     }
     const startingCoins = Math.min(Math.max(raw.startingCoins, L.minStartingCoins), L.maxStartingCoins);
@@ -73,13 +107,18 @@ export function registerSocketHandlers(
     };
   }
 
+  /** Narrows a generic room reference to the 29 manager. */
+  function asTnRoom(room: RoomLike | undefined): TwentyNineGameManager | null {
+    return room && room.gameType === "TWENTY_NINE" ? (room as TwentyNineGameManager) : null;
+  }
+
   io.on("connection", (socket: SocketType) => {
     // ---- CREATE_ROOM -----------------------------------------------------
     socket.on("CREATE_ROOM", (payload, ack) => {
       if (typeof payload !== "object" || payload === null || !isNonEmptyString(payload.username)) {
         return ack?.({ ok: false, error: "invalid CREATE_ROOM payload" });
       }
-      const validated = clampConfig(payload);
+      const validated = validateRoomConfig(payload, config);
       if (!validated.ok) return ack?.({ ok: false, error: validated.error });
       try {
         const room = registry.createRoom(validated.config);
@@ -98,6 +137,7 @@ export function registerSocketHandlers(
           seatIndex: joined.seatIndex,
           sessionToken: joined.sessionToken,
           config: validated.config,
+          gameType: room.gameType,
         });
       } catch (err) {
         return ack?.({ ok: false, error: (err as Error).message });
@@ -132,6 +172,7 @@ export function registerSocketHandlers(
         seatIndex: joined.seatIndex,
         sessionToken: joined.sessionToken,
         config: room.config,
+        gameType: room.gameType,
       });
     });
 
@@ -152,6 +193,7 @@ export function registerSocketHandlers(
         seatIndex: rec.seatIndex,
         sessionToken: rec.sessionToken,
         config: room.config,
+        gameType: room.gameType,
       });
     });
 
@@ -162,13 +204,16 @@ export function registerSocketHandlers(
       for (const r of socket.rooms) socket.leave(r);
     });
 
-    // ---- PLAYER_ACTION ---------------------------------------------------
+    // ---- PLAYER_ACTION (poker only) ---------------------------------------
     const VALID_ACTIONS = new Set(["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALL_IN"]);
     socket.on("PLAYER_ACTION", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) {
         socket.emit("ACTION_REJECTED", { reason: "you are not in a room" });
         return;
+      }
+      if (room.gameType !== "POKER") {
+        return room.reject(socket.id, "not a poker room");
       }
       if (
         typeof payload !== "object" ||
@@ -185,16 +230,17 @@ export function registerSocketHandlers(
         room.reject(socket.id, "amount must be a positive integer");
         return;
       }
-      room.playerAction(socket.id, {
+      (room as GameManager).playerAction(socket.id, {
         action: payload.action as import("@poker/shared-types").PlayerAction,
         amount: amount as number | undefined,
       });
     });
 
-    // ---- SET_PREACTION ----------------------------------------------------
+    // ---- SET_PREACTION (poker only) ----------------------------------------
     socket.on("SET_PREACTION", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
+      if (room.gameType !== "POKER") return room.reject(socket.id, "not a poker room");
       if (
         typeof payload !== "object" ||
         payload === null ||
@@ -202,38 +248,110 @@ export function registerSocketHandlers(
       ) {
         return room.reject(socket.id, "malformed pre-action payload");
       }
-      room.setPreaction(socket.id, payload.action);
+      (room as GameManager).setPreaction(socket.id, payload.action);
     });
 
-    // ---- LOANS -------------------------------------------------------------
+    // ---- LOANS (poker only) --------------------------------------------------
     socket.on("REQUEST_LOAN", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
+      if (room.gameType !== "POKER") return room.reject(socket.id, "not a poker room");
       if (typeof payload !== "object" || payload === null || !isValidSeatIndex(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
         return room.reject(socket.id, "malformed loan request");
       }
-      room.requestLoan(socket.id, payload.creditorSeatIndex, payload.amount);
+      (room as GameManager).requestLoan(socket.id, payload.creditorSeatIndex, payload.amount);
     });
 
     socket.on("RESPOND_LOAN", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
+      if (room.gameType !== "POKER") return room.reject(socket.id, "not a poker room");
       if (typeof payload !== "object" || payload === null || !isNonEmptyString(payload.requestId) || typeof payload.approve !== "boolean") {
         return room.reject(socket.id, "malformed loan response");
       }
-      room.respondLoan(socket.id, payload.requestId, payload.approve);
+      (room as GameManager).respondLoan(socket.id, payload.requestId, payload.approve);
     });
 
     socket.on("REPAY_LOAN", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
+      if (room.gameType !== "POKER") return room.reject(socket.id, "not a poker room");
       if (typeof payload !== "object" || payload === null || !isValidSeatIndex(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
         return room.reject(socket.id, "malformed repay request");
       }
-      room.repayLoan(socket.id, payload.creditorSeatIndex, payload.amount);
+      (room as GameManager).repayLoan(socket.id, payload.creditorSeatIndex, payload.amount);
     });
 
-    // ---- DISCONNECT --------------------------------------------------------
+    // ---- TWENTY-NINE MOVES ---------------------------------------------------
+    const tnRoomOf = (): TwentyNineGameManager | null => {
+      const room = findRoomOf(registry, socket.id);
+      if (!room) {
+        socket.emit("ACTION_REJECTED", { reason: "you are not in a room" });
+        return null;
+      }
+      const tn = asTnRoom(room);
+      if (!tn) {
+        room.reject(socket.id, "not a 29 room");
+        return null;
+      }
+      return tn;
+    };
+
+    socket.on("GAME29_BID", (payload) => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      if (typeof payload !== "object" || payload === null) {
+        return tn.reject(socket.id, "malformed bid payload");
+      }
+      if (payload.bid !== undefined && !isPositiveInt(payload.bid)) {
+        return tn.reject(socket.id, "bid must be a positive integer or omitted to pass");
+      }
+      tn.game29Bid(socket.id, payload.bid);
+    });
+
+    socket.on("GAME29_DECLARE_TRUMP", (payload) => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      if (typeof payload !== "object" || payload === null || typeof payload.suit !== "string" || !TN_SUITS.includes(payload.suit as TnSuit)) {
+        return tn.reject(socket.id, "malformed trump declaration");
+      }
+      tn.game29DeclareTrump(socket.id, payload.suit as TnSuit);
+    });
+
+    socket.on("GAME29_CALL_TRUMP", () => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      tn.game29CallTrump(socket.id);
+    });
+
+    socket.on("GAME29_DECLARE_MARRIAGE", (payload) => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      if (typeof payload !== "object" || payload === null || typeof payload.suit !== "string" || !TN_SUITS.includes(payload.suit as TnSuit)) {
+        return tn.reject(socket.id, "malformed marriage declaration");
+      }
+      tn.game29DeclareMarriage(socket.id, payload.suit as TnSuit);
+    });
+
+    socket.on("GAME29_PLAY_CARD", (payload) => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        typeof payload.card !== "object" ||
+        payload.card === null ||
+        !TN_SUITS.includes((payload.card as TnCard).suit) ||
+        !Number.isInteger((payload.card as TnCard).rank) ||
+        (payload.card as TnCard).rank < 7 ||
+        (payload.card as TnCard).rank > 14
+      ) {
+        return tn.reject(socket.id, "malformed card payload");
+      }
+      tn.game29PlayCard(socket.id, { suit: (payload.card as TnCard).suit, rank: (payload.card as TnCard).rank });
+    });
+
+    // ---- DISCONNECT ----------------------------------------------------------
     socket.on("disconnect", () => {
       const room = findRoomOf(registry, socket.id);
       if (room) room.disconnectSocket(socket.id);
@@ -243,7 +361,7 @@ export function registerSocketHandlers(
   return registry;
 }
 
-function findRoomOf(registry: RoomRegistry, socketId: string): GameManager | undefined {
+function findRoomOf(registry: RoomRegistry, socketId: string): RoomLike | undefined {
   for (const room of registry.roomsSnapshot()) {
     if (room.findPlayerBySocket(socketId)) return room;
   }

@@ -6,6 +6,7 @@ import type { RoomConfig } from "@poker/shared-types";
 import { AvatarStrip } from "./join/AvatarStrip";
 import { CodeBoxes } from "./join/CodeBoxes";
 import { CreateForm } from "./join/CreateForm";
+import { TnCreateForm, type TnSettings } from "./join/TnCreateForm";
 import { PlayingCard } from "./PlayingCard";
 
 const DEFAULTS: RoomConfig = {
@@ -15,6 +16,8 @@ const DEFAULTS: RoomConfig = {
   turnTimeSeconds: 60,
 };
 
+const TN_DEFAULTS: TnSettings = { trumpMode: "REGULAR", roundsToWin: 6 };
+
 const USERNAME_KEY = "poker.username";
 const AVATAR_KEY = "poker.avatar";
 
@@ -22,6 +25,8 @@ const AVATAR_KEY = "poker.avatar";
 export function JoinScreen() {
   const { joinRoom, createRoom, pushToast, status } = useGame();
   const [tab, setTab] = useState<"join" | "create">("join");
+  const [game, setGame] = useState<"POKER" | "TWENTY_NINE">("POKER");
+  const [tnCfg, setTnCfg] = useState<TnSettings>(TN_DEFAULTS);
   const [username, setUsername] = useState("");
   const [avatar, setAvatar] = useState<number | null>(null);
   const [code, setCode] = useState("");
@@ -58,13 +63,26 @@ export function JoinScreen() {
       const ack = await joinRoom(code, name, avatar ?? undefined);
       setBusy(false);
       if (ack.ok) rememberIdentity(name, avatar);
-    } else {
+    } else if (game === "TWENTY_NINE") {
       setBusy(true);
+      const cfg: RoomConfig = {
+        startingCoins: DEFAULTS.startingCoins,
+        smallBlind: DEFAULTS.smallBlind,
+        bigBlind: DEFAULTS.bigBlind,
+        turnTimeSeconds: DEFAULTS.turnTimeSeconds,
+        gameType: "TWENTY_NINE",
+        twentyNine: tnCfg,
+      };
       const ack = await createRoom(name, cfg, avatar ?? undefined);
       setBusy(false);
       if (ack.ok) rememberIdentity(name, avatar);
+    } else {
+      setBusy(true);
+      const ack = await createRoom(name, { ...cfg, gameType: "POKER" }, avatar ?? undefined);
+      setBusy(false);
+      if (ack.ok) rememberIdentity(name, avatar);
     }
-  }, [username, avatar, code, tab, cfg, joinRoom, createRoom, pushToast]);
+  }, [username, avatar, code, tab, game, tnCfg, cfg, joinRoom, createRoom, pushToast]);
 
   const nameOk = username.trim().length >= 1 && username.trim().length <= 16;
   const canSubmit = nameOk && (tab === "create" || code.length === 6) && !busy;
@@ -164,6 +182,39 @@ export function JoinScreen() {
               </button>
             </div>
 
+            {tab === "create" && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGame("POKER")}
+                  className={`rounded-2xl px-3 py-2.5 text-left ring-1 transition-all ${
+                    game === "POKER"
+                      ? "bg-gold/15 ring-gold/60"
+                      : "bg-black/30 ring-white/10 hover:ring-white/25"
+                  }`}
+                >
+                  <span className={`block text-sm font-black ${game === "POKER" ? "text-gold" : "text-white/70"}`}>
+                    ♠ Texas Hold&apos;em
+                  </span>
+                  <span className="block text-[9.5px] text-white/40">blinds, side pots & loans</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGame("TWENTY_NINE")}
+                  className={`rounded-2xl px-3 py-2.5 text-left ring-1 transition-all ${
+                    game === "TWENTY_NINE"
+                      ? "bg-gold/15 ring-gold/60"
+                      : "bg-black/30 ring-white/10 hover:ring-white/25"
+                  }`}
+                >
+                  <span className={`block text-sm font-black ${game === "TWENTY_NINE" ? "text-gold" : "text-white/70"}`}>
+                    ♦ Twenty-Nine
+                  </span>
+                  <span className="block text-[9.5px] text-white/40">4 players · teams · hidden trump</span>
+                </button>
+              </div>
+            )}
+
             {tab === "join" ? (
               <div className="space-y-2">
                 <span className="block text-center text-[10px] font-bold uppercase tracking-[0.25em] text-white/40">
@@ -175,8 +226,10 @@ export function JoinScreen() {
                   invalid={codeInvalid}
                 />
               </div>
+            ) : game === "TWENTY_NINE" ? (
+              <TnCreateForm cfg={tnCfg} onChange={setTnCfg} />
             ) : (
-              <CreateForm cfg={cfg} onChange={setCfg} />
+              <CreateForm cfg={cfg} onChange={(next) => setCfg({ ...next, gameType: "POKER" })} />
             )}
 
             <button
@@ -184,7 +237,15 @@ export function JoinScreen() {
               onClick={submit}
               className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
             >
-              {busy ? "Connecting…" : tab === "join" ? (code.length === 6 ? `Take my seat → ${code}` : "Take a seat") : "Open the table"}
+              {busy
+                ? "Connecting…"
+                : tab === "join"
+                  ? code.length === 6
+                    ? `Take my seat → ${code}`
+                    : "Take a seat"
+                  : game === "TWENTY_NINE"
+                    ? "Open the 29 table"
+                    : "Open the table"}
             </button>
 
             <div className="flex items-center justify-between pt-1">

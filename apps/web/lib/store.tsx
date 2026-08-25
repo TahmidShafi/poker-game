@@ -11,12 +11,18 @@ import React, {
 } from "react";
 import type {
   Card,
+  GameType,
   HandFinishedSummary,
   PlayerAction,
   PublicGameState,
+  PublicTwentyNineState,
   RoomConfig,
   RoomAck,
   ShowdownResult,
+  TnBidderPrivatePayload,
+  TnCard,
+  TnRoundSummary,
+  TnSuit,
 } from "@poker/shared-types";
 import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
@@ -84,6 +90,13 @@ interface GameContextValue {
   status: ConnStatus;
   me: Me | null;
   state: PublicGameState | null;
+  /** Which game the current room plays ("POKER" until seated in a 29 room). */
+  gameType: GameType;
+  // ---- Twenty-Nine slices ----
+  tnState: PublicTwentyNineState | null;
+  myTnCards: TnCard[] | null;
+  tnBidderPrivate: TnBidderPrivatePayload | null;
+  lastTnRound: TnRoundSummary | null;
   myCards: Card[] | null;
   showdown: ShowdownResult[] | null;
   clearShowdown: () => void;
@@ -107,6 +120,12 @@ interface GameContextValue {
   requestLoan: (creditorSeatIndex: number, amount: number) => void;
   respondLoan: (requestId: string, approve: boolean) => void;
   repayLoan: (creditorSeatIndex: number, amount: number) => void;
+  // ---- Twenty-Nine actions ----
+  tnBid: (bid?: number) => void;
+  tnDeclareTrump: (suit: TnSuit) => void;
+  tnCallTrump: () => void;
+  tnDeclareMarriage: (suit: TnSuit) => void;
+  tnPlayCard: (card: TnCard) => void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -119,6 +138,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<PublicGameState | null>(null);
+  const [tnState, setTnState] = useState<PublicTwentyNineState | null>(null);
+  const [myTnCards, setMyTnCards] = useState<TnCard[] | null>(null);
+  const [tnBidderPrivate, setTnBidderPrivate] = useState<TnBidderPrivatePayload | null>(null);
+  const [lastTnRound, setLastTnRound] = useState<TnRoundSummary | null>(null);
   const [myCards, setMyCards] = useState<Card[] | null>(null);
   const [showdown, setShowdown] = useState<ShowdownResult[] | null>(null);
   const [toast, setToast] = useState<{ message: string; kind: "error" | "info" } | null>(null);
@@ -283,6 +306,31 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("ACTION_REJECTED", ({ reason }) => pushToast(reason, "error"));
     socket.on("ERROR", ({ message }) => pushToast(message, "error"));
 
+    // ---- Twenty-Nine ----
+    socket.on("TN_STATE", (s) => setTnState(s));
+    socket.on("YOUR_TN_HAND", ({ cards }) => setMyTnCards(cards));
+    socket.on("TN_BIDDER_PRIVATE", (p) => {
+      setTnBidderPrivate(p);
+      pushToast(
+        p.mode === "SEVENTH_CARD"
+          ? `your 7th card is ${p.indicatorCard.rank >= 11 ? "" : ""}${p.indicatorCard.suit[0]}${p.indicatorCard.rank} — trump is hidden until called`
+          : "you won the bid — secretly choose trump",
+        "info"
+      );
+    });
+    socket.on("TN_TRUMP_REVEALED", ({ suit }) => {
+      pushToast(`trump revealed: ${suit.toLowerCase()}`, "info");
+      playChips();
+    });
+    socket.on("TN_TRICK_RESOLVED", () => playChips());
+    socket.on("TN_ROUND_FINISHED", ({ summary }) => {
+      setLastTnRound(summary);
+      const mySeat = meRef.current?.seatIndex ?? -1;
+      const myTeam = mySeat % 2 === 0 ? "A" : "B";
+      if (summary.winnerTeam === myTeam) playWin();
+    });
+    socket.on("TN_MATCH_FINISHED", () => fireConfetti());
+
     socket.on("LOAN_REQUESTED", (payload) => { setIncomingLoan(payload); playChips(); });
     socket.on("LOAN_RESOLVED", ({ approved }) => {
       setIncomingLoan(null);
@@ -401,6 +449,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setShowdown(null);
     setSession(EMPTY_STATS);
     setRecentHands([]);
+    setTnState(null);
+    setMyTnCards(null);
+    setTnBidderPrivate(null);
+    setLastTnRound(null);
   }, []);
 
   const act = useCallback((action: PlayerAction, amount?: number) => {
@@ -423,6 +475,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("REPAY_LOAN", { creditorSeatIndex, amount });
   }, []);
 
+  // ---- Twenty-Nine actions ----
+  const tnBidFn = useCallback((bid?: number) => {
+    socketRef.current?.emit("GAME29_BID", bid === undefined ? {} : { bid });
+  }, []);
+  const tnDeclareTrumpFn = useCallback((suit: TnSuit) => {
+    socketRef.current?.emit("GAME29_DECLARE_TRUMP", { suit });
+  }, []);
+  const tnCallTrumpFn = useCallback(() => {
+    socketRef.current?.emit("GAME29_CALL_TRUMP", {});
+  }, []);
+  const tnDeclareMarriageFn = useCallback((suit: TnSuit) => {
+    socketRef.current?.emit("GAME29_DECLARE_MARRIAGE", { suit });
+  }, []);
+  const tnPlayCardFn = useCallback((card: TnCard) => {
+    socketRef.current?.emit("GAME29_PLAY_CARD", { card });
+  }, []);
+
   const toggleSound = useCallback(() => {
     setSoundOn((on) => {
       setMuted(on); // flipping ON→off means muted=true
@@ -430,12 +499,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const gameType: GameType = me?.config?.gameType ?? "POKER";
+
   const value = useMemo<GameContextValue>(
     () => ({
       serverUrl: SERVER_URL,
       status,
       me,
       state,
+      gameType,
+      tnState,
+      myTnCards,
+      tnBidderPrivate,
+      lastTnRound,
       myCards,
       showdown,
       clearShowdown: () => setShowdown(null),
@@ -459,12 +535,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       requestLoan: requestLoanFn,
       respondLoan: respondLoanFn,
       repayLoan: repayLoanFn,
+      tnBid: tnBidFn,
+      tnDeclareTrump: tnDeclareTrumpFn,
+      tnCallTrump: tnCallTrumpFn,
+      tnDeclareMarriage: tnDeclareMarriageFn,
+      tnPlayCard: tnPlayCardFn,
     }),
     [
-      status, me, state, myCards, showdown, toast, incomingLoan,
+      status, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
+      myCards, showdown, toast, incomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,
+      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn,
     ]
   );
 

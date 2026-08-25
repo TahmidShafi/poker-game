@@ -15,6 +15,7 @@ import { HeaderBar } from "../components/HeaderBar";
 import { LeftSidebar } from "../components/LeftSidebar";
 import { RightSidebar } from "../components/RightSidebar";
 import { InfoSheet } from "../components/InfoSheet";
+import { TwentyNineView } from "../components/twentynine/TwentyNineView";
 
 function Drawer({
   open,
@@ -48,6 +49,8 @@ export default function HomePage() {
     status,
     me,
     state,
+    gameType,
+    tnState,
     showdown,
     clearShowdown,
     toast,
@@ -75,6 +78,20 @@ export default function HomePage() {
   }, [me]);
 
   if (!me) return <JoinScreen />;
+
+  // Twenty-Nine rooms render their own dedicated view.
+  if (gameType === "TWENTY_NINE") {
+    return (
+      <>
+        {status === "offline" && (
+          <div className="fixed inset-x-0 top-0 z-50 bg-crimson/90 py-1 text-center text-[11px] font-bold text-white">
+            Connection lost — reconnecting…
+          </div>
+        )}
+        <TwentyNineView />
+      </>
+    );
+  }
 
   const mySeat = me.seatIndex;
 

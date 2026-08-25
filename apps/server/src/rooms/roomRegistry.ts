@@ -1,7 +1,9 @@
 import { RoomConfig } from "@poker/shared-types";
 import { Server } from "socket.io";
 import type { ClientToServerEvents, ServerToClientEvents } from "@poker/shared-types";
+import type { RoomLike } from "./roomLike";
 import { GameManager, GameManagerHooks } from "./gameManager";
+import { TnManagerHooks, TwentyNineGameManager } from "./twentynine/twentyNineManager";
 import { ServerConfig } from "../config";
 import { ensureGameSession } from "../persistence/persistence";
 
@@ -12,41 +14,47 @@ const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I,O,0,L,1
 /**
  * Owns every live room: code allocation (collision-checked), the
  * roomCode -> table map, sessionToken routing and idle-room cleanup.
+ * Hosts BOTH game types behind the RoomLike interface.
  */
 export class RoomRegistry {
-  private rooms = new Map<string, GameManager>();
+  private rooms = new Map<string, RoomLike>();
   private sweeper: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly io: IO,
     private readonly config: ServerConfig,
-    private readonly hooks: GameManagerHooks = {}
+    private readonly hooks: GameManagerHooks = {},
+    private readonly tnHooks: TnManagerHooks = {}
   ) {
     this.sweeper = setInterval(() => this.sweep(), 60_000);
     if (typeof this.sweeper.unref === "function") this.sweeper.unref();
   }
 
-  get(code: string): GameManager | undefined {
+  get(code: string): RoomLike | undefined {
     return this.rooms.get(code);
   }
 
-  roomsSnapshot(): GameManager[] {
+  roomsSnapshot(): RoomLike[] {
     return [...this.rooms.values()];
   }
 
-  findByToken(token: string): GameManager | undefined {
+  findByToken(token: string): RoomLike | undefined {
     for (const room of this.rooms.values()) {
       if (room.findByToken(token)) return room;
     }
     return undefined;
   }
 
-  createRoom(config: RoomConfig): GameManager {
+  /** Factory dispatch on the creator-chosen game type. */
+  createRoom(config: RoomConfig): RoomLike {
     if (this.rooms.size >= this.config.limits.maxRooms) {
       throw new Error("server is at capacity - try again later");
     }
     const code = this.allocateCode();
-    const manager = new GameManager(this.io, code, config, this.config.limits, this.hooks);
+    const manager =
+      config.gameType === "TWENTY_NINE"
+        ? new TwentyNineGameManager(this.io, code, config, this.config.limits, this.tnHooks)
+        : new GameManager(this.io, code, config, this.config.limits, this.hooks);
     this.rooms.set(code, manager);
     void ensureGameSession(code, config);
     return manager;

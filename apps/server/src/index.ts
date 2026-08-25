@@ -9,12 +9,14 @@ import type {
 import { loadConfig, ServerConfig } from "./config";
 import { registerSocketHandlers } from "./websocket/handlers";
 import { GameManagerHooks } from "./rooms/gameManager";
+import type { TnManagerHooks } from "./rooms/twentynine/twentyNineManager";
 import type { RoomRegistry } from "./rooms/roomRegistry";
 import {
   ensureGameSession,
   recordHandFinished,
   recordLoanEvent,
   recordRoomClosed,
+  recordTnRoundFinished,
 } from "./persistence/persistence";
 import { db } from "./persistence/db";
 
@@ -102,7 +104,15 @@ export function createPokerServer(overrides?: Partial<ServerConfig>, hooks: Game
       void recordLoanEvent(code, from, to, amount, kind);
     },
   };
-  const registry = registerSocketHandlers(io, config, persistenceHooks);
+  const tnPersistenceHooks: TnManagerHooks = {
+    onRoomClosed: (code) => {
+      void recordRoomClosed(code);
+    },
+    onRoundFinished: (data) => {
+      void recordTnRoundFinished(data.roomCode, data.summary, data.players);
+    },
+  };
+  const registry = registerSocketHandlers(io, config, persistenceHooks, tnPersistenceHooks);
 
   return {
     httpServer,

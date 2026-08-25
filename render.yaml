@@ -8,7 +8,7 @@ services:
     name: poker-game-server
     runtime: node
     plan: free
-    buildCommand: npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build -w packages/shared-types && npm run build -w packages/poker-engine && npm run build -w apps/server
+    buildCommand: npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build -w packages/shared-types && npm run build -w packages/poker-engine && npm run build -w packages/twentynine-engine && npm run build -w apps/server
     startCommand: node apps/server/dist/index.js
     healthCheckPath: /health
     autoDeploy: true

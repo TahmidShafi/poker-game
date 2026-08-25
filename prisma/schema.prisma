@@ -20,6 +20,7 @@ model GameSession {
   id              String    @id @default(cuid())
   roomCode        String    @unique
   status          String // WAITING_FOR_PLAYERS | IN_PROGRESS | ENDED
+  gameType        String    @default("POKER") // POKER | TWENTY_NINE
   startingCoins   Int
   smallBlind      Int
   bigBlind        Int
