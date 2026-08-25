@@ -24,6 +24,10 @@ export function registerSocketHandlers(
     typeof v === "string" && v.trim().length > 0;
   const isPositiveInt = (v: unknown): v is number =>
     typeof v === "number" && Number.isInteger(v) && v > 0;
+  // Seat indexes are 0-based - isPositiveInt would wrongly lock seat 0 out
+  // of every loan as creditor or debtor.
+  const isValidSeatIndex = (v: unknown): v is number =>
+    typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 10;
 
   const clampConfig = (raw: {
     startingCoins: unknown;
@@ -196,7 +200,7 @@ export function registerSocketHandlers(
     socket.on("REQUEST_LOAN", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
-      if (typeof payload !== "object" || payload === null || !isPositiveInt(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
+      if (typeof payload !== "object" || payload === null || !isValidSeatIndex(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
         return room.reject(socket.id, "malformed loan request");
       }
       room.requestLoan(socket.id, payload.creditorSeatIndex, payload.amount);
@@ -214,7 +218,7 @@ export function registerSocketHandlers(
     socket.on("REPAY_LOAN", (payload) => {
       const room = findRoomOf(registry, socket.id);
       if (!room) return;
-      if (typeof payload !== "object" || payload === null || !isPositiveInt(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
+      if (typeof payload !== "object" || payload === null || !isValidSeatIndex(payload.creditorSeatIndex) || !isPositiveInt(payload.amount)) {
         return room.reject(socket.id, "malformed repay request");
       }
       room.repayLoan(socket.id, payload.creditorSeatIndex, payload.amount);

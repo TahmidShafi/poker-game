@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import type {
   ClientToServerEvents,
   HandFinishedSummary,
+  Pot,
   RoomConfig,
   ServerToClientEvents,
   ShowdownResult,
@@ -247,10 +248,13 @@ export class GameManager {
     if (rec.socketIds.size > 0) return; // other tabs still connected
 
     const seat = this.table.seats[rec.seatIndex]!;
-    if (seat.status === "ACTIVE" && isInHand(seat)) {
-      seat.status = "DISCONNECTED"; // timer keeps the game moving
-    } else if (seat.status === "ACTIVE") {
-      seat.status = "DISCONNECTED";
+    // Seats dealt into the live hand MUST keep their engine status (ACTIVE or
+    // ALL_IN): pot eligibility, showdown evaluation and countInHand() all key
+    // off isInHand(), and onTurnTimeout() can only fold seats where canAct()
+    // is true. Downgrading an in-hand player to DISCONNECTED used to corrupt
+    // side pots and soft-lock the table when their turn arrived.
+    if (seat.status === "ACTIVE" && !(this.isHandRunning() && isInHand(seat))) {
+      seat.status = "DISCONNECTED"; // between hands only - display-only state
     }
     this.broadcastState();
   }
@@ -264,7 +268,11 @@ export class GameManager {
       // Fold them now; free the seat when the hand ends.
       if (seat.status === "ACTIVE") this.forceFold(rec.seatIndex, "left the table");
       this.pendingSeatRemovals.add(rec.seatIndex);
-      seat.status = "DISCONNECTED";
+      // An ALL_IN player who leaves is still owed pots - keep ALL_IN so
+      // calculatePots()/resolveShowdown() stay correct (seat frees at hand end).
+      if (seat.status !== "ALL_IN" && seat.status !== "FOLDED") {
+        seat.status = "DISCONNECTED";
+      }
     } else {
       this.freeSeat(rec.seatIndex);
     }
@@ -314,10 +322,12 @@ export class GameManager {
     if (!legal.legalActions.includes(payload.action)) {
       return this.reject(socketId, `illegal action ${payload.action} right now`);
     }
-    if (
-      (payload.action === "BET" || payload.action === "RAISE") &&
-      payload.amount !== undefined
-    ) {
+    if (payload.action === "BET" || payload.action === "RAISE") {
+      // The engine throws on a missing amount; reject here instead so the
+      // exception can never escape through the socket handler.
+      if (payload.amount === undefined) {
+        return this.reject(socketId, `${payload.action} requires an amount`);
+      }
       const amt = payload.amount;
       if (!Number.isInteger(amt) || amt <= 0) {
         return this.reject(socketId, "amount must be a positive integer");
@@ -330,7 +340,13 @@ export class GameManager {
       }
     }
 
-    this.applyAndAdvance(payload.action, payload.amount);
+    try {
+      this.applyAndAdvance(payload.action, payload.amount);
+    } catch (err) {
+      // Defense in depth: any engine rejection becomes a clean protocol
+      // error instead of an uncaught exception in the socket handler.
+      return this.reject(socketId, `action rejected: ${(err as Error).message}`);
+    }
     this.io.to(this.socketRoom()).emit("ACTION_ACCEPTED", {
       seatIndex: rec.seatIndex,
       action: payload.action,
@@ -487,13 +503,16 @@ export class GameManager {
     table.phase = GamePhase.PAYOUT;
     table.actingSeatIndex = null;
     this.io.to(this.socketRoom()).emit("SHOWDOWN", { results: [] });
-    const summary = this.closeHand([
-      {
-        seatIndex: res.winnerSeatIndex,
-        username: table.seats[res.winnerSeatIndex]!.username ?? "?",
-        amount: res.amountWon,
-      },
-    ]);
+    const summary = this.closeHand(
+      [
+        {
+          seatIndex: res.winnerSeatIndex,
+          username: table.seats[res.winnerSeatIndex]!.username ?? "?",
+          amount: res.amountWon,
+        },
+      ],
+      [{ amount: res.amountWon, eligibleSeatIndexes: [res.winnerSeatIndex] }]
+    );
     this.io.to(this.socketRoom()).emit("HAND_FINISHED", summary);
     this.hooks.onHandFinished?.({
       summary: { ...summary, roomCode: this.roomCode },
@@ -526,7 +545,7 @@ export class GameManager {
     this.broadcastState(); // hole cards now public
 
     const flat = results.map((r) => ({ seatIndex: r.seatIndex, username: r.username, amount: r.amountWon }));
-    const summary = this.closeHand(flat);
+    const summary = this.closeHand(flat, out.pots);
     summary.results = results;
     this.io.to(this.socketRoom()).emit("HAND_FINISHED", summary);
     this.hooks.onHandFinished?.({
@@ -538,7 +557,10 @@ export class GameManager {
   }
 
   /** Marks busts, frees pending-leave seats, resets to waiting, auto-starts. */
-  private closeHand(awards: HandFinishedSummary["awards"]): HandFinishedSummary {
+  private closeHand(
+    awards: HandFinishedSummary["awards"],
+    finalPots: Pot[]
+  ): HandFinishedSummary {
     const { table } = this;
     const bustedSeats: number[] = [];
     for (const s of table.seats) {
@@ -549,6 +571,8 @@ export class GameManager {
       s.holeCards = null;
       s.totalInvestedThisHand = 0;
       s.currentBetThisRound = 0;
+      // Queued intents must never leak into the next hand.
+      s.preAction = null;
     }
     for (const idx of this.pendingSeatRemovals) this.freeSeat(idx);
     this.pendingSeatRemovals.clear();
@@ -562,7 +586,7 @@ export class GameManager {
 
     return {
       handNumber: table.handNumber,
-      pots: table.pots.map((p) => ({ ...p, eligibleSeatIndexes: [...p.eligibleSeatIndexes] })),
+      pots: finalPots.map((p) => ({ amount: p.amount, eligibleSeatIndexes: [...p.eligibleSeatIndexes] })),
       awards,
       bustedSeats,
     };

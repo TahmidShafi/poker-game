@@ -198,6 +198,7 @@ export function startHand(state: TableState): TableState {
     s.holeCards = null;
     s.currentBetThisRound = 0;
     s.totalInvestedThisHand = 0;
+    s.preAction = null; // queued intents never carry across hands
     if (s.playerId === null || s.coins <= 0) continue;
     if (s.status === "BUSTED") continue;
     s.status = "ACTIVE"; // promotes SITTING_OUT / FOLDED / ALL_IN leftovers
