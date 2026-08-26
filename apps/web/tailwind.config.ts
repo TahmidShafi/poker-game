@@ -42,6 +42,10 @@ const config: Config = {
           "0%": { transform: "translate(var(--deal-from-x, -140px), var(--deal-from-y, -120px)) rotate(-14deg) scale(0.7)", opacity: "0" },
           "100%": { transform: "translate(0,0) rotate(0deg) scale(1)", opacity: "1" },
         },
+        sweepOut: {
+          "0%": { transform: "translate(0,0) rotate(0deg) scale(1)", opacity: "1" },
+          "100%": { transform: "translate(var(--sweep-to-x, 0), var(--sweep-to-y, 100px)) rotate(14deg) scale(0.3)", opacity: "0" },
+        },
         flipY: { "0%": { transform: "rotateY(90deg)" }, "100%": { transform: "rotateY(0deg)" } },
         popChip: {
           "0%": { transform: "translateY(10px) scale(0.6)", opacity: "0" },
@@ -76,6 +80,7 @@ const config: Config = {
       },
       animation: {
         dealIn: "dealIn .38s cubic-bezier(.22,.9,.34,1.05) both",
+        sweepOut: "sweepOut 0.4s ease-in-out 1.4s both",
         flipY: "flipY .28s ease-out both",
         popChip: "popChip .3s cubic-bezier(.2,.8,.3,1.2) both",
         pulseRed: "pulseRed 1s ease-out infinite",

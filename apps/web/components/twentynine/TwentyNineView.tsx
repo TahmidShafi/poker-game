@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
-import { ActionPills, BiddingPanel, HandFan, TraditionalScoreCards, TurnStatus } from "./panels";
+import { ActionPills, BiddingPanel, HandFan, TurnStatus } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal } from "./modals";
 
 
@@ -60,7 +60,6 @@ export function TwentyNineView() {
             {copied ? "copied!" : "copy"}
           </button>
         </div>
-        <TrumpBanner state={tnState} />
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setShowRules(true)}
@@ -100,15 +99,15 @@ export function TwentyNineView() {
 
         <section className="relative aspect-[16/9] w-full max-w-[70rem] rounded-[50%] p-4 rail-surface">
           <div className="relative h-full w-full overflow-hidden rounded-[50%] felt-surface gold-ring">
-            <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 scale-75 lg:scale-90 opacity-85 hover:opacity-100 transition-opacity">
-              <TraditionalScoreCards state={tnState} />
-            </div>
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
             {tnState.offlineFallback && (
               <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-crimson/20 px-3 py-1 text-[9.5px] font-bold uppercase tracking-widest text-crimson ring-1 ring-crimson/40">
                 seat {tnState.offlineFallback.seatIndex} offline · auto-play countdown
               </div>
             )}
+            <div className="absolute left-[80%] top-[47%] z-20 -translate-x-1/2 -translate-y-1/2">
+              <TrumpBanner state={tnState} />
+            </div>
           </div>
 
           {/* Seats around the oval, viewer-relative, with shrinking back-fans */}

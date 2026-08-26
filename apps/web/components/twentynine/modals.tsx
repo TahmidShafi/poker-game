@@ -8,10 +8,14 @@ import { useGame } from "../../lib/store";
 const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
 export function TrumpPickerModal() {
-  const { tnState, tnBidderPrivate, tnDeclareTrump } = useGame();
-  if (!tnState || !tnBidderPrivate) return null;
+  const { tnState, tnBidderPrivate, tnDeclareTrump, me } = useGame();
+  if (!tnState) return null;
+
+  const myTurn = tnState.actingSeatIndex === me?.seatIndex;
+  
+  // Show if phase is TRUMP_SETUP and it's our turn. (tnBidderPrivate is just extra validation/payload).
   if (tnState.phase !== "TRUMP_SETUP") return null;
-  if (tnBidderPrivate.kind !== "CHOOSE_TRUMP") return null;
+  if (!myTurn) return null;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-sm">

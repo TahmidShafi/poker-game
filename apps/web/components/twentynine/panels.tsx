@@ -4,8 +4,6 @@ import React, { useMemo, useState } from "react";
 import type { PublicTwentyNineState, TnCard } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { PlayingCard } from "../common/PlayingCard";
-import { ScoreCard } from "./ScoreCard";
-import { CardBack } from "./CardBack";
 import { useGame } from "../../lib/store";
 
 /** Client-side mirror of the engine's follow-suit rule (server re-validates). */
@@ -210,99 +208,6 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
-/**
- * Team score widgets styled like the physical card markers: a dark panel per
- * team holding the round-win count as a real card face (♥ for A, ♦ for B)
- * with a card back tucked behind it at an offset.
- */
-export function TraditionalScoreCards({ state }: { state: PublicTwentyNineState }) {
-  const { me } = useGame();
-  const myTeam = me && me.seatIndex % 2 === 0 ? "A" : "B";
-  const oppTeam = myTeam === "A" ? "B" : "A";
-  
-  const history = state.roundHistory || [];
-  const [animatingIdx, setAnimatingIdx] = React.useState<number | null>(null);
-  
-  React.useEffect(() => {
-    if (history.length > 0) {
-      setAnimatingIdx(history.length - 1);
-      const timer = setTimeout(() => setAnimatingIdx(null), 50);
-      return () => clearTimeout(timer);
-    }
-  }, [history.length]);
-
-  return (
-    <div className="flex items-center justify-center gap-16 md:gap-32">
-      {/* My Team */}
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gold">
-          our team
-        </span>
-        <div 
-          className="relative flex h-[78px] min-w-[62px] transition-all duration-700 ease-out" 
-          style={{ width: `${62 + Math.max(0, history.length - 1) * 24}px` }}
-        >
-          {history.map((winner, idx) => {
-             const won = winner === myTeam;
-             const suit = won ? "DIAMONDS" : "CLUBS";
-             const isNew = animatingIdx === idx;
-             const xPos = isNew ? 150 : (idx * 24); // Start shifted right towards center
-             const scale = isNew ? 1.5 : 1;
-             const opacity = isNew ? 0 : 1;
-             
-             return (
-               <div 
-                 key={idx}
-                 className="absolute top-0 transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-                 style={{ 
-                   transform: `translateX(${xPos}px) scale(${scale})`, 
-                   opacity,
-                   zIndex: idx 
-                 }}
-               >
-                 <ScoreCard count={1} suit={suit} size={62} />
-               </div>
-             );
-          })}
-        </div>
-      </div>
-      
-      {/* Their Team */}
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-300">
-          their team
-        </span>
-        <div 
-          className="relative flex h-[78px] min-w-[62px] transition-all duration-700 ease-out" 
-          style={{ width: `${62 + Math.max(0, history.length - 1) * 24}px` }}
-        >
-          {history.map((winner, idx) => {
-             const won = winner === oppTeam;
-             const suit = won ? "HEARTS" : "SPADES";
-             const isNew = animatingIdx === idx;
-             const xPos = isNew ? -150 : (idx * 24); // Start shifted left towards center
-             const scale = isNew ? 1.5 : 1;
-             const opacity = isNew ? 0 : 1;
-             
-             return (
-               <div 
-                 key={idx}
-                 className="absolute top-0 transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-                 style={{ 
-                   transform: `translateX(${xPos}px) scale(${scale})`,
-                   opacity,
-                   zIndex: idx 
-                 }}
-               >
-                 <ScoreCard count={1} suit={suit} size={62} />
-               </div>
-             );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Contextual action pills under the hand fan: CALL TRUMP / MARRIAGE. */
 export function ActionPills({ state }: { state: PublicTwentyNineState }) {

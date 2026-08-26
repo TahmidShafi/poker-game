@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import type { PublicTwentyNineState, TnCard, TnSeatView } from "@poker/shared-types";
 import { TN_RANK_LABELS, TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { PlayingCard } from "../common/PlayingCard";
@@ -136,17 +136,45 @@ export function TrickArea({
 }) {
   const { tnResolvedTrick } = useGame();
   
-  // Use the temporarily held resolved trick if the server's current trick is empty
-  const trickToRender = state.trick.length > 0 ? state.trick : (tnResolvedTrick?.plays || []);
+  // Use the temporarily held resolved trick so the sweep animation finishes before showing the new trick
+  const isResolved = tnResolvedTrick !== null;
+  const trickToRender = isResolved ? tnResolvedTrick.plays : state.trick;
+  const winnerRel = isResolved && tnResolvedTrick.winnerSeatIndex !== undefined ? seatRel(mySeat, tnResolvedTrick.winnerSeatIndex) : null;
   
-  // rel 0 = bottom(you) · 1 = left · 2 = top · 3 = right — a loose diamond
-  // around the felt center, each card clearly separated and readable.
-  const slot: Record<number, string> = {
-    0: "left-1/2 bottom-[26%] -translate-x-1/2",
-    1: "left-[30%] top-1/2 -translate-y-1/2",
-    2: "left-1/2 top-[26%] -translate-x-1/2",
-    3: "right-[30%] top-1/2 -translate-y-1/2",
+  const [formTrain, setFormTrain] = useState(false);
+  useEffect(() => {
+    if (isResolved) {
+      const timer = setTimeout(() => setFormTrain(true), 1000); // Let the 4th card sit for 1s
+      return () => clearTimeout(timer);
+    } else {
+      setFormTrain(false);
+    }
+  }, [isResolved]);
+
+  // Calculate the layout styles for each card
+  const getSlotStyle = (rel: number, playIndex: number): React.CSSProperties => {
+    if (formTrain) {
+      // Overlapping train line in the center
+      const offsetX = (playIndex - 1.5) * 22; // 22px overlap per card
+      return {
+        left: `calc(50% + ${offsetX}px)`,
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        transition: "all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)",
+        zIndex: playIndex,
+      };
+    }
+    // Normal loose diamond layout
+    let base: React.CSSProperties = {};
+    switch (rel) {
+      case 0: base = { left: "50%", top: "72%", transform: "translate(-50%, -50%)" }; break;
+      case 1: base = { left: "32%", top: "50%", transform: "translate(-50%, -50%)" }; break;
+      case 2: base = { left: "50%", top: "28%", transform: "translate(-50%, -50%)" }; break;
+      case 3: base = { left: "68%", top: "50%", transform: "translate(-50%, -50%)" }; break;
+    }
+    return { ...base, transition: "all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)", zIndex: playIndex };
   };
+
   const ledSuit = trickToRender[0]?.card.suit ?? null;
 
   return (
@@ -161,34 +189,50 @@ export function TrickArea({
         </span>
       )}
 
-      {[0, 1, 2, 3].map((rel) => {
-        const play = trickToRender.find((p) => seatRel(mySeat, p.seatIndex) === rel);
-        const owner = play?.seatIndex ?? null;
-        return (
-          <div key={rel} className={`absolute ${slot[rel]} ${flashSeat === owner ? "animate-pulse" : ""}`}>
-            {play ? (
-              <div className={TRICK_REST_ROT[rel]}>
-                {/* Keyed by card identity: a newly played card remounts and
-                    flies in from its seat's direction (dealIn keyframe). */}
-                <div
-                  key={`${play.seatIndex}:${play.card.suit}:${play.card.rank}`}
-                  className="animate-dealIn drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
-                  style={
-                    {
-                      "--deal-from-x": DEAL_FROM[rel].x,
-                      "--deal-from-y": DEAL_FROM[rel].y,
-                    } as React.CSSProperties
-                  }
-                >
-                  <PlayingCard card={play.card} size="sm" />
+      {/* Sweep container: wraps all cards and sweeps them together if resolved */}
+      <div
+        className={`absolute inset-0 ${isResolved && winnerRel !== null ? "animate-sweepOut" : ""}`}
+        style={
+          isResolved && winnerRel !== null
+            ? ({
+                "--sweep-to-x": DEAL_FROM[winnerRel].x,
+                "--sweep-to-y": DEAL_FROM[winnerRel].y,
+              } as React.CSSProperties)
+            : {}
+        }
+      >
+        {[0, 1, 2, 3].map((rel) => {
+          const playIndex = trickToRender.findIndex((p) => seatRel(mySeat, p.seatIndex) === rel);
+          const play = trickToRender[playIndex];
+          const owner = play?.seatIndex ?? null;
+          return (
+            <div 
+              key={rel} 
+              className={`absolute ${flashSeat === owner ? "animate-pulse" : ""}`}
+              style={getSlotStyle(rel, playIndex !== -1 ? playIndex : rel)}
+            >
+              {play ? (
+                <div className={`${isResolved ? "rotate-0" : TRICK_REST_ROT[rel]} transition-transform duration-300`}>
+                  <div
+                    key={`${play.seatIndex}:${play.card.suit}:${play.card.rank}`}
+                    className="animate-dealIn drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                    style={
+                      {
+                        "--deal-from-x": DEAL_FROM[rel].x,
+                        "--deal-from-y": DEAL_FROM[rel].y,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <PlayingCard card={play.card} size="sm" />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <span className="block h-[3.4rem] w-0" aria-hidden />
-            )}
-          </div>
-        );
-      })}
+              ) : (
+                <span className="block h-[3.4rem] w-0" aria-hidden />
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {trickToRender.length === 0 && state.phase === "PLAYING" && (
         <span className="absolute inset-0 grid place-items-center text-[10px] uppercase tracking-[0.3em] text-white/25">
@@ -202,30 +246,60 @@ export function TrickArea({
 export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
   const mySeat = useMySeat();
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
-  let value: React.ReactNode;
-  if (state.trumpStyle === null && state.trump.state === "NOT_SET")
-    value = <span className="text-white/40">awaiting bid winner</span>;
-  else if (state.trumpStyle === "JOKER") value = <span className="text-violet-300">JOKER HAND</span>;
-  else if (state.trumpStyle === "SEVENTH_CARD" && state.trump.state !== "REVEALED")
-    value = <span>7th card · 🔒 HIDDEN</span>;
-  else if (state.trump.state === "REVEALED")
-    value = (
-      <span className="text-gold">
-        {TN_SUIT_SYMBOLS[state.trump.suit]} {state.trump.suit.toLowerCase()}
-      </span>
+  
+  let cardContent: React.ReactNode;
+  
+  if (state.trumpStyle === null && state.trump.state === "NOT_SET") {
+    cardContent = (
+      <div className="flex h-full flex-col items-center justify-center text-center">
+        <span className="text-[8px] font-bold uppercase text-white/30">trump</span>
+        <span className="text-lg text-white/20 mt-0.5">?</span>
+      </div>
     );
-  else value = <span>🔒 HIDDEN</span>;
+  } else if (state.trumpStyle === "JOKER") {
+    cardContent = (
+      <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card">
+        <span className="text-2xl">🃏</span>
+        <span className="text-[7px] font-black uppercase tracking-widest text-violet-600 mt-1">Joker</span>
+      </div>
+    );
+  } else if (state.trump.state === "HIDDEN" || (state.trumpStyle === "SEVENTH_CARD" && state.trump.state !== "REVEALED")) {
+    cardContent = (
+      <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden">
+        <PlayingCard faceDown size="sm" className="absolute inset-0" />
+        <div className="absolute inset-0 bg-black/40 grid place-items-center">
+          <span className="text-base shadow-black drop-shadow-md">🔒</span>
+        </div>
+      </div>
+    );
+  } else if (state.trump.state === "REVEALED") {
+    if (state.trumpStyle === "SEVENTH_CARD" && 'card' in state.trump && state.trump.card) {
+      cardContent = <PlayingCard card={state.trump.card} size="sm" />;
+    } else {
+      // Suit only
+      const color = (state.trump.suit === "HEARTS" || state.trump.suit === "DIAMONDS") ? "text-crimson" : "text-ink";
+      cardContent = (
+        <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card relative">
+          <span className={`text-[7px] font-black uppercase tracking-widest ${color} absolute top-1.5 opacity-60`}>Trump</span>
+          <span className={`text-4xl leading-none ${color} mt-2`}>
+            {TN_SUIT_SYMBOLS[state.trump.suit]}
+          </span>
+        </div>
+      );
+    }
+  } else {
+    cardContent = <div className="h-full w-full bg-black/40 rounded-lg" />;
+  }
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/55 ring-1 ring-white/10">
-      {value}
+    <div className="flex flex-col items-center gap-1.5 transition-all">
+      <div className="relative w-11 h-16 rounded-lg ring-1 ring-white/10 bg-black/20 shadow-xl overflow-hidden">
+        {cardContent}
+      </div>
       {state.marriageDeclaredBy && (
-        <>
-          <span className="text-white/20">·</span>
-          <span className={tnTeamColor(state.marriageDeclaredBy)}>
-            {myTeam ? (state.marriageDeclaredBy === myTeam ? "marriage (our team)" : "marriage (their team)") : `marriage team ${state.marriageDeclaredBy}`}
-          </span>
-        </>
+        <span className={`text-[8px] font-bold uppercase tracking-widest bg-black/50 px-2 py-0.5 rounded-full ring-1 ring-white/10 ${tnTeamColor(state.marriageDeclaredBy)}`}>
+          marriage {myTeam ? (state.marriageDeclaredBy === myTeam ? "(us)" : "(them)") : ""}
+        </span>
       )}
     </div>
   );

@@ -148,7 +148,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<PublicGameState | null>(null);
   const [tnState, setTnState] = useState<PublicTwentyNineState | null>(null);
-  const [tnResolvedTrick, setTnResolvedTrick] = useState<{ plays: { seatIndex: number; card: TnCard }[] } | null>(null);
+  const [tnResolvedTrick, setTnResolvedTrick] = useState<{ plays: { seatIndex: number; card: TnCard }[]; winnerSeatIndex?: number } | null>(null);
   const resolvedTrickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [myTnCards, setMyTnCards] = useState<TnCard[] | null>(null);
   const [tnBidderPrivate, setTnBidderPrivate] = useState<TnBidderPrivatePayload | null>(null);
@@ -240,11 +240,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     socket.on("TN_STATE", (s) => {
       setTnState(s);
-      // Clear resolved trick immediately if a new trick has started
-      if (s.trick.length > 0) {
-        setTnResolvedTrick(null);
-        if (resolvedTrickTimer.current) clearTimeout(resolvedTrickTimer.current);
-      }
+
       const mine = meRef.current;
       if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
     });
@@ -404,11 +400,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
     socket.on("TN_TRICK_RESOLVED", (p) => {
       playChips();
-      
+
       // Temporarily hold the fully resolved trick so the UI can animate the 4th card
-      setTnResolvedTrick({ plays: p.plays });
+      setTnResolvedTrick({ plays: p.plays, winnerSeatIndex: p.winnerSeatIndex });
       if (resolvedTrickTimer.current) clearTimeout(resolvedTrickTimer.current);
-      resolvedTrickTimer.current = setTimeout(() => setTnResolvedTrick(null), 1500);
+      resolvedTrickTimer.current = setTimeout(() => setTnResolvedTrick(null), 2000);
 
       // Completed tricks can resolve between two TN_STATE snapshots — record
       // my play from the resolution payload too so the fan never keeps a
@@ -589,7 +585,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const tnBidFn = useCallback((bid?: number) => {
     socketRef.current?.emit("GAME29_BID", bid === undefined ? {} : { bid });
   }, []);
-const tnDeclareTrumpFn = useCallback((choice: TnSuit | "SEVENTH_CARD" | "JOKER") => {
+  const tnDeclareTrumpFn = useCallback((choice: TnSuit | "SEVENTH_CARD" | "JOKER") => {
     socketRef.current?.emit("GAME29_DECLARE_TRUMP", { choice });
   }, []);
   const tnCallTrumpFn = useCallback(() => {

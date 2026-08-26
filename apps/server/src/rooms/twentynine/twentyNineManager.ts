@@ -821,7 +821,14 @@ export class TwentyNineGameManager implements RoomLike {
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
     if (!rec?.isBot) return; // humans drive themselves; empty seats use offline fallback
     // Human-like think delay, deterministic-ish per round/seat.
-    const delay = 650 + ((this.match.roundNumber * 37 + acting * 13) % 500);
+    let delay = 650 + ((this.match.roundNumber * 37 + acting * 13) % 500);
+    
+    // Give the frontend time to play the trick resolution sweep animation
+    // (or initial card deal) before the bot throws the first card of a trick.
+    if (phase === "PLAYING" && this.match.currentTrick.length === 0) {
+      delay += 2500;
+    }
+
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       this.performBotMove(acting);

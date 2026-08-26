@@ -162,7 +162,7 @@ export interface TnTeamTotals {
 export type TnTrumpView =
   | { state: "NOT_SET" }
   | { state: "HIDDEN" }
-  | { state: "REVEALED"; suit: TnSuit }
+  | { state: "REVEALED"; suit: TnSuit; card?: TnCard }
   | { state: "JOKER_MODE" }; // joker hand: no suit by design
 
 // ---- Round summary -------------------------------------------------------------

@@ -645,7 +645,7 @@ export function toPublicTwentyNineState(
       : state.trumpStyle === "JOKER"
         ? { state: "JOKER_MODE" }
         : state.trumpRevealed
-          ? { state: "REVEALED", suit: state.trumpSuit as TnSuit }
+          ? { state: "REVEALED", suit: state.trumpSuit as TnSuit, card: state.indicatorCard ?? undefined }
           : { state: "HIDDEN" };
 
   const seats: TnSeatView[] = state.seats.map((s) => ({
