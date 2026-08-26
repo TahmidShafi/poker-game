@@ -95,6 +95,7 @@ export interface GameContextValue {
   gameType: GameType;
   // ---- Twenty-Nine slices ----
   tnState: PublicTwentyNineState | null;
+  tnResolvedTrick: { plays: { seatIndex: number; card: TnCard }[] } | null;
   myTnCards: TnCard[] | null;
   tnBidderPrivate: TnBidderPrivatePayload | null;
   lastTnRound: TnRoundSummary | null;
@@ -147,6 +148,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<PublicGameState | null>(null);
   const [tnState, setTnState] = useState<PublicTwentyNineState | null>(null);
+  const [tnResolvedTrick, setTnResolvedTrick] = useState<{ plays: { seatIndex: number; card: TnCard }[] } | null>(null);
+  const resolvedTrickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [myTnCards, setMyTnCards] = useState<TnCard[] | null>(null);
   const [tnBidderPrivate, setTnBidderPrivate] = useState<TnBidderPrivatePayload | null>(null);
   const [lastTnRound, setLastTnRound] = useState<TnRoundSummary | null>(null);
@@ -231,6 +234,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("GAME_STATE", (s) => {
       setState(s);
       // Disarm turn alerts the moment it is no longer our action.
+      const mine = meRef.current;
+      if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
+    });
+
+    socket.on("TN_STATE", (s) => {
+      setTnState(s);
+      // Clear resolved trick immediately if a new trick has started
+      if (s.trick.length > 0) {
+        setTnResolvedTrick(null);
+        if (resolvedTrickTimer.current) clearTimeout(resolvedTrickTimer.current);
+      }
       const mine = meRef.current;
       if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
     });
@@ -390,6 +404,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
     socket.on("TN_TRICK_RESOLVED", (p) => {
       playChips();
+      
+      // Temporarily hold the fully resolved trick so the UI can animate the 4th card
+      setTnResolvedTrick({ plays: p.plays });
+      if (resolvedTrickTimer.current) clearTimeout(resolvedTrickTimer.current);
+      resolvedTrickTimer.current = setTimeout(() => setTnResolvedTrick(null), 1500);
+
       // Completed tricks can resolve between two TN_STATE snapshots — record
       // my play from the resolution payload too so the fan never keeps a
       // card that was played and cleared in one hop.
@@ -599,6 +619,7 @@ const tnDeclareTrumpFn = useCallback((choice: TnSuit | "SEVENTH_CARD" | "JOKER")
       state,
       gameType,
       tnState,
+      tnResolvedTrick,
       myTnCards,
       tnBidderPrivate,
       lastTnRound,

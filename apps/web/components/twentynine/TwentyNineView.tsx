@@ -5,7 +5,7 @@ import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
 import { ActionPills, BiddingPanel, HandFan, TraditionalScoreCards, TurnStatus } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal } from "./modals";
-import { OpponentHand } from "./OpponentHand";
+
 
 /**
  * Viewer-relative seat positions: the local player is ALWAYS at the bottom,
@@ -36,6 +36,7 @@ export function TwentyNineView() {
   }
 
   const mySeat = me?.seatIndex ?? null;
+  const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(me?.roomCode ?? "");
@@ -82,10 +83,7 @@ export function TwentyNineView() {
         </div>
       </header>
 
-      {/* Traditional score cards — prominent strip above the felt */}
-      <section className="mx-auto mt-3 w-full max-w-6xl px-4">
-        <TraditionalScoreCards state={tnState} />
-      </section>
+
 
       {/* Table — large oval, vertically centered in the remaining space.
           While bidding, lift the oval above the dock so the bottom seat
@@ -102,6 +100,9 @@ export function TwentyNineView() {
 
         <section className="relative aspect-[16/9] w-full max-w-[70rem] rounded-[50%] p-4 rail-surface">
           <div className="relative h-full w-full overflow-hidden rounded-[50%] felt-surface gold-ring">
+            <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 scale-75 lg:scale-90 opacity-85 hover:opacity-100 transition-opacity">
+              <TraditionalScoreCards state={tnState} />
+            </div>
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
             {tnState.offlineFallback && (
               <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-crimson/20 px-3 py-1 text-[9.5px] font-bold uppercase tracking-widest text-crimson ring-1 ring-crimson/40">
@@ -114,13 +115,6 @@ export function TwentyNineView() {
           {tnState.seats.map((s) => {
             const rel = seatRel(mySeat, s.seatIndex);
             const isMe = s.seatIndex === mySeat;
-            const fan =
-              !isMe && s.username !== null && s.cardsRemaining > 0 ? (
-                <OpponentHand
-                  count={s.cardsRemaining}
-                  position={rel === 2 ? "top" : rel === 1 ? "left" : "right"}
-                />
-              ) : null;
             return (
               <div
                 key={s.seatIndex}
@@ -128,14 +122,13 @@ export function TwentyNineView() {
                   rel === 2 ? "flex-col" : "flex-row"
                 }`}
               >
-                {(rel === 1 || rel === 2) && fan}
                 <SeatCard
                   seat={s}
                   isDealer={tnState.dealerSeatIndex === s.seatIndex}
                   isActing={tnState.actingSeatIndex === s.seatIndex && s.username !== null}
                   isMe={isMe}
+                  myTeam={myTeam as "A" | "B" | null}
                 />
-                {rel === 3 && fan}
               </div>
             );
           })}

@@ -84,7 +84,7 @@ export function RoundBanner() {
               {" "}
               · marriage{" "}
               <b className={lastTnRound.marriageTeam === "A" ? "text-gold" : "text-violet-300"}>
-                {lastTnRound.marriageTeam}
+                {lastTnRound.marriageTeam === myTeam ? "(our team)" : "(their team)"}
               </b>
             </>
           )}
@@ -113,7 +113,7 @@ export function MatchOverBanner() {
           {iWon ? "Victory!" : "Defeat"}
         </h2>
         <p className="mt-1 text-xs uppercase tracking-[0.25em] text-white/45">
-          team {tnState.winnerTeam} wins the match
+          {iWon ? "Your team wins the match!" : "Other team wins the match"}
         </p>
         <p className="mt-2 tabnum text-sm font-bold text-white/80">
           {tnState.matchScore.A} – {tnState.matchScore.B}

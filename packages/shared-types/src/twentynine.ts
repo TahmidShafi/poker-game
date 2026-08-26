@@ -241,6 +241,7 @@ export interface PublicTwentyNineState {
   capturedPoints: TnTeamTotals; // running card-point totals (public info)
   roundNumber: number;
   matchScore: TnTeamTotals;
+  roundHistory: TnTeam[];
   roundsToWin: number; // universally 6
   winnerTeam: TnTeam | null; // set when MATCH_OVER
   lastRoundSummary: TnRoundSummary | null;

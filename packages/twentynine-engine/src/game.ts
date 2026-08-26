@@ -72,6 +72,7 @@ export interface TwentyNineState {
   tricksWon: TnTeamTotals;
   capturedPoints: TnTeamTotals;
   matchScore: TnTeamTotals;
+  roundHistory: TnTeam[];
   winnerTeam: TnTeam | null;
   lastRoundSummary: PublicTwentyNineState["lastRoundSummary"];
   actingSeatIndex: number | null;
@@ -128,6 +129,7 @@ export function createMatch(opts: CreateMatchOptions): TwentyNineState {
     tricksWon: emptyTotals(),
     capturedPoints: emptyTotals(),
     matchScore: emptyTotals(),
+    roundHistory: [],
     winnerTeam: null,
     lastRoundSummary: null,
     actingSeatIndex: null,
@@ -563,6 +565,7 @@ function finishHand(state: TwentyNineState): void {
   const made = totals[biddingTeam] >= requirement;
   const roundWinner: TnTeam = made ? biddingTeam : otherTeam(biddingTeam);
   state.matchScore[roundWinner] += 1;
+  state.roundHistory.push(roundWinner);
   state.dealerAdvancePending = true;
   state.ledSeatIndex = null;
   state.actingSeatIndex = null;
@@ -679,6 +682,7 @@ export function toPublicTwentyNineState(
     capturedPoints: { ...state.capturedPoints },
     roundNumber: state.roundNumber,
     matchScore: { ...state.matchScore },
+    roundHistory: [...state.roundHistory],
     roundsToWin: state.roundsToWin,
     winnerTeam: state.winnerTeam,
     lastRoundSummary: state.lastRoundSummary ? { ...state.lastRoundSummary } : null,

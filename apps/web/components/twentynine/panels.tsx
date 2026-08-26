@@ -218,43 +218,88 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
 export function TraditionalScoreCards({ state }: { state: PublicTwentyNineState }) {
   const { me } = useGame();
   const myTeam = me && me.seatIndex % 2 === 0 ? "A" : "B";
-  const target = state.roundsToWin;
+  const oppTeam = myTeam === "A" ? "B" : "A";
+  
+  const history = state.roundHistory || [];
+  const [animatingIdx, setAnimatingIdx] = React.useState<number | null>(null);
+  
+  React.useEffect(() => {
+    if (history.length > 0) {
+      setAnimatingIdx(history.length - 1);
+      const timer = setTimeout(() => setAnimatingIdx(null), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [history.length]);
 
   return (
-    <div className="flex items-center justify-center gap-4">
-      {(["A", "B"] as const).map((team) => {
-        const wins = state.matchScore[team];
-        return (
-          <div
-            key={team}
-            className="flex items-center gap-3 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 backdrop-blur-sm"
-          >
-            <span
-              className={`text-[10px] font-black uppercase tracking-[0.2em] ${
-                team === "A" ? "text-gold" : "text-violet-300"
-              }`}
-            >
-              team {team}
-              {myTeam === team && <span className="ml-1 text-white/40">(you)</span>}
-            </span>
-            <div className="relative h-[78px] w-[92px]">
-              {/* card back tucked behind the count card, offset like a real marker */}
-              <div className="absolute right-0 top-[8px] rotate-[9deg] drop-shadow">
-                <CardBack size="md" />
-              </div>
-              <div className="absolute left-0 top-0 z-10">
-                <ScoreCard
-                  count={wins}
-                  suit={team === "A" ? "HEARTS" : "DIAMONDS"}
-                  size={62}
-                  highlight={wins >= target}
-                  animKey={state.roundNumber * 10 + wins}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      })}
+    <div className="flex items-center justify-center gap-16 md:gap-32">
+      {/* My Team */}
+      <div className="flex flex-col items-center gap-3">
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gold">
+          our team
+        </span>
+        <div 
+          className="relative flex h-[78px] min-w-[62px] transition-all duration-700 ease-out" 
+          style={{ width: `${62 + Math.max(0, history.length - 1) * 24}px` }}
+        >
+          {history.map((winner, idx) => {
+             const won = winner === myTeam;
+             const suit = won ? "DIAMONDS" : "CLUBS";
+             const isNew = animatingIdx === idx;
+             const xPos = isNew ? 150 : (idx * 24); // Start shifted right towards center
+             const scale = isNew ? 1.5 : 1;
+             const opacity = isNew ? 0 : 1;
+             
+             return (
+               <div 
+                 key={idx}
+                 className="absolute top-0 transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                 style={{ 
+                   transform: `translateX(${xPos}px) scale(${scale})`, 
+                   opacity,
+                   zIndex: idx 
+                 }}
+               >
+                 <ScoreCard count={1} suit={suit} size={62} />
+               </div>
+             );
+          })}
+        </div>
+      </div>
+      
+      {/* Their Team */}
+      <div className="flex flex-col items-center gap-3">
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-300">
+          their team
+        </span>
+        <div 
+          className="relative flex h-[78px] min-w-[62px] transition-all duration-700 ease-out" 
+          style={{ width: `${62 + Math.max(0, history.length - 1) * 24}px` }}
+        >
+          {history.map((winner, idx) => {
+             const won = winner === oppTeam;
+             const suit = won ? "HEARTS" : "SPADES";
+             const isNew = animatingIdx === idx;
+             const xPos = isNew ? -150 : (idx * 24); // Start shifted left towards center
+             const scale = isNew ? 1.5 : 1;
+             const opacity = isNew ? 0 : 1;
+             
+             return (
+               <div 
+                 key={idx}
+                 className="absolute top-0 transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                 style={{ 
+                   transform: `translateX(${xPos}px) scale(${scale})`,
+                   opacity,
+                   zIndex: idx 
+                 }}
+               >
+                 <ScoreCard count={1} suit={suit} size={62} />
+               </div>
+             );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

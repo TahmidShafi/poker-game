@@ -50,11 +50,13 @@ export function SeatCard({
   isDealer,
   isActing,
   isMe,
+  myTeam,
 }: {
   seat: TnSeatView;
   isDealer: boolean;
   isActing: boolean;
   isMe: boolean;
+  myTeam?: "A" | "B" | null;
 }) {
   const empty = seat.username === null;
   return (
@@ -77,7 +79,9 @@ export function SeatCard({
           </span>
           <div className="leading-tight">
             <p className="text-[11px] font-bold text-white/35">open seat</p>
-            <p className={`text-[10px] font-bold ${tnTeamColor(seat.team)}`}>team {seat.team}</p>
+            <p className={`text-[10px] font-bold ${tnTeamColor(seat.team)}`}>
+              {myTeam ? (seat.team === myTeam ? "our team" : "their team") : `team ${seat.team}`}
+            </p>
           </div>
         </>
       ) : (
@@ -89,8 +93,8 @@ export function SeatCard({
               {isMe ? " (you)" : ""}
             </p>
             <p className="flex items-center gap-1.5">
-              <span className={`text-[10px] font-black ${tnTeamColor(seat.team)}`}>
-                TEAM {seat.team}
+              <span className={`text-[10px] font-black uppercase ${tnTeamColor(seat.team)}`}>
+                {myTeam ? (seat.team === myTeam ? "OUR TEAM" : "THEIR TEAM") : `TEAM ${seat.team}`}
               </span>
               <span className="text-[10px] tabnum text-white/45">{seat.cardsRemaining} cards</span>
               {seat.status === "DISCONNECTED" && (
@@ -130,6 +134,11 @@ export function TrickArea({
   mySeat: number | null;
   flashSeat: number | null;
 }) {
+  const { tnResolvedTrick } = useGame();
+  
+  // Use the temporarily held resolved trick if the server's current trick is empty
+  const trickToRender = state.trick.length > 0 ? state.trick : (tnResolvedTrick?.plays || []);
+  
   // rel 0 = bottom(you) · 1 = left · 2 = top · 3 = right — a loose diamond
   // around the felt center, each card clearly separated and readable.
   const slot: Record<number, string> = {
@@ -138,7 +147,7 @@ export function TrickArea({
     2: "left-1/2 top-[26%] -translate-x-1/2",
     3: "right-[30%] top-1/2 -translate-y-1/2",
   };
-  const ledSuit = state.trick[0]?.card.suit ?? null;
+  const ledSuit = trickToRender[0]?.card.suit ?? null;
 
   return (
     <div className="pointer-events-none absolute inset-0">
@@ -153,7 +162,7 @@ export function TrickArea({
       )}
 
       {[0, 1, 2, 3].map((rel) => {
-        const play = state.trick.find((p) => seatRel(mySeat, p.seatIndex) === rel);
+        const play = trickToRender.find((p) => seatRel(mySeat, p.seatIndex) === rel);
         const owner = play?.seatIndex ?? null;
         return (
           <div key={rel} className={`absolute ${slot[rel]} ${flashSeat === owner ? "animate-pulse" : ""}`}>
@@ -181,7 +190,7 @@ export function TrickArea({
         );
       })}
 
-      {state.trick.length === 0 && state.phase === "PLAYING" && (
+      {trickToRender.length === 0 && state.phase === "PLAYING" && (
         <span className="absolute inset-0 grid place-items-center text-[10px] uppercase tracking-[0.3em] text-white/25">
           waiting…
         </span>
@@ -191,6 +200,8 @@ export function TrickArea({
 }
 
 export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
+  const mySeat = useMySeat();
+  const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
   let value: React.ReactNode;
   if (state.trumpStyle === null && state.trump.state === "NOT_SET")
     value = <span className="text-white/40">awaiting bid winner</span>;
@@ -212,7 +223,7 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
         <>
           <span className="text-white/20">·</span>
           <span className={tnTeamColor(state.marriageDeclaredBy)}>
-            marriage team {state.marriageDeclaredBy}
+            {myTeam ? (state.marriageDeclaredBy === myTeam ? "marriage (our team)" : "marriage (their team)") : `marriage team ${state.marriageDeclaredBy}`}
           </span>
         </>
       )}
