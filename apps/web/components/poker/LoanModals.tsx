@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import type { PublicGameState } from "@poker/shared-types";
-import { useGame } from "../lib/store";
+import { useGame } from "../../lib/store";
 
 /** Approve/deny prompt for the seated lender; auto-expires server-side. */
 export function LoanRequestModal({

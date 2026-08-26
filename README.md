@@ -28,10 +28,18 @@ PostgreSQL (Render / Neon)  ← users, game sessions, hand history, stats, loans
 
 ```
 apps/web            Next.js 15 + React 18 + Tailwind (deploys to Vercel)
+  components/poker      Hold'em table UI (desktop oval + mobile table, actions, sidebars)
+  components/twentynine Twenty-Nine table UI (bidding, trump, tricks, score cards)
+  components/common     Shared pieces (playing cards, avatars) used by both games
+  components/join       Lobby: create / join screens for both game types
 apps/server         Express + Socket.IO game server (deploys to Render)
-packages/poker-engine   Pure TS poker rules (deck, evaluator, betting, pots,
-                        table lifecycle, showdown) — no I/O, fully tested
-packages/shared-types   Shared TS types incl. the socket event protocol
+  src/rooms/poker       Authoritative Hold'em room manager (+ per-seat serialization)
+  src/rooms/twentynine  Twenty-Nine room manager + bot brain
+packages/poker-engine     Pure TS poker rules (deck, evaluator, betting, pots,
+                          table lifecycle, showdown) — no I/O, fully tested
+packages/twentynine-engine Pure TS Twenty-Nine rules (bidding v2, hidden trump,
+                           tricks, marriage) — no I/O, fully tested
+packages/shared-types     Shared TS types incl. the socket event protocol
 prisma/             Schema + migrations (PostgreSQL)
 render.yaml         Render blueprint for the game server
 docker-compose.yml  Local Postgres (optional)

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { PublicGameState } from "@poker/shared-types";
-import { useGame } from "../lib/store";
+import { useGame } from "../../lib/store";
 import { GameInfoPanel, LoanPanel, StatsPanel } from "./LeftSidebar";
 import { PlayersListPanel, RecentHandsPanel, StreetTimelinePanel } from "./RightSidebar";
 

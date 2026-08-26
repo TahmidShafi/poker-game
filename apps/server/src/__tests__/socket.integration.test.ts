@@ -279,7 +279,7 @@ function v_foldLoop(socket: ClientSocket, seats: number[]): void {
 
 describe("security: information & input hardening", () => {
   it("serializeForSeat strips opponents' hole cards until showdown", async () => {
-    const { serializeForSeat } = await import("../websocket/serialize");
+    const { serializeForSeat } = await import("../rooms/poker/serialize");
     const { createTable } = await import("@poker/engine");
     const { GamePhase } = await import("@poker/shared-types");
     const c = (rank: number, suit: "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS") => ({ rank, suit }) as never;

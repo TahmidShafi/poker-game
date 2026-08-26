@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import type { PlayerAction, PublicGameState, Seat } from "@poker/shared-types";
-import { useGame } from "../lib/store";
+import { useGame } from "../../lib/store";
 import { computeLegal, BustedPanel } from "./ActionBar";
 import { TimerRing, useCountdown } from "./TimerRing";
 

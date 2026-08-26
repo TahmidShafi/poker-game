@@ -3,7 +3,7 @@
 import React from "react";
 import type { Seat } from "@poker/shared-types";
 import { ChipStack } from "./ChipStack";
-import { SeatAvatar } from "./SeatAvatar";
+import { SeatAvatar } from "../common/SeatAvatar";
 
 const STATUS_LABEL: Partial<Record<Seat["status"], string>> = {
   FOLDED: "folded",

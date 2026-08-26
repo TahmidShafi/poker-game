@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useGame } from "../lib/store";
+import { useGame } from "../../lib/store";
 
 export function Panel({
   title,

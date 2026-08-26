@@ -2,14 +2,14 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import type { PublicGameState } from "@poker/shared-types";
-import { useGame } from "../lib/store";
-import { SeatAvatar } from "./SeatAvatar";
+import { useGame } from "../../lib/store";
+import { SeatAvatar } from "../common/SeatAvatar";
 import {
   requestTurnAlertPermission,
   setTurnAlertsEnabled,
   turnAlertsBlocked,
   turnAlertsEnabled,
-} from "../lib/notify";
+} from "../../lib/notify";
 
 function Logo() {
   return (

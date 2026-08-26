@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
 import type { ClientToServerEvents, ServerToClientEvents, TnCard, TnSuit } from "@poker/shared-types";
 import { isTnTrumpChoice } from "@poker/shared-types";
-import type { GameManager, GameManagerHooks } from "../rooms/gameManager";
+import type { GameManager, GameManagerHooks } from "../rooms/poker/gameManager";
 import type { RoomLike, RoomPlayerRef } from "../rooms/roomLike";
 import type { TwentyNineGameManager } from "../rooms/twentynine/twentyNineManager";
 import { RoomRegistry } from "../rooms/roomRegistry";

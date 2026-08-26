@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import type { PlayerAction, PublicGameState, Seat } from "@poker/shared-types";
-import { useGame } from "../lib/store";
-import { useMediaQuery } from "../lib/useMediaQuery";
+import { useGame } from "../../lib/store";
+import { useMediaQuery } from "../../lib/useMediaQuery";
 import { ChipStack } from "./ChipStack";
 import { TimerRing, useCountdown } from "./TimerRing";
 

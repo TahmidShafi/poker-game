@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { CelebrationView } from "../lib/store";
+import type { CelebrationView } from "../../lib/store";
 
 /**
  * Full-screen golden takeover for monster hands (Royal Flush / Quads).

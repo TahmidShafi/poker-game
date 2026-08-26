@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import type { PublicTwentyNineState, TnCard } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
-import { PlayingCard } from "../PlayingCard";
+import { PlayingCard } from "../common/PlayingCard";
 import { ScoreCard, ScorePairCaption } from "./ScoreCard";
 import { useGame } from "../../lib/store";
 
@@ -18,12 +18,16 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
 export function HandFan({ state }: { state: PublicTwentyNineState }) {
   const { me, myTnCards, tnPlayCard } = useGame();
   const mySeat = me?.seatIndex ?? null;
+  // Cards are clickable EXACTLY when it is my turn in the PLAYING phase.
+  // During bidding/trump-setup the fan stays visible but inert (never
+  // "enabled-looking"), so a click can never fire an out-of-phase action.
+  const playing = state.phase === "PLAYING";
   const legal = useMemo(
-    () => legalMirror(myTnCards ?? [], state.trick),
-    [myTnCards, state.trick]
+    () => (playing ? legalMirror(myTnCards ?? [], state.trick) : []),
+    [playing, myTnCards, state.trick]
   );
   const legalKeys = new Set(legal.map((c) => `${c.rank}${c.suit}`));
-  const myTurn = state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
+  const myTurn = playing && state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
 
   if (!myTnCards || myTnCards.length === 0) return null;
 
@@ -31,15 +35,22 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
     <div className="flex items-end justify-center gap-1.5">
       {myTnCards.map((c) => {
         const isLegal = legalKeys.has(`${c.rank}${c.suit}`);
+        const clickable = myTurn && isLegal;
         return (
           <button
             key={`${c.rank}${c.suit}`}
-            disabled={!myTurn || !isLegal}
+            disabled={!clickable}
             onClick={() => tnPlayCard(c)}
             className={`transition-transform ${
-              myTurn && isLegal ? "hover:-translate-y-2 cursor-pointer" : ""
-            } ${!isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
-            title={isLegal ? "play this card" : "not legal — follow suit"}
+              clickable ? "hover:-translate-y-2 cursor-pointer" : ""
+            } ${myTurn && !isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
+            title={
+              clickable
+                ? "play this card"
+                : myTurn
+                ? "not legal — follow suit"
+                : `waiting for seat ${state.actingSeatIndex}`
+            }
           >
             <PlayingCard card={c} size="md" />
           </button>
@@ -47,6 +58,50 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
       })}
     </div>
   );
+}
+
+function StatusLine({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-center text-[10px] font-bold uppercase tracking-[0.22em] text-amber-200/80">
+      {children}
+    </p>
+  );
+}
+
+/**
+ * Explicit non-blocking status line for every non-acting moment, so a phase
+ * transition is never a silent stall: bidding waits, trump-setup waits,
+ * dealing, and trick-play waits all name who is being waited on.
+ */
+export function TurnStatus({ state }: { state: PublicTwentyNineState }) {
+  const { me } = useGame();
+  const mySeat = me?.seatIndex ?? null;
+
+  if (
+    state.phase === "WAITING_FOR_PLAYERS" ||
+    state.phase === "ROUND_SCORED" || // RoundBanner covers this
+    state.phase === "MATCH_OVER" // MatchOverBanner covers this
+  ) {
+    return null;
+  }
+  if (state.phase === "REDEALING") {
+    return <StatusLine>hand cancelled — redealing with the same dealer…</StatusLine>;
+  }
+  if (state.phase === "DEALING_BATCH_1" || state.phase === "DEALING_BATCH_2") {
+    return <StatusLine>dealing remaining cards…</StatusLine>;
+  }
+
+  const acting = state.actingSeatIndex;
+  if (acting === null || acting === mySeat) return null;
+  const actor = state.seats[acting];
+  const name =
+    !actor || actor.username === null ? `seat ${acting}` : actor.username;
+  if (state.phase === "BIDDING") return <StatusLine>waiting for {name} to bid…</StatusLine>;
+  if (state.phase === "TRUMP_SETUP") {
+    return <StatusLine>waiting for {name} to set trump…</StatusLine>;
+  }
+  if (state.phase === "PLAYING") return <StatusLine>waiting for {name} to play…</StatusLine>;
+  return null;
 }
 
 export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {

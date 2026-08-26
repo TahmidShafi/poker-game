@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { Card } from "@poker/shared-types";
-import { PlayingCard } from "./PlayingCard";
+import { PlayingCard } from "../common/PlayingCard";
 
 interface RankingRow {
   name: string;

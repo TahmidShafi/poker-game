@@ -3,9 +3,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { ShowdownResult } from "@poker/shared-types";
 import { describeHand } from "@poker/shared-types";
-import { PlayingCard } from "./PlayingCard";
-import { useGame } from "../lib/store";
-import { SeatAvatar } from "./SeatAvatar";
+import { PlayingCard } from "../common/PlayingCard";
+import { useGame } from "../../lib/store";
+import { SeatAvatar } from "../common/SeatAvatar";
 
 /**
  * Showdown overlay: each revealed player with their rich hand name,

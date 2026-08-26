@@ -30,8 +30,8 @@ import {
   startHand,
 } from "@poker/engine";
 import { randomBytes, randomUUID } from "crypto";
-import { ServerConfig } from "../config";
-import { serializeForSeat } from "../websocket/serialize";
+import { ServerConfig } from "../../config";
+import { serializeForSeat } from "./serialize";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 

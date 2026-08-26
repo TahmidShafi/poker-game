@@ -13,15 +13,15 @@
 - Live rooms are single-process in-memory (documented caveat, applies to 29 too).
 
 ## 2. Key files / integration map
-- `apps/server/src/rooms/gameManager.ts` (~881 lines) â€” poker authority. Pattern to copy: players Map<playerId,{socketIds,lastSeen,sessionToken}>, join/rejoin-by-token, disconnectSocket keeps seat, broadcastState loops ALL sockets and emits per-seat serialized snapshot, reject() emits ACTION_REJECTED.
+- `apps/server/src/rooms/poker/gameManager.ts` (~881 lines) â€” poker authority. Pattern to copy: players Map<playerId,{socketIds,lastSeen,sessionToken}>, join/rejoin-by-token, disconnectSocket keeps seat, broadcastState loops ALL sockets and emits per-seat serialized snapshot, reject() emits ACTION_REJECTED.
 - `apps/server/src/rooms/roomRegistry.ts` â€” codes/tokens/sweeper; currently maps codeâ†’GameManager directly â†’ being changed to RoomLike + factory.
 - `apps/server/src/websocket/handlers.ts` â€” validationâ†’routing; `findRoomOf(registry,socketId)` walks roomsSnapshot(). CREATE_ROOM validates/clamps RoomConfig.
-- `apps/server/src/websocket/serialize.ts` â€” poker per-seat hole-card gate (pattern only).
+- `apps/server/src/rooms/poker/serialize.ts` â€” poker per-seat hole-card gate (pattern only).
 - `apps/server/src/config.ts` â€” ServerConfig.limits (adding tnOfflineFallbackSeconds).
 - `apps/server/src/persistence/persistence.ts` â€” fire-and-forget writers keyed by roomCodeâ†’gameSession.id; ensureGameSession upsert.
 - `prisma/schema.prisma` â€” GameSession lacks gameType â†’ migration required.
 - `apps/web/lib/store.tsx` â€” GameProvider: socket lifecycle, me/sessionToken/localStorage(TOKEN_KEY=poker.sessionToken), per-event listeners, bindAck; actions exposed via useGame().
-- `apps/web/components/JoinScreen.tsx` + `join/CreateForm.tsx` â€” lobby; deep link ?room=CODE.
+- `apps/web/components/join/JoinScreen.tsx` + `join/CreateForm.tsx` â€” lobby; deep link ?room=CODE.
 - `apps/web/app/page.tsx` â€” single page; renders JoinScreen OR poker table view.
 - Reusable UI atoms: PlayingCard, sounds (playChips/playTurn/playWin), pushToast, confetti, glass/gold design classes. NO TimerRing in 29.
 - Integration test pattern: `apps/server/src/__tests__/socket.integration.test.ts` boots real server on ephemeral port with 4 io() clients.
@@ -116,3 +116,8 @@ Batch A (protocol/engine first since B touches same files) â†’ B4 bidding �
 - [2026-08-25 21:36] DONE: SERVER (settings-free validateRoomConfig; vsBots through registry+manager w/ persistence skip; choice routing; botBrain.ts casual heuristics + fillBots/armBotIfNeeded/performBotMove; offline-fallback skips bots) AND WEB (avatar path fix avatar-N.png; viewer-relative seats in view+TrickArea; ScoreCard.tsx pip layouts 0-6 inverted loss side; scorePop anim in tailwind config; TraditionalScoreCards strip above felt; 6-tile TrumpPickerModal; RulesModal rewrite; BiddingPanel v2 floor + match caption; store choice payload + vsBots extra; JoinScreen friends/bots buttons; TnCreateForm deleted). Server tsc OK, Web tsc OK.
 NEXT: update twentynine integration suite to new API (no modes, choice payload) + add bots single-player integration test; then full verify + commit.
 - [2026-08-25 22:25] ALL BATCHES COMPLETE. Integration suite 7/7 rewritten for choice-API (SUIT/SEVENTH/JOKER/marriage/out-of-turn/offline-fallback/BOTS). Bot test: table auto-fills 3 bots, full round vs bots legal, no substantive rejections. Full verify: tn-engine 58/58, poker-engine 111/111, server 31/31, web+server tsc clean. Bots shipped: botBrain casual heuristics (bidding v2 aware), vsBots flag, think-delay loop through human pipeline, persistence skipped for bot rooms.
+- [2026-08-25 23:14] P1 DONE: store hand-accumulation fix (YOUR_TN_HAND batch 1/2/FULL_RECONNECT keyed by handNumber - root cause of missing second deal), observed-played derivation from TN_STATE+TN_TRICK_RESOLVED, pendingTnCard lift/clear-on-reject, trickFlash winner snapshot. Web tsc OK.
+- [2026-08-25 23:15] P2 DONE: CardBack.tsx (authoritative-count backs) + CardFan.tsx (fanCardStyle rotation/arc/overlap math + BackFan container).
+- [2026-08-25 23:16] P3 DONE: HandFan rebuilt on fanCardStyle (arc+rotation+overlap, hover-lift legal only, pending lifted gold, illegal dimmed, display hand = dealt minus observedPlayed); OpponentHand.tsx back-fans top horizontal / sides vertical driven by cardsRemaining.
+- [2026-08-25 23:22] P4+P5 DONE: TrickArea v2 (directional dealIn per seat, winner card gold pulse from trickFlash, collect-out toward winner seat using snapshot during 600ms window); RedealBanner explanation; SeatCard bot/bid-winner badges; captured tricks+pts chips on score captions; TwentyNineView rebuilt as h-dvh flex column (header/score strip/flex-1 felt with opponent back-fans/fixed dock: bidding+pills+hand) - no page scroll, responsive. Web tsc OK.
+- [2026-08-25 23:25] P6 DONE: full verify - poker-engine 111/111, server integration 31/31 (incl. bots round), web tsc clean. Table redesign complete: card lifecycle hand->trick->winner-highlight->collect-to-winner-seat->captured chips; second-deal bug fixed via batch accumulation. Awaiting owner manual QA of section-20 checklist.

@@ -2,10 +2,10 @@
 
 import React from "react";
 import type { PublicGameState, Seat } from "@poker/shared-types";
-import { PlayingCard } from "./PlayingCard";
+import { PlayingCard } from "../common/PlayingCard";
 import { CompactSeat } from "./CompactSeat";
-import { useGame } from "../lib/store";
-import { useMediaQuery } from "../lib/useMediaQuery";
+import { useGame } from "../../lib/store";
+import { useMediaQuery } from "../../lib/useMediaQuery";
 
 /**
  * Dedicated mobile table composition — NOT the desktop oval squeezed down.

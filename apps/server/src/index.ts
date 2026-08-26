@@ -8,7 +8,7 @@ import type {
 } from "@poker/shared-types";
 import { loadConfig, ServerConfig } from "./config";
 import { registerSocketHandlers } from "./websocket/handlers";
-import { GameManagerHooks } from "./rooms/gameManager";
+import { GameManagerHooks } from "./rooms/poker/gameManager";
 import type { TnManagerHooks } from "./rooms/twentynine/twentyNineManager";
 import type { RoomRegistry } from "./rooms/roomRegistry";
 import {

@@ -3,7 +3,7 @@
 import React from "react";
 import type { PublicTwentyNineState, TnCard, TnSeatView } from "@poker/shared-types";
 import { TN_RANK_LABELS, TN_SUIT_SYMBOLS } from "@poker/shared-types";
-import { PlayingCard } from "../PlayingCard";
+import { PlayingCard } from "../common/PlayingCard";
 import { useGame } from "../../lib/store";
 
 export function tnTeamColor(team: "A" | "B"): string {

@@ -2,8 +2,8 @@
 
 import React, { useState } from "react";
 import type { PublicGameState } from "@poker/shared-types";
-import { useGame } from "../lib/store";
-import { PlayingCard } from "./PlayingCard";
+import { useGame } from "../../lib/store";
+import { PlayingCard } from "../common/PlayingCard";
 
 function Panel({
   title,

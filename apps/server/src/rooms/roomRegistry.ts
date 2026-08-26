@@ -2,7 +2,7 @@ import { RoomConfig } from "@poker/shared-types";
 import { Server } from "socket.io";
 import type { ClientToServerEvents, ServerToClientEvents } from "@poker/shared-types";
 import type { RoomLike } from "./roomLike";
-import { GameManager, GameManagerHooks } from "./gameManager";
+import { GameManager, GameManagerHooks } from "./poker/gameManager";
 import { TnManagerHooks, TwentyNineGameManager } from "./twentynine/twentyNineManager";
 import { ServerConfig } from "../config";
 import { ensureGameSession } from "../persistence/persistence";

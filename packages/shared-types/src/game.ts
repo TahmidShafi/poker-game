@@ -51,7 +51,7 @@ export interface Pot {
 /**
  * The state broadcast to all clients. Hole cards for other players are
  * ALWAYS stripped server-side before this is sent to a given socket -
- * see server/websocket/serializeStateForSeat.
+ * see server/rooms/poker/serialize (serializeForSeat).
  */
 export interface PublicGameState {
   gameId: string;

@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { PublicGameState } from "@poker/shared-types";
-import { PlayingCard } from "./PlayingCard";
+import { PlayingCard } from "../common/PlayingCard";
 import { PlayerBadge } from "./PlayerBadge";
 import { ChipStack } from "./ChipStack";
 

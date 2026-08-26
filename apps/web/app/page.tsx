@@ -2,19 +2,19 @@
 
 import React, { useEffect, useState } from "react";
 import { useGame } from "../lib/store";
-import { JoinScreen } from "../components/JoinScreen";
-import { TableOval } from "../components/TableOval";
-import { MobileTable } from "../components/MobileTable";
-import { ActionBar } from "../components/ActionBar";
-import { MobileActionBar } from "../components/MobileActionBar";
-import { HandRankingsModal } from "../components/HandRankingsModal";
-import { WinnerBanner } from "../components/WinnerBanner";
-import { LoanRequestModal, RepayDialog } from "../components/LoanModals";
-import { Celebration } from "../components/Celebration";
-import { HeaderBar } from "../components/HeaderBar";
-import { LeftSidebar } from "../components/LeftSidebar";
-import { RightSidebar } from "../components/RightSidebar";
-import { InfoSheet } from "../components/InfoSheet";
+import { JoinScreen } from "../components/join/JoinScreen";
+import { TableOval } from "../components/poker/TableOval";
+import { MobileTable } from "../components/poker/MobileTable";
+import { ActionBar } from "../components/poker/ActionBar";
+import { MobileActionBar } from "../components/poker/MobileActionBar";
+import { HandRankingsModal } from "../components/poker/HandRankingsModal";
+import { WinnerBanner } from "../components/poker/WinnerBanner";
+import { LoanRequestModal, RepayDialog } from "../components/poker/LoanModals";
+import { Celebration } from "../components/poker/Celebration";
+import { HeaderBar } from "../components/poker/HeaderBar";
+import { LeftSidebar } from "../components/poker/LeftSidebar";
+import { RightSidebar } from "../components/poker/RightSidebar";
+import { InfoSheet } from "../components/poker/InfoSheet";
 import { TwentyNineView } from "../components/twentynine/TwentyNineView";
 
 function Drawer({

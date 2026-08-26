@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { useGame } from "../lib/store";
+import { useGame } from "../../lib/store";
 import type { RoomConfig } from "@poker/shared-types";
-import { AvatarStrip } from "./join/AvatarStrip";
-import { CodeBoxes } from "./join/CodeBoxes";
-import { CreateForm } from "./join/CreateForm";
-import { PlayingCard } from "./PlayingCard";
+import { AvatarStrip } from "./AvatarStrip";
+import { CodeBoxes } from "./CodeBoxes";
+import { CreateForm } from "./CreateForm";
+import { PlayingCard } from "../common/PlayingCard";
 
 const DEFAULTS: RoomConfig = {
   startingCoins: 1000,
