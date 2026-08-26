@@ -107,7 +107,7 @@ interface Seat {
  * Boots a 4-player TWENTY_NINE room (no settings — integrated mechanics) and
  * returns per-seat recorders indexed by actual seat assignment.
  */
-async function makeTnRoom(vsBots = false): Promise<{ seats: Seat[] }> {
+async function makeTnRoom(vsBots = false): Promise<{ seats: Seat[]; code: string }> {
   const creator = connect();
   const creatorLog = recorder(creator);
   const ack = await emitAck(creator, "CREATE_ROOM", {
@@ -132,7 +132,7 @@ async function makeTnRoom(vsBots = false): Promise<{ seats: Seat[] }> {
       seats[j.seatIndex!] = { seatIndex: j.seatIndex!, socket: s, log, token: j.sessionToken!, name: `P${i}` };
     }
   }
-  return { seats };
+  return { seats, code };
 }
 
 /** Waits until predicate over the seat's latest state passes (with timeout). */
@@ -160,17 +160,87 @@ function latestOf(log: LogEntry[] | undefined): PublicTwentyNineState | null {
   return null;
 }
 
-function myCardsOf(seat: Seat): TnCard[] {
+function myCardsOf(seat: Seat, handNumber?: number): TnCard[] {
   const cards: TnCard[] = [];
   for (const e of seat.log) {
-    if (e.ev === "YOUR_TN_HAND") {
-      const d = e.data as { cards: TnCard[] };
-      for (const c of d.cards) {
-        if (!cards.some((x) => x.suit === c.suit && x.rank === c.rank)) cards.push(c);
-      }
+    if (e.ev !== "YOUR_TN_HAND") continue;
+    const d = e.data as { cards: TnCard[]; handNumber?: number };
+    if (handNumber !== undefined && d.handNumber !== handNumber) continue;
+    for (const c of d.cards) {
+      if (!cards.some((x) => x.suit === c.suit && x.rank === c.rank)) cards.push(c);
     }
   }
   return cards;
+}
+
+/** Cards delivered for ONE deal batch (1 or 2) of the CURRENT log. */
+function batchCardsOf(seat: Seat, batch: 1 | 2): TnCard[] {
+  const out: TnCard[] = [];
+  for (const e of seat.log) {
+    if (e.ev !== "YOUR_TN_HAND") continue;
+    const d = e.data as { batch: number | string; cards: TnCard[] };
+    if (d.batch !== batch) continue;
+    for (const c of d.cards) {
+      if (!out.some((x) => x.suit === c.suit && x.rank === c.rank)) out.push(c);
+    }
+  }
+  return out;
+}
+
+/** Generic condition poller for event-log driven assertions. */
+async function pollUntil(
+  fn: () => boolean,
+  timeoutMs = 8000,
+  label = "condition"
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!fn()) {
+    if (Date.now() > deadline) throw new Error(`pollUntil timeout: ${label}`);
+    await sleep(40);
+  }
+}
+
+/** Anti-clockwise successor, for dealer-rotation assertions. */
+const tnNext = (seat: number): number => (seat + 3) % 4;
+
+/**
+ * Deterministic auction: the first acting seat bids `bid`, everyone else
+ * passes. Resolves once the phase reaches TRUMP_SETUP; returns the bidder.
+ */
+async function simpleAuctionToTrumpSetup(seats: Seat[], bid = 16): Promise<number> {
+  let bidderSeat: number | null = null;
+  const deadline = Date.now() + 20000;
+  for (;;) {
+    const st = latestOf(seats[0]!.log);
+    if (!st) throw new Error("simpleAuction: no state yet");
+    if (st.phase === "TRUMP_SETUP") {
+      const bidder = st.bids?.bidderSeatIndex;
+      if (bidder == null) throw new Error("simpleAuction: no bidder recorded");
+      return bidder;
+    }
+    if (st.phase !== "BIDDING") throw new Error(`simpleAuction: unexpected phase ${st.phase}`);
+    if (Date.now() > deadline) throw new Error("simpleAuction: timeout");
+    const turn = st.bids?.turnSeatIndex;
+    if (turn == null) continue;
+    const s = seats.find((x) => x.seatIndex === turn);
+    if (!s) {
+      await sleep(40);
+      continue;
+    }
+    if (bidderSeat === null) {
+      bidderSeat = turn;
+      s.socket.emit("GAME29_BID", { bid });
+    } else {
+      s.socket.emit("GAME29_BID", {}); // pass
+    }
+    const histLen = st.bids!.history.length;
+    await waitFor(
+      s,
+      () => latestOf(s.log),
+      (s2) => s2.phase !== "BIDDING" || s2.bids === null || s2.bids.history.length > histLen,
+      3000
+    ).catch(() => null);
+  }
 }
 
 function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"]): TnCard[] {
@@ -294,7 +364,7 @@ async function playFullHand(
     const bidderSeat = st.bids!.bidderSeatIndex!;
     const me = humans.find((h) => h.seat.seatIndex === bidderSeat);
     if (me) {
-      const hand = myCardsOf(me.seat);
+      const hand = myCardsOf(me.seat, st.roundNumber);
       const choice =
         opts.trumpChoice ?? dominantSuit(hand.length >= 8 ? hand : hand.slice(0, 4));
       me.seat.socket.emit("GAME29_DECLARE_TRUMP", { choice });
@@ -305,15 +375,24 @@ async function playFullHand(
     throw new Error("hand was redealt - caller should retry");
   }
 
-  // --- Tricks ---
-  let safety = 0;
-  const playDeadline = Date.now() + 120000;
-  for (;;) {
-    safety++;
-    if (Date.now() > playDeadline) throw new Error("trick play did not terminate");
+    // --- Tricks ---
+    let safety = 0;
+    const playDeadline = Date.now() + 120000;
+    for (;;) {
+      safety++;
+      if (Date.now() > playDeadline) throw new Error("trick play did not terminate");
 
-    const finished = humans.some((h) => h.seat.log.some((e) => e.ev === "TN_ROUND_FINISHED"));
-    if (finished) {
+      // Round-scoped finish check: TN_ROUND_FINISHED events accumulate in the
+      // log across hands, so only an event for the CURRENT round counts.
+      const currentRound = latestOf(anyLog())!.roundNumber;
+      const finished = humans.some((h) =>
+        h.seat.log.some(
+          (e) =>
+            e.ev === "TN_ROUND_FINISHED" &&
+            ((e.data as { summary: { roundNumber: number } }).summary.roundNumber === currentRound)
+        )
+      );
+      if (finished) {
       for (const h of humans) {
         await waitFor(h.seat, () => latestOf(h.seat.log), (st2) => st2.phase === "ROUND_SCORED" || st2.phase === "MATCH_OVER");
       }
@@ -334,7 +413,7 @@ async function playFullHand(
       const cs = latestOf(h.seat.log);
       if (!cs || cs.phase !== "PLAYING") continue;
       if (cs.actingSeatIndex !== h.seat.seatIndex) continue;
-      const remaining = myCardsOf(h.seat).filter((c) => !h.spent.has(`${c.rank}${c.suit}`));
+      const remaining = myCardsOf(h.seat, cs.roundNumber).filter((c) => !h.spent.has(`${c.rank}${c.suit}`));
       const legal = legalMirror(remaining, cs.trick);
       if (legal.length === 0) continue;
       const low = legal.reduce((m, c) => (c.rank < m.rank ? c : m));
@@ -631,5 +710,355 @@ describe("twenty-nine: multiplayer integration", () => {
       expect(tricks).toHaveLength(8);
     },
     90000
+  );
+});
+
+// ============================================================================
+// STABILITY & SECOND-DEAL REGRESSION SUITE
+// Locks the critical flow (bid -> trump -> second deal -> play), the server
+// invariants around it, and the Part-2 audit behaviours (races, reconnects,
+// room cleanup, full-match playthrough).
+// ============================================================================
+
+function serverHandOf(code: string, seatIndex: number): string[] {
+  const match = (
+    ps.registry.get(code)! as unknown as { match: { seats: { hand: TnCard[] }[] } }
+  ).match;
+  return match.seats[seatIndex]!.hand.map((c) => `${c.suit}${c.rank}`);
+}
+
+describe("twenty-nine: second deal & core-flow regression", () => {
+  it(
+    "second deal: 4+4 per player, batch 2 only after trump, PLAYING requires 8-card hands, 32 unique cards",
+    async () => {
+      const { seats, code } = await makeTnRoom(false);
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+      await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch 1 = 4 per seat");
+
+      // Deterministic auction into trump setup.
+      const bidder = await simpleAuctionToTrumpSetup(seats);
+      const bidderSeat = seats.find((s) => s.seatIndex === bidder)!;
+
+      // Only the bidder was prompted; nobody has batch 2 before trump is set.
+      const prompted = seats.filter((s) =>
+        s.log.some((e) => e.ev === "TN_BIDDER_PRIVATE" && (e.data as { kind?: string }).kind === "CHOOSE_TRUMP")
+      );
+      expect(prompted.map((s) => s.seatIndex)).toEqual([bidder]);
+      for (const s of seats) expect(batchCardsOf(s, 2)).toHaveLength(0);
+      expect(latestOf(seats[0]!.log)!.phase).toBe("TRUMP_SETUP");
+
+      // Bid winner declares the dominant suit of their own first batch.
+      bidderSeat.socket.emit("GAME29_DECLARE_TRUMP", { choice: dominantSuit(batchCardsOf(bidderSeat, 1)) });
+
+      await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "phase PLAYING");
+      await pollUntil(() => seats.every((s) => batchCardsOf(s, 2).length === 4), 8000, "batch 2 = 4 per seat");
+
+      // 4 + 4 per seat; across all four clients the whole deck is accounted
+      // for exactly once (no duplicates, no missing cards).
+      const all = new Set<string>();
+      for (const s of seats) {
+        const b1 = batchCardsOf(s, 1);
+        const b2 = batchCardsOf(s, 2);
+        expect(b1).toHaveLength(4);
+        expect(b2).toHaveLength(4);
+        for (const c of [...b1, ...b2]) all.add(`${c.suit}${c.rank}`);
+      }
+      expect(all.size).toBe(32);
+
+      // Server truth: every seated hand verifiably holds 8 cards in PLAYING.
+      const match = (
+        ps.registry.get(code)! as unknown as {
+          match: { seats: { username: string | null; hand: TnCard[] }[] };
+        }
+      ).match;
+      for (const seat of match.seats) {
+        if (seat.username === null) continue;
+        expect(seat.hand).toHaveLength(8);
+      }
+
+      // Ordering: batch 2 never arrived after the first PLAYING snapshot.
+      for (const s of seats) {
+        const firstPlaying = s.log.find(
+          (e) => e.ev === "TN_STATE" && (e.data as PublicTwentyNineState).phase === "PLAYING"
+        );
+        const lastBatch2 = [...s.log]
+          .reverse()
+          .find((e) => e.ev === "YOUR_TN_HAND" && (e.data as { batch: number | string }).batch === 2);
+        expect(firstPlaying).toBeDefined();
+        expect(lastBatch2).toBeDefined();
+        expect(lastBatch2!.at).toBeLessThanOrEqual(firstPlaying!.at);
+      }
+    },
+    30000
+  );
+
+  it("only the bid winner can act during trump selection; the room stays healthy afterwards", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    const impostor = seats.find((s) => s.seatIndex !== bidder)!;
+
+    impostor.socket.emit("GAME29_DECLARE_TRUMP", { choice: "SPADES" });
+    await pollUntil(() => impostor.log.some((e) => e.ev === "ACTION_REJECTED"), 3000, "impostor rejected");
+    expect(latestOf(seats[0]!.log)!.phase).toBe("TRUMP_SETUP");
+
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing after valid declare");
+  }, 20000);
+
+  it(
+    "bid winner disconnect during TRUMP_SETUP: fallback auto-declares and the hand proceeds",
+    async () => {
+      ps.close();
+      ps = createPokerServer({ limits: { ...BASE_LIMITS, tnOfflineFallbackSeconds: 1 } });
+      await new Promise<void>((resolve) => {
+        ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+      });
+      port = (ps.httpServer.address() as AddressInfo).port;
+
+      const { seats } = await makeTnRoom(false);
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+      const bidder = await simpleAuctionToTrumpSetup(seats);
+      const bidderSeat = seats.find((s) => s.seatIndex === bidder)!;
+
+      bidderSeat.socket.disconnect();
+      await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 8000, "fallback reached PLAYING");
+
+      const st = latestOf(seats[0]!.log)!;
+      expect(st.trumpStyle).toBe("SUIT"); // dominant-suit auto-declare
+      expect(st.trump.state).toBe("HIDDEN"); // the fallback never reveals trump
+      for (const s of seats) {
+        if (s.seatIndex === bidder) continue;
+        expect(batchCardsOf(s, 2)).toHaveLength(4); // second deal still flows
+        expect(s.log.some((e) => e.ev === "TN_TRUMP_REVEALED")).toBe(false);
+      }
+    },
+    30000
+  );
+});
+
+describe("twenty-nine: race & reconnect stability", () => {
+  it("double-submitted play card resolves to exactly one accept and one clean reject", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    const st = latestOf(seats[0]!.log)!;
+    const leader = seats.find((s) => s.seatIndex === st.actingSeatIndex)!;
+    const card = batchCardsOf(leader, 1)[0]!; // leading: every card is legal
+    leader.socket.emit("GAME29_PLAY_CARD", { card });
+    leader.socket.emit("GAME29_PLAY_CARD", { card });
+
+    await pollUntil(() => latestOf(seats[0]!.log)!.trick.length === 1, 4000, "trick grew by exactly one");
+    await sleep(300); // let the duplicate submission settle
+  expect(leader.log.filter((e) => e.ev === "ACTION_REJECTED")).toHaveLength(1);
+  expect(latestOf(seats[0]!.log)!.trick).toHaveLength(1);
+}, 20000);
+
+  it("reconnect matrix: mid-bidding restore keeps seat, hand and phase", async () => {
+    const { seats, code } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch1");
+    const victim = seats[2]!;
+    const phaseBefore = latestOf(victim.log)!.phase;
+    victim.socket.disconnect();
+
+    const re = connect();
+    const log = recorder(re);
+    const ack = await emitAck(re, "RECONNECT", { sessionToken: victim.token });
+    expect(ack.ok).toBe(true);
+    expect(ack.seatIndex).toBe(victim.seatIndex);
+    expect(ack.gameType).toBe("TWENTY_NINE");
+
+    await pollUntil(() => log.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "hand redelivered");
+    const hands = log.filter((e) => e.ev === "YOUR_TN_HAND");
+    expect(hands).toHaveLength(1); // exactly one authoritative FULL_RECONNECT
+    expect((hands[0]!.data as { batch: string }).batch).toBe("FULL_RECONNECT");
+    expect((hands[0]!.data as { cards: TnCard[] }).cards).toHaveLength(4);
+
+    // Privacy: every card this client has EVER received belongs to their own hand.
+    const mine = serverHandOf(code, victim.seatIndex);
+    for (const e of log) {
+      if (e.ev !== "YOUR_TN_HAND") continue;
+      for (const c of (e.data as { cards: TnCard[] }).cards) {
+        expect(mine).toContain(`${c.suit}${c.rank}`);
+      }
+    }
+    expect(latestOf(log)!.phase).toBe(phaseBefore);
+    re.disconnect();
+  }, 20000);
+
+  it("reconnect matrix: trump-setup restore leaves the room actionable", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    const victim = seats.find((s) => s.seatIndex !== bidder)!;
+    victim.socket.disconnect();
+
+    const re = connect();
+    const log = recorder(re);
+    const ack = await emitAck(re, "RECONNECT", { sessionToken: victim.token });
+    expect(ack.ok).toBe(true);
+    await pollUntil(() => log.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "hand");
+    expect(latestOf(log)!.phase).toBe("TRUMP_SETUP");
+    expect((log.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[] }).cards).toHaveLength(4);
+
+    // Room is still actionable: the real bidder completes trump.
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await pollUntil(() => latestOf(log)!.phase === "PLAYING", 6000, "playing");
+    re.disconnect();
+  }, 20000);
+
+  it("reconnect matrix: mid-trick restore delivers the full 8-card hand", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    const leader = seats.find((s) => s.seatIndex === latestOf(seats[0]!.log)!.actingSeatIndex)!;
+    leader.socket.emit("GAME29_PLAY_CARD", { card: batchCardsOf(leader, 1)[0]! });
+    await pollUntil(() => latestOf(seats[0]!.log)!.trick.length === 1, 4000, "trick started");
+
+    // Disconnect someone who is NOT acting (no offline-fallback interference).
+    const st = latestOf(seats[0]!.log)!;
+    const victim = seats.find((s) => s.seatIndex !== st.actingSeatIndex)!;
+    victim.socket.disconnect();
+
+    const re = connect();
+    const log = recorder(re);
+    const ack = await emitAck(re, "RECONNECT", { sessionToken: victim.token });
+    expect(ack.ok).toBe(true);
+    await pollUntil(() => log.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "hand");
+    expect((log.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[] }).cards).toHaveLength(8);
+    expect(latestOf(log)!.phase).toBe("PLAYING");
+    expect(latestOf(log)!.trick).toHaveLength(1);
+    re.disconnect();
+  }, 20000);
+});
+
+describe("twenty-nine: room lifecycle & leaks", () => {
+  it(
+    "abandoned rooms (human and bot-filled) are swept and destroyed",
+    async () => {
+      ps.close();
+      ps = createPokerServer({ limits: { ...BASE_LIMITS, emptyRoomTtlMs: 400 } });
+      await new Promise<void>((resolve) => {
+        ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+      });
+      port = (ps.httpServer.address() as AddressInfo).port;
+
+      const human = await makeTnRoom(false);
+      const bots = await makeTnRoom(true);
+      const hRoom = ps.registry.get(human.code)!;
+      const bRoom = ps.registry.get(bots.code)!;
+      expect(hRoom).toBeDefined();
+      expect(bRoom).toBeDefined();
+
+      for (const s of human.seats) s.socket.disconnect();
+      for (const s of bots.seats) s.socket.disconnect();
+      await pollUntil(
+        () => hRoom.lastActivityAt() === 0 && bRoom.lastActivityAt() === 0,
+        4000,
+        "activity zeroed"
+      );
+      await sleep(500); // outlive the TTL measured from creation
+
+      (ps.registry as unknown as { sweep: () => void }).sweep();
+      expect(ps.registry.get(human.code)).toBeUndefined();
+      expect(ps.registry.get(bots.code)).toBeUndefined();
+      expect(hRoom.isDestroyed()).toBe(true);
+      expect(bRoom.isDestroyed()).toBe(true);
+    },
+    20000
+  );
+});
+
+describe("twenty-nine: full match playthrough", () => {
+  it(
+    "multiple hands incl. a forced redeal: dealer rotation, score accumulation, match finish",
+    async () => {
+      const { seats, code } = await makeTnRoom(false);
+      type MatchProbe = {
+        roundsToWin: number;
+        dealerSeatIndex: number;
+        matchScore: { A: number; B: number };
+      };
+      const probe = () =>
+        (ps.registry.get(code)! as unknown as { match: MatchProbe }).match;
+      probe().roundsToWin = 2; // test-only seam: keep the match short
+
+      const dealerByRound = new Map<number, number>();
+      let sawRedeal = false;
+      const deadline = Date.now() + 240000;
+
+      for (;;) {
+        if (Date.now() > deadline) throw new Error("match playthrough timed out");
+        const st = latestOf(seats[0]!.log);
+        if (!st) {
+          await sleep(50);
+          continue;
+        }
+        if (st.roundNumber >= 1 && st.dealerSeatIndex !== null) {
+          dealerByRound.set(st.roundNumber, st.dealerSeatIndex);
+        }
+        if (st.phase === "MATCH_OVER") break;
+
+        if (st.phase === "REDEALING") {
+          sawRedeal = true;
+          await sleep(100);
+          continue;
+        }
+        if (st.phase === "BIDDING" && st.roundNumber === 2 && !sawRedeal) {
+          // Force the all-pass path exactly once: pass on every turn.
+          const turn = st.bids?.turnSeatIndex;
+          const s = seats.find((x) => x.seatIndex === turn);
+          if (s) {
+            s.socket.emit("GAME29_BID", {});
+            await sleep(120);
+          } else {
+            await sleep(40);
+          }
+          continue;
+        }
+        if (st.phase === "BIDDING" || st.phase === "TRUMP_SETUP" || st.phase === "PLAYING") {
+          try {
+            await playFullHand(seats.map((seat) => ({ seat, spent: new Set<string>() })));
+          } catch (err) {
+            if (!/redealt/.test((err as Error).message)) throw err;
+          }
+          continue;
+        }
+        await sleep(80); // ROUND_SCORED etc. — auto-start fires shortly
+      }
+
+      // --- match outcome ---
+      const finished = seats[0]!.log.find((e) => e.ev === "TN_MATCH_FINISHED");
+      expect(finished).toBeDefined();
+      const { winnerTeam, finalScore } = finished!.data as {
+        winnerTeam: "A" | "B";
+        finalScore: { A: number; B: number };
+      };
+      expect(finalScore[winnerTeam]).toBeGreaterThanOrEqual(2);
+      const loser = winnerTeam === "A" ? "B" : "A";
+      expect(finalScore[loser]).toBeLessThan(2);
+      expect(probe().matchScore[winnerTeam]).toBe(finalScore[winnerTeam]);
+      expect(sawRedeal).toBe(true);
+
+      // --- dealer rotation across rounds ---
+      // Round 1 completed -> round 2 advances the button. Round 2 was the
+      // forced all-pass redeal -> round 3 keeps the SAME dealer. Completed
+      // rounds afterwards advance again.
+      const rounds = [...dealerByRound.keys()].sort((a, b) => a - b);
+      expect(rounds[0]).toBe(1);
+      expect(dealerByRound.get(2)).toBe(tnNext(dealerByRound.get(1)!));
+      expect(dealerByRound.get(3)).toBe(dealerByRound.get(2));
+      for (let i = 3; i < rounds.length; i++) {
+        expect(dealerByRound.get(rounds[i]!)).toBe(tnNext(dealerByRound.get(rounds[i - 1]!)!));
+      }
+    },
+    300000
   );
 });

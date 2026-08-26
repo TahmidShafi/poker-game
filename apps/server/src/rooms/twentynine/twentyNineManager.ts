@@ -75,6 +75,27 @@ const Snapshot = {
 const VALID_SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
 /**
+ * Deterministic dominant suit of a set of cards (ties broken by fixed suit
+ * order). Used by the offline fallback to auto-declare trump for an absent
+ * bid winner — computed server-side from their own cards, so the choice
+ * never leaks anything to other clients.
+ */
+function dominantSuit(cards: TnCard[]): TnSuit {
+  const counts = new Map<TnSuit, number>();
+  for (const card of cards) counts.set(card.suit, (counts.get(card.suit) ?? 0) + 1);
+  let best: TnSuit = "SPADES";
+  let bestN = -1;
+  for (const suit of VALID_SUITS) {
+    const n = counts.get(suit) ?? 0;
+    if (n > bestN) {
+      best = suit;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+/**
  * One private room = one Twenty-Nine table (exactly 4 seats, fixed teams
  * A={0,2} / B={1,3}). The ONLY authority for dealing, bidding, trump,
  * tricks and scoring. Hidden information policy lives here: hands and the
@@ -246,6 +267,10 @@ export class TwentyNineGameManager implements RoomLike {
     rec.lastSeen = Date.now();
     const seat = this.match.seats[rec.seatIndex];
     if (seat) seat.connected = true;
+    // RECONNECT/multi-tab attach: re-deliver this seat's private state
+    // (full current hand + bidder channel) — the public broadcast alone
+    // carries no hands, so without this a reconnected client has no cards.
+    this.sendPrivateSnapshot(rec);
     this.broadcastState();
   }
 
@@ -338,10 +363,26 @@ export class TwentyNineGameManager implements RoomLike {
     this.move(
       socketId,
       (seatIndex) => {
+        // Belt-and-braces invariant: PLAYING may never accept a card unless
+        // the second deal verifiably completed for everyone. The engine
+        // guarantees this (batch 2 is dealt before PLAYING begins); this
+        // guard turns any future regression into a clean rejection.
+        // NOTE: batch1/batch2 are immutable once dealt, so they remain the
+        // stable "fully dealt" proof even as `hand` shrinks during play.
+        this.assertFullyDealt();
         playCard(this.match, seatIndex, card);
       },
       { playedCard: card }
     );
+  }
+
+  private assertFullyDealt(): void {
+    for (const seat of this.match.seats) {
+      if (seat.username === null) continue;
+      if (seat.batch1.length !== 4 || seat.batch2.length !== 4) {
+        throw new Error("hand is not fully dealt yet - cannot play a card");
+      }
+    }
   }
 
   /**
@@ -366,12 +407,26 @@ export class TwentyNineGameManager implements RoomLike {
       return this.reject(socketId, (err as Error).message);
     }
 
-    if (ctx.playedCard) {
-      this.emitCompletedTrick(snap, rec.seatIndex, ctx.playedCard);
+    if (process.env.TN_DEBUG === "1") {
+      console.log(
+        `[tn ${this.roomCode}] move ok seat=${rec.seatIndex} phase=${this.match.phase} acting=${this.match.actingSeatIndex} ` +
+          `hands=[${this.match.seats.map((s) => s.hand.length).join(",")}] deck=${this.match.deck.length}`
+      );
     }
-    this.emitDerivedEvents(snap, rec.seatIndex);
-    this.syncHandDeliveries();
-    this.maybeScheduleAutoStart();
+
+    // A failure in the derived-event pipeline must never skip the broadcast
+    // (that would leave every client staring at a stale state) — log it and
+    // still deliver the authoritative snapshot.
+    try {
+      if (ctx.playedCard) {
+        this.emitCompletedTrick(snap, rec.seatIndex, ctx.playedCard);
+      }
+      this.emitDerivedEvents(snap, rec.seatIndex);
+      this.syncHandDeliveries();
+      this.maybeScheduleAutoStart();
+    } catch (err) {
+      console.error(`[tn ${this.roomCode}] post-move pipeline failed:`, (err as Error).message);
+    }
     this.broadcastState();
   }
 
@@ -501,12 +556,14 @@ export class TwentyNineGameManager implements RoomLike {
     }
     const key = `${payload.handNumber}:${JSON.stringify(payload)}`;
     if (key === this.lastBidderPrivateKey) return;
-    this.lastBidderPrivateKey = key;
     const bidder = this.match.bidderSeatIndex;
     if (bidder === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === bidder);
     if (!rec) return;
     this.emitToPlayer(rec, "TN_BIDDER_PRIVATE", payload);
+    // Mark as delivered only after the emit attempt — a failed/absent target
+    // must be retried on the next broadcast, not silently swallowed.
+    this.lastBidderPrivateKey = key;
   }
 
   private emitToPlayer<E extends keyof ServerToClientEvents>(
@@ -583,6 +640,12 @@ export class TwentyNineGameManager implements RoomLike {
       startHand(this.match);
       this.lastBidderPrivateKey = null;
       this.syncHandDeliveries();
+      if (process.env.TN_DEBUG === "1") {
+        console.log(
+          `[tn ${this.roomCode}] hand started round=${this.match.roundNumber} dealer=${this.match.dealerSeatIndex} ` +
+            `hands=[${this.match.seats.map((s) => s.hand.length).join(",")}] deck=${this.match.deck.length}`
+        );
+      }
       this.broadcastState();
     } catch (err) {
       this.io.to(this.socketRoom()).emit("ERROR", {
@@ -612,7 +675,9 @@ export class TwentyNineGameManager implements RoomLike {
     this.clearFallbackTimer();
     if (this.destroyed) return;
     const phase = this.match.phase;
-    if (phase !== "BIDDING" && phase !== "PLAYING") return;
+    // TRUMP_SETUP is included: a disconnected BID WINNER must never deadlock
+    // the room (nobody else may act in this phase and no other timer runs).
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
     const acting = this.match.actingSeatIndex;
     if (acting === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
@@ -627,12 +692,21 @@ export class TwentyNineGameManager implements RoomLike {
     }, seconds * 1000 + 250);
   }
 
-  /** Auto-acts for a disconnected player: bid -> PASS, card -> lowest legal. */
+  /**
+   * Auto-acts for a disconnected player: bidding -> PASS, trump setup ->
+   * dominant suit of their own first batch (server-side, leaks nothing),
+   * card play -> lowest legal card.
+   */
   private fireOfflineFallback(): void {
     if (this.destroyed) return;
     const phase = this.match.phase;
     const acting = this.match.actingSeatIndex;
-    if (acting === null || (phase !== "BIDDING" && phase !== "PLAYING")) return;
+    if (
+      acting === null ||
+      (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING")
+    ) {
+      return;
+    }
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
     if (rec && rec.socketIds.size > 0) return; // they came back
     const snap = Snapshot.of(this.match);
@@ -640,6 +714,9 @@ export class TwentyNineGameManager implements RoomLike {
       console.log(`[tn ${this.roomCode}] offline fallback fires for seat ${acting} (${phase})`);
       if (phase === "BIDDING") {
         applyBid(this.match, acting); // pass
+      } else if (phase === "TRUMP_SETUP") {
+        const seat = this.match.seats[acting];
+        declareTrumpPlan(this.match, acting, dominantSuit(seat?.batch1 ?? []));
       } else {
         const card = lowestLegalCard(this.match, acting);
         if (!card) throw new Error("no legal card for offline fallback");
@@ -648,6 +725,7 @@ export class TwentyNineGameManager implements RoomLike {
       }
       this.emitDerivedEvents(snap, acting);
       this.syncHandDeliveries();
+      this.maybeScheduleAutoStart();
       this.broadcastState();
     } catch (err) {
       console.error(`[tn ${this.roomCode}] offline fallback failed:`, (err as Error).message);
@@ -677,7 +755,12 @@ export class TwentyNineGameManager implements RoomLike {
     }
     this.armFallbackIfNeeded();
     this.armBotIfNeeded();
-    this.syncBidderPrivate();
+    try {
+      this.syncBidderPrivate();
+    } catch (err) {
+      // A private-channel failure must never block the public broadcast.
+      console.error(`[tn ${this.roomCode}] bidder private sync failed:`, (err as Error).message);
+    }
 
     const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, RankHint, seatRel } from "./parts";
-import { ActionPills, BiddingPanel, HandFan, TraditionalScoreCards } from "./panels";
+import { ActionPills, BiddingPanel, HandFan, TraditionalScoreCards, TurnStatus } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal } from "./modals";
 
 /**
@@ -131,6 +131,7 @@ export function TwentyNineView() {
 
       {/* Hand + actions */}
       <footer className="fixed inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3">
+        <TurnStatus state={tnState} />
         <ActionPills state={tnState} />
         <HandFan state={tnState} />
       </footer>

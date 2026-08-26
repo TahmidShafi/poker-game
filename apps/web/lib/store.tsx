@@ -26,6 +26,7 @@ import type {
 } from "@poker/shared-types";
 import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
+import { accumulateTnHand, type AccumulatedHand } from "./tnHand";
 import { isMuted, playChips, playTurn, playWin, setMuted } from "./sound";
 import { beginTurnAlerts, endTurnAlerts } from "./notify";
 import { fireConfetti, prefersReducedMotion } from "./celebrations";
@@ -164,6 +165,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Mutable refs used inside socket handlers (avoid stale closures).
   const meRef = useRef<Me | null>(null);
   useEffect(() => { meRef.current = me; }, [me]);
+  // YOUR_TN_HAND arrives in two batches per hand + reconnect re-deliveries;
+  // the full 8-card view must be ACCUMULATED (see lib/tnHand.ts) — replacing
+  // on every event silently drops batch 1 when batch 2 lands.
+  const myTnHandRef = useRef<AccumulatedHand | null>(null);
   const stateRef = useRef<PublicGameState | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
   const handStartAt = useRef(0);
@@ -313,7 +318,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // ---- Twenty-Nine ----
     socket.on("TN_STATE", (s) => setTnState(s));
-    socket.on("YOUR_TN_HAND", ({ cards }) => setMyTnCards(cards));
+    socket.on("YOUR_TN_HAND", (payload) => {
+      myTnHandRef.current = accumulateTnHand(myTnHandRef.current, payload);
+      setMyTnCards(myTnHandRef.current.cards);
+    });
     socket.on("TN_BIDDER_PRIVATE", (p) => {
       setTnBidderPrivate(p);
       pushToast(
@@ -460,6 +468,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setRecentHands([]);
     setTnState(null);
     setMyTnCards(null);
+    myTnHandRef.current = null;
     setTnBidderPrivate(null);
     setLastTnRound(null);
   }, []);
