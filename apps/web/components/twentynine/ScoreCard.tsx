@@ -82,38 +82,34 @@ export function ScoreCard({
       className={`relative select-none overflow-hidden rounded-xl bg-gradient-to-br from-white via-white to-stone-200 shadow-card transition-transform ${
         red ? "text-crimson" : "text-ink"
       } ${highlight ? "ring-2 ring-gold shadow-glowGold" : "ring-1 ring-black/10"} animate-scorePop`}
-      style={{ width: size, height: Math.round(size * 1.42) }}
+      style={{
+        width: size,
+        height: Math.round(size * 1.42),
+        // Inverted cards (loss side) flip as ONE unit — no per-pip math.
+        transform: inverted ? "rotate(180deg)" : undefined,
+      }}
       aria-label={`${clamped} ${suit}`}
     >
       {/* corner indices, both corners like a real card */}
-      <div
-        className={`absolute left-1 top-0.5 font-bold leading-none ${inverted ? "rotate-180" : ""}`}
-        style={{ fontSize: size * 0.14 }}
-      >
+      <div className="absolute left-1 top-0.5 font-bold leading-none" style={{ fontSize: size * 0.15 }}>
         {clamped}
-        <div style={{ fontSize: "0.9em" }}>{glyph}</div>
+        <div className="text-[0.85em]">{glyph}</div>
       </div>
-      <div
-        className={`absolute bottom-0.5 right-1 rotate-180 font-bold leading-none ${inverted ? "" : "rotate-180"}`}
-        style={{ fontSize: size * 0.14 }}
-      >
+      <div className="absolute bottom-0.5 right-1 rotate-180 font-bold leading-none" style={{ fontSize: size * 0.15 }}>
         {clamped}
-        <div style={{ fontSize: "0.9em" }}>{glyph}</div>
+        <div className="text-[0.85em]">{glyph}</div>
       </div>
 
-      {/* pips */}
+      {/* pips — bottom-half pips rotate like a genuine deck face */}
       {pips.map((p, i) => (
         <span
           key={i}
-          className={`absolute -translate-x-1/2 -translate-y-1/2 leading-none ${p.flip !== inverted ? "" : ""} ${
-            // real decks invert bottom-half pips; an inverted card flips everything
-            p.flip || inverted ? "rotate-180" : ""
-          }`}
+          className="absolute leading-none"
           style={{
             top: p.top,
             left: p.left,
-            fontSize: size * (clamped >= 4 ? 0.24 : 0.3),
-            transform: `translate(-50%,-50%) ${p.flip || inverted ? "rotate(180deg)" : ""}`,
+            fontSize: size * (clamped >= 4 ? 0.26 : 0.32),
+            transform: `translate(-50%,-50%)${p.flip ? " rotate(180deg)" : ""}`,
           }}
         >
           {glyph}

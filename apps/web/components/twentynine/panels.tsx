@@ -4,7 +4,8 @@ import React, { useMemo, useState } from "react";
 import type { PublicTwentyNineState, TnCard } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { PlayingCard } from "../common/PlayingCard";
-import { ScoreCard, ScorePairCaption } from "./ScoreCard";
+import { ScoreCard } from "./ScoreCard";
+import { CardBack } from "./CardBack";
 import { useGame } from "../../lib/store";
 
 /** Client-side mirror of the engine's follow-suit rule (server re-validates). */
@@ -210,8 +211,9 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
 }
 
 /**
- * Traditional Bangladeshi score cards: each team shows a ♥/♦ card for round
- * WINS and an upside-down ♠/♣ card marking LOSSES (= the opponent's wins).
+ * Team score widgets styled like the physical card markers: a dark panel per
+ * team holding the round-win count as a real card face (♥ for A, ♦ for B)
+ * with a card back tucked behind it at an offset.
  */
 export function TraditionalScoreCards({ state }: { state: PublicTwentyNineState }) {
   const { me } = useGame();
@@ -219,32 +221,34 @@ export function TraditionalScoreCards({ state }: { state: PublicTwentyNineState 
   const target = state.roundsToWin;
 
   return (
-    <div className="flex items-start justify-center gap-8 rounded-3xl bg-black/35 px-6 py-4 ring-1 ring-white/10">
+    <div className="flex items-center justify-center gap-4">
       {(["A", "B"] as const).map((team) => {
         const wins = state.matchScore[team];
-        const losses = state.matchScore[team === "A" ? "B" : "A"];
         return (
-          <div key={team} className="flex flex-col items-center gap-2">
-            <ScorePairCaption
-              team={team}
-              label={`team ${team}`}
-              mine={myTeam === team}
-            />
-            <div className="flex items-end gap-3">
-              <ScoreCard
-                count={wins}
-                suit={team === "A" ? "HEARTS" : "DIAMONDS"}
-                size={86}
-                highlight={wins >= target}
-                animKey={state.roundNumber * 10 + wins}
-              />
-              <div style={{ transform: "rotate(180deg)" }}>
+          <div
+            key={team}
+            className="flex items-center gap-3 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 backdrop-blur-sm"
+          >
+            <span
+              className={`text-[10px] font-black uppercase tracking-[0.2em] ${
+                team === "A" ? "text-gold" : "text-violet-300"
+              }`}
+            >
+              team {team}
+              {myTeam === team && <span className="ml-1 text-white/40">(you)</span>}
+            </span>
+            <div className="relative h-[78px] w-[92px]">
+              {/* card back tucked behind the count card, offset like a real marker */}
+              <div className="absolute right-0 top-[8px] rotate-[9deg] drop-shadow">
+                <CardBack size="md" />
+              </div>
+              <div className="absolute left-0 top-0 z-10">
                 <ScoreCard
-                  count={losses}
-                  suit={team === "A" ? "SPADES" : "CLUBS"}
-                  inverted
-                  size={64}
-                  animKey={state.roundNumber * 10 + losses}
+                  count={wins}
+                  suit={team === "A" ? "HEARTS" : "DIAMONDS"}
+                  size={62}
+                  highlight={wins >= target}
+                  animKey={state.roundNumber * 10 + wins}
                 />
               </div>
             </div>

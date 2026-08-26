@@ -104,6 +104,22 @@ export function SeatCard({
   );
 }
 
+/** Where a played card flies in FROM, per viewer-relative seat (CSS vars consumed by the dealIn keyframe). */
+const DEAL_FROM: Record<number, { x: string; y: string }> = {
+  0: { x: "0px", y: "130px" }, // you (bottom)
+  1: { x: "-150px", y: "0px" }, // left
+  2: { x: "0px", y: "-130px" }, // top (partner)
+  3: { x: "150px", y: "0px" }, // right
+};
+
+/** Small resting rotation per seat so the trick reads as a loose, natural cross. */
+const TRICK_REST_ROT: Record<number, string> = {
+  0: "rotate-[-3deg]",
+  1: "rotate-[6deg]",
+  2: "rotate-[2deg]",
+  3: "rotate-[-6deg]",
+};
+
 /** Center of the felt: current trick plays positioned by viewer-relative seat. */
 export function TrickArea({
   state,
@@ -114,30 +130,57 @@ export function TrickArea({
   mySeat: number | null;
   flashSeat: number | null;
 }) {
-  const bySeat = new Map<number, TnCard>();
-  for (const p of state.trick) bySeat.set(p.seatIndex, p.card);
-  // rel 0 = bottom(you) · 1 = left · 2 = top · 3 = right
+  // rel 0 = bottom(you) · 1 = left · 2 = top · 3 = right — a loose diamond
+  // around the felt center, each card clearly separated and readable.
   const slot: Record<number, string> = {
-    0: "left-1/2 bottom-3 -translate-x-1/2",
-    1: "left-4 top-1/2 -translate-y-1/2",
-    2: "left-1/2 top-3 -translate-x-1/2",
-    3: "right-4 top-1/2 -translate-y-1/2",
+    0: "left-1/2 bottom-[26%] -translate-x-1/2",
+    1: "left-[30%] top-1/2 -translate-y-1/2",
+    2: "left-1/2 top-[26%] -translate-x-1/2",
+    3: "right-[30%] top-1/2 -translate-y-1/2",
   };
+  const ledSuit = state.trick[0]?.card.suit ?? null;
+
   return (
-    <div className="pointer-events-none absolute inset-6 rounded-[999px] border border-white/10">
+    <div className="pointer-events-none absolute inset-0">
+      {/* Faint watermark of the led suit, purely decorative */}
+      {ledSuit && (
+        <span
+          aria-hidden
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[9rem] leading-none text-white/[0.05]"
+        >
+          {TN_SUIT_SYMBOLS[ledSuit]}
+        </span>
+      )}
+
       {[0, 1, 2, 3].map((rel) => {
         const play = state.trick.find((p) => seatRel(mySeat, p.seatIndex) === rel);
         const owner = play?.seatIndex ?? null;
         return (
           <div key={rel} className={`absolute ${slot[rel]} ${flashSeat === owner ? "animate-pulse" : ""}`}>
             {play ? (
-              <PlayingCard card={play.card} size="sm" />
+              <div className={TRICK_REST_ROT[rel]}>
+                {/* Keyed by card identity: a newly played card remounts and
+                    flies in from its seat's direction (dealIn keyframe). */}
+                <div
+                  key={`${play.seatIndex}:${play.card.suit}:${play.card.rank}`}
+                  className="animate-dealIn drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                  style={
+                    {
+                      "--deal-from-x": DEAL_FROM[rel].x,
+                      "--deal-from-y": DEAL_FROM[rel].y,
+                    } as React.CSSProperties
+                  }
+                >
+                  <PlayingCard card={play.card} size="sm" />
+                </div>
+              </div>
             ) : (
               <span className="block h-[3.4rem] w-0" aria-hidden />
             )}
           </div>
         );
       })}
+
       {state.trick.length === 0 && state.phase === "PLAYING" && (
         <span className="absolute inset-0 grid place-items-center text-[10px] uppercase tracking-[0.3em] text-white/25">
           waiting…

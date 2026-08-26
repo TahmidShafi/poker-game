@@ -11,12 +11,16 @@ export function CardBack({
   size = "sm",
   className = "",
 }: {
-  /** sm = 26x38 (top fans) · xs = 20x30 (side stacks) */
-  size?: "xs" | "sm";
+  /** xs = 20x30 (side stacks) · sm = 26x38 (top fans) · md = 54x76 (score panels) */
+  size?: "xs" | "sm" | "md";
   className?: string;
 }) {
   const dims =
-    size === "sm" ? "w-[26px] h-[38px] rounded-md" : "w-5 h-[30px] rounded-[5px]";
+    size === "md"
+      ? "w-[54px] h-[76px] rounded-lg"
+      : size === "sm"
+      ? "w-[26px] h-[38px] rounded-md"
+      : "w-5 h-[30px] rounded-[5px]";
   return (
     <div
       className={`${dims} relative shrink-0 overflow-hidden border border-white/15 shadow-sm ${className}`}

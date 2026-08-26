@@ -86,7 +86,7 @@ const EMPTY_STATS: SessionStats = {
   biggestPotWon: 0,
 };
 
-interface GameContextValue {
+export interface GameContextValue {
   serverUrl: string;
   status: ConnStatus;
   me: Me | null;
@@ -134,7 +134,9 @@ interface GameContextValue {
   tnPlayCard: (card: TnCard) => void;
 }
 
-const GameContext = createContext<GameContextValue | null>(null);
+// Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
+// supply a mock value without touching the socket lifecycle.
+export const GameContext = createContext<GameContextValue | null>(null);
 
 const TOKEN_KEY = "poker.sessionToken";
 const ROOM_KEY = "poker.roomCode";
@@ -169,6 +171,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // the full 8-card view must be ACCUMULATED (see lib/tnHand.ts) — replacing
   // on every event silently drops batch 1 when batch 2 lands.
   const myTnHandRef = useRef<AccumulatedHand | null>(null);
+  // Cards I have observed MYSELF play this hand (from trick snapshots and
+  // trick resolutions). The server removes played cards from the hand but
+  // never re-sends YOUR_TN_HAND mid-hand, so the displayed fan must subtract
+  // them locally — otherwise played cards stay on screen and clickable.
+  const tnPlayedRef = useRef<{ handNumber: number; keys: Set<string> } | null>(null);
+
+  const publishMyTnHand = useCallback(() => {
+    const hand = myTnHandRef.current;
+    if (!hand) {
+      setMyTnCards(null);
+      return;
+    }
+    const played =
+      tnPlayedRef.current && tnPlayedRef.current.handNumber === hand.handNumber
+        ? tnPlayedRef.current.keys
+        : null;
+    setMyTnCards(
+      played
+        ? hand.cards.filter((c) => !played.has(`${c.suit}:${c.rank}`))
+        : hand.cards
+    );
+  }, []);
   const stateRef = useRef<PublicGameState | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
   const handStartAt = useRef(0);
@@ -317,10 +341,39 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("ERROR", ({ message }) => pushToast(message, "error"));
 
     // ---- Twenty-Nine ----
-    socket.on("TN_STATE", (s) => setTnState(s));
+    socket.on("TN_STATE", (s) => {
+      setTnState(s);
+      // Record my cards visible in the current trick as played.
+      const hand = myTnHandRef.current;
+      const mySeat = meRef.current?.seatIndex;
+      if (hand && mySeat !== undefined && s.roundNumber === hand.handNumber) {
+        let played = tnPlayedRef.current;
+        if (!played || played.handNumber !== hand.handNumber) {
+          played = { handNumber: hand.handNumber, keys: new Set<string>() };
+        }
+        for (const p of s.trick) {
+          if (p.seatIndex === mySeat) played.keys.add(`${p.card.suit}:${p.card.rank}`);
+        }
+        tnPlayedRef.current = played;
+        publishMyTnHand();
+      }
+    });
     socket.on("YOUR_TN_HAND", (payload) => {
-      myTnHandRef.current = accumulateTnHand(myTnHandRef.current, payload);
-      setMyTnCards(myTnHandRef.current.cards);
+      const prev = myTnHandRef.current;
+      myTnHandRef.current = accumulateTnHand(prev, payload);
+      // New hand or authoritative reconnect snapshot: the server hand is the
+      // truth, so any locally-observed plays are obsolete.
+      if (
+        !prev ||
+        prev.handNumber !== myTnHandRef.current.handNumber ||
+        payload.batch === "FULL_RECONNECT"
+      ) {
+        tnPlayedRef.current = {
+          handNumber: myTnHandRef.current.handNumber,
+          keys: new Set<string>(),
+        };
+      }
+      publishMyTnHand();
     });
     socket.on("TN_BIDDER_PRIVATE", (p) => {
       setTnBidderPrivate(p);
@@ -335,7 +388,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       pushToast(`trump revealed: ${suit.toLowerCase()}`, "info");
       playChips();
     });
-    socket.on("TN_TRICK_RESOLVED", () => playChips());
+    socket.on("TN_TRICK_RESOLVED", (p) => {
+      playChips();
+      // Completed tricks can resolve between two TN_STATE snapshots — record
+      // my play from the resolution payload too so the fan never keeps a
+      // card that was played and cleared in one hop.
+      const hand = myTnHandRef.current;
+      const mySeat = meRef.current?.seatIndex;
+      if (hand && mySeat !== undefined) {
+        let played = tnPlayedRef.current;
+        if (!played || played.handNumber !== hand.handNumber) {
+          played = { handNumber: hand.handNumber, keys: new Set<string>() };
+        }
+        for (const pl of p.plays) {
+          if (pl.seatIndex === mySeat) played.keys.add(`${pl.card.suit}:${pl.card.rank}`);
+        }
+        tnPlayedRef.current = played;
+        publishMyTnHand();
+      }
+    });
     socket.on("TN_ROUND_FINISHED", ({ summary }) => {
       setLastTnRound(summary);
       const mySeat = meRef.current?.seatIndex ?? -1;
@@ -357,7 +428,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [pushToast, triggerCelebration]);
+  }, [pushToast, triggerCelebration, publishMyTnHand]);
 
   // Auto-reconnect via stored token whenever the socket comes online.
   useEffect(() => {
@@ -469,6 +540,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setTnState(null);
     setMyTnCards(null);
     myTnHandRef.current = null;
+    tnPlayedRef.current = null;
     setTnBidderPrivate(null);
     setLastTnRound(null);
   }, []);

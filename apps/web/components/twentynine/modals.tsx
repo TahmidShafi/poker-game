@@ -100,9 +100,9 @@ export function RoundBanner() {
 }
 
 export function MatchOverBanner() {
-  const { tnState, leaveRoom } = useGame();
+  const { tnState, leaveRoom, me } = useGame();
   if (!tnState || tnState.phase !== "MATCH_OVER" || !tnState.winnerTeam) return null;
-  const mySeat = useGame().me?.seatIndex ?? -1;
+  const mySeat = me?.seatIndex ?? -1;
   const myTeam = (mySeat % 2 === 0 ? "A" : "B") as "A" | "B";
   const iWon = tnState.winnerTeam === myTeam;
   return (
