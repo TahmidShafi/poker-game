@@ -133,12 +133,13 @@ export enum TnPhase {
 export interface TnBidState {
   highestBid: number | null;
   bidderSeatIndex: number | null;
+  challengerSeatIndex?: number | null;
   /** Seats that passed are permanently out of this hand's bidding. */
   passedSeatIndexes: number[];
   /** Seat whose turn it is to bid/pass right now. */
   turnSeatIndex: number | null;
   /** Chronological log for UI display (and match-once tie legality). */
-  history: { seatIndex: number; bid?: number }[];
+  history: { seatIndex: number; bid?: number; isStay?: boolean }[];
 }
 
 // ---- Tricks & play ------------------------------------------------------------

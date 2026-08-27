@@ -8,6 +8,7 @@ import {
   tnTeamOfSeat,
 } from "@poker/shared-types";
 import {
+  canStay,
   minLegalBid,
   moveOptionsForSeat,
   TwentyNineState,
@@ -75,11 +76,19 @@ export function decideBidding(state: TwentyNineState, seatIndex: number): BotDec
     return min <= Math.min(28, target + 1) ? { kind: "BID", bid: min } : { kind: "PASS" };
   }
 
-  // Opposing team holds the contract.
-  const canMatch = min === H && H < 28;
-  if (strength >= 7 && H < 23 && H + 1 <= 28) return { kind: "BID", bid: H + 1 };
-  if (canMatch && strength >= 5) return { kind: "BID", bid: H };
-  if (strength >= 6 && min <= 26) return { kind: "BID", bid: min };
+  if (canStay(bids, seatIndex)) {
+    // Defender deciding to Stay or Counter-Raise or Pass
+    if (H > target) return { kind: "PASS" };
+    if (strength >= 8 && target >= H + 2 && H + 1 <= 28) {
+      return { kind: "BID", bid: H + 1 }; // counter-raise
+    }
+    return { kind: "BID", bid: H }; // Stay!
+  }
+
+  // Challenger deciding to Raise or Pass
+  if (min <= Math.min(28, target)) {
+    return { kind: "BID", bid: min };
+  }
   return { kind: "PASS" };
 }
 

@@ -118,22 +118,18 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
   // opponents hold an UNMATCHED value -> matching that value is allowed.
   const teamOf = (s: number) => (s % 2 === 0 ? "A" : "B");
   const H = bids?.highestBid ?? null;
+  const isDefender = mySeat !== null && bids?.bidderSeatIndex === mySeat;
+  const isChallenged = bids?.challengerSeatIndex !== null && bids?.challengerSeatIndex !== undefined && bids?.challengerSeatIndex !== mySeat;
+  const canStay = isDefender && isChallenged && H !== null;
+
   let floor = 16;
-  let canMatch = false;
-  if (H !== null && bids?.bidderSeatIndex != null && mySeat !== null) {
-    const mine = teamOf(mySeat);
-    const holders = teamOf(bids.bidderSeatIndex);
-    const priorMatches = bids.history.filter((h) => h.bid === H).length;
-    if (mine === holders) floor = Math.max(16, H + 1);
-    else if (priorMatches === 1) {
-      floor = H;
-      canMatch = true;
-    } else floor = Math.max(16, H + 1);
+  if (H !== null) {
+    floor = canStay ? H : Math.max(16, H + 1);
   }
 
   const [bidValue, setBidValue] = useState(16);
 
-  // Always reset to minimum legal bid (starting from 16) for each new round or turn
+  // Always reset to minimum legal bid for each new round or turn
   React.useEffect(() => {
     if (H === null) {
       setBidValue(16);
@@ -165,7 +161,7 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
           {bids?.bidderSeatIndex !== null && bids?.bidderSeatIndex !== undefined && (
             <span className="text-white/45">
               {" "}
-              · seat {bids.bidderSeatIndex}
+              · {bids.bidderSeatIndex === mySeat ? "held by YOU" : `held by seat ${bids.bidderSeatIndex}`}
             </span>
           )}
         </span>
@@ -183,9 +179,9 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
 
       {myTurn ? (
         <div className="mt-3 space-y-2.5">
-          {canMatch && (
-            <p className="text-center text-[10px] font-bold uppercase tracking-widest text-violet-300">
-              ⚡ match {floor} available
+          {canStay && (
+            <p className="text-center text-[10px] font-bold uppercase tracking-widest text-amber-300 animate-pulse">
+              ⚡ You are challenged with {H}! Stay or raise
             </p>
           )}
 
@@ -225,9 +221,15 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => tnBid(currentBid)}
-                  className="rounded-xl bg-gold py-2 text-xs font-black tracking-wide text-slate-950 shadow-glowGold hover:brightness-105 active:scale-[0.98]"
+                  className={`rounded-xl py-2 text-xs font-black tracking-wide text-slate-950 shadow-glowGold hover:brightness-105 active:scale-[0.98] ${
+                    canStay && currentBid === H ? "bg-gradient-to-r from-amber-400 to-gold ring-1 ring-white/30" : "bg-gold"
+                  }`}
                 >
-                  BID {currentBid}
+                  {canStay && currentBid === H
+                    ? `STAY (${currentBid})`
+                    : canStay && currentBid > H
+                    ? `RAISE ${currentBid}`
+                    : `BID ${currentBid}`}
                 </button>
                 <button
                   onClick={() => tnBid()}

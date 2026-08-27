@@ -36,48 +36,66 @@ describe("bidding", () => {
     expect(() => applyBid(state, 3, 17.5)).toThrow(/between 16 and 28/);
   });
 
-  it("opponents may MATCH the current value exactly once (17 over 17 stays 17)", () => {
+  it("defender challenged by an opponent gets immediate Stay option (17 over 17 stays 17)", () => {
     const state = startedMatch();
-    applyBid(state, 3, 16); // B opens
-    applyBid(state, 2, 17); // A raises -> turn is seat 1 (B)
-    // Seat 1 (B) faces an opposing single 17 -> matching is LEGAL.
-    expect(() => applyBid(state, 1, 17)).not.toThrow();
+    applyBid(state, 3, 16); // Seat 3 (B) opens with 16 -> Defender is 3, challenger is 2 (A)
+    expect(state.bids?.turnSeatIndex).toBe(2);
+
+    applyBid(state, 2, 17); // Seat 2 (A) challenges with 17
+    // Turn immediately returns to Defender Seat 3!
+    expect(state.bids?.turnSeatIndex).toBe(3);
+    expect(minLegalBid(state.bids!, 3)).toBe(17); // Stay option available
+
+    // Seat 3 stays at 17
+    applyBid(state, 3, 17);
     expect(state.bids?.highestBid).toBe(17);
-    expect(state.bids?.bidderSeatIndex).toBe(1);
-    // Seat 0 (A): the 17 is already matched -> must go higher or pass.
-    expect(() => applyBid(state, 0, 17)).toThrow(/already matched/);
-    applyBid(state, 0); // A passes
-    // Seat 3 (B) faces OWN-team holder (seat 1): equality forbidden.
-    expect(() => applyBid(state, 3, 17)).toThrow(/partner's bid/);
-    applyBid(state, 3, 18); // strictly higher within own team
-    applyBid(state, 2, 19); // A steals
-    applyBid(state, 1, 19); // fresh single 19 -> B matches once more
-    applyBid(state, 3); // B partner passes (rotation reaches seat 3 first)
-    applyBid(state, 2); // A passes -> only seat 1 remains
-    expect(state.bidderSeatIndex).toBe(1);
+    expect(state.bids?.bidderSeatIndex).toBe(3);
+    // Turn returns to Challenger Seat 2 (A)
+    expect(state.bids?.turnSeatIndex).toBe(2);
+
+    // Seat 2 challenges with 18 -> Turn returns to Seat 3
+    applyBid(state, 2, 18);
+    expect(state.bids?.turnSeatIndex).toBe(3);
+
+    // Seat 3 passes -> Seat 2 becomes new Defender holding 18!
+    applyBid(state, 3);
+    expect(state.bids?.bidderSeatIndex).toBe(2);
+    expect(state.bids?.highestBid).toBe(18);
+
+    // Next challenger in rotation after Seat 2 is Seat 1 (B)
+    expect(state.bids?.turnSeatIndex).toBe(1);
+
+    // Seat 1 challenges Seat 2 with 19 -> Turn returns to Seat 2 (Defender)
+    applyBid(state, 1, 19);
+    expect(state.bids?.turnSeatIndex).toBe(2);
+
+    // Seat 2 stays at 19 -> Turn returns to Seat 1
+    applyBid(state, 2, 19);
+    expect(state.bids?.turnSeatIndex).toBe(1);
+
+    // Seat 1 passes -> Next challenger is Seat 0 (A, partner of Seat 2)
+    applyBid(state, 1);
+    expect(state.bids?.turnSeatIndex).toBe(0);
+
+    // Seat 0 passes -> Seat 2 wins auction at 19!
+    applyBid(state, 0);
+    expect(state.bidderSeatIndex).toBe(2);
     expect(state.bid).toBe(19);
-    expect(state.phase).not.toBe(TnPhase.BIDDING);
+    expect(state.phase).toBe(TnPhase.TRUMP_SETUP);
   });
 
   it("partners may raise each other but never equal their own side", () => {
     const state = startedMatch();
-    applyBid(state, 3, 18); // B holds
-    applyBid(state, 2, 19); // A steals
-    applyBid(state, 1, 20); // B retakes
-    applyBid(state, 0); // A passes -> seat 3 (B, partner of holder) decides
-    expect(() => applyBid(state, 3, 20)).toThrow(/partner's bid/); // equal forbidden
-    applyBid(state, 3, 21); // strictly higher allowed within own team
-    expect(state.bids?.highestBid).toBe(21);
-    expect(state.bids?.bidderSeatIndex).toBe(3);
-  });
-
-  it("before any high bid exists teammates are free to open and raise", () => {
-    const state = startedMatch();
-    applyBid(state, 3, 16); // B opens
-    applyBid(state, 2); // A passes
-    applyBid(state, 1, 17); // B partner raises own side - strictly higher, allowed
+    applyBid(state, 3, 18); // Seat 3 (B) holds 18
+    applyBid(state, 2); // Seat 2 (A) passes
+    // Next challenger is Seat 1 (B, partner of Seat 3)
+    expect(state.bids?.turnSeatIndex).toBe(1);
+    expect(() => applyBid(state, 1, 18)).toThrow(/partner's bid/);
+    applyBid(state, 1, 20); // Partner raises own side -> Partner (Seat 1) becomes Defender!
+    expect(state.bids?.highestBid).toBe(20);
     expect(state.bids?.bidderSeatIndex).toBe(1);
-    expect(state.bids?.highestBid).toBe(17);
+    // Next challenger is Seat 0 (A)
+    expect(state.bids?.turnSeatIndex).toBe(0);
   });
 
   it("a pass is permanent for that hand", () => {
@@ -85,10 +103,7 @@ describe("bidding", () => {
     applyBid(state, 3); // pass
     expect(state.bids?.passedSeatIndexes).toContain(3);
     applyBid(state, 2, 16);
-    applyBid(state, 1, 17);
-    expect(() => applyBid(state, 3, 18)).toThrow(/turn to bid/);
-    applyBid(state, 0, 18);
-    expect(state.bids?.highestBid).toBe(18);
+    expect(state.bids?.turnSeatIndex).toBe(1);
   });
 
   it("ends the moment exactly one active bidder remains; they win at their own last bid", () => {
@@ -146,22 +161,14 @@ describe("minLegalBid (UI mirror)", () => {
     expect(minLegalBid(state.bids!, 3)).toBe(16);
   });
 
-  it("opponent-held unmatched value -> floor equals H (match available); matched -> H+1", () => {
+  it("defender challenged at H has floor H (Stay available); challenger has H+1", () => {
     const state = startedMatch();
     applyBid(state, 3, 17);
-    applyBid(state, 2, 18); // A holds, single 18 in history
-    expect(minLegalBid(state.bids!, 3)).toBe(18); // B may match
-    applyBid(state, 1, 19); // B retakes higher (strictly above opponent)
-    expect(minLegalBid(state.bids!, 2)).toBe(19); // A may match the fresh 19
-    applyBid(state, 0, 19); // A matches 19
-    expect(minLegalBid(state.bids!, 3)).toBe(20); // matched -> must exceed
-  });
-
-  it("own team holding -> floor is strictly higher", () => {
-    const state = startedMatch();
-    applyBid(state, 3, 17);
-    applyBid(state, 2, 18);
-    applyBid(state, 1, 19); // B holds via partner seat1... seat1 is B; holder=1
-    expect(minLegalBid(state.bids!, 3)).toBe(20); // same team as holder
+    applyBid(state, 2, 18); // Seat 2 (A) challenges Seat 3 (B) with 18
+    // Turn is Seat 3 (Defender)
+    expect(minLegalBid(state.bids!, 3)).toBe(18); // Stay available
+    applyBid(state, 3, 18); // Seat 3 stays at 18
+    // Turn is Seat 2 (Challenger)
+    expect(minLegalBid(state.bids!, 2)).toBe(19); // Must go higher
   });
 });

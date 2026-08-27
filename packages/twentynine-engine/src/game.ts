@@ -17,7 +17,7 @@ import {
   TnTrickPlay,
 } from "@poker/shared-types";
 import { createTnDeck, shuffleTnDeck, tnNextSeat } from "./deck";
-import { activeBidders, createBidState, nextActiveBidder, validateBid } from "./bidding";
+import { activeBidders, createBidState, nextActiveBidder, validateBid, canStay, TN_MAX_BID } from "./bidding";
 import { legalCards, resolveWinner } from "./play";
 import { TN_RANK_WEIGHT } from "./ranking";
 import { isSeventhTrumpValid, seventhCardIndicator } from "./trump/seventh";
@@ -280,43 +280,180 @@ export function applyBid(state: TwentyNineState, seatIndex: number, bid?: number
   }
   if (bids.passedSeatIndexes.includes(seatIndex)) throw new Error("you already passed this hand");
 
+  const allSeats = [0, 1, 2, 3];
+
   if (bid === undefined) {
-    bids.history.push({ seatIndex });
+    // ------------------- PASS -------------------
     bids.passedSeatIndexes.push(seatIndex);
+    bids.history.push({ seatIndex });
     state.lastMove = { seatIndex, kind: "PASS" };
-  } else {
-    validateBid(bids, seatIndex, bid);
+
+    const active = activeBidders(bids, allSeats);
+    if (active.length === 0) {
+      cancelForRedeal(state);
+      return;
+    }
+
+    // If nobody has bid yet (opening pass):
+    if (bids.bidderSeatIndex === null) {
+      const nextOpener = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
+      if (nextOpener === null) {
+        cancelForRedeal(state);
+        return;
+      }
+      bids.turnSeatIndex = nextOpener;
+      state.actingSeatIndex = nextOpener;
+      return;
+    }
+
+    const D = bids.bidderSeatIndex;
+
+    // Case: DEFENDER passes in response to a challenge
+    if (seatIndex === D) {
+      const newD = bids.challengerSeatIndex;
+      if (newD === null || newD === undefined) {
+        throw new Error("engine bug: defender passed without an active challenger");
+      }
+      bids.bidderSeatIndex = newD;
+      bids.challengerSeatIndex = null;
+
+      const remaining = activeBidders(bids, allSeats);
+      if (remaining.length === 1 && remaining[0] === newD) {
+        winBidding(state, newD, bids.highestBid!);
+        return;
+      }
+
+      // Next challenger in table order after newD
+      const nextC = nextActiveBidder(bids, tnNextSeat(newD), allSeats);
+      if (nextC === null || nextC === newD) {
+        winBidding(state, newD, bids.highestBid!);
+        return;
+      }
+      bids.challengerSeatIndex = nextC;
+      bids.turnSeatIndex = nextC;
+      state.actingSeatIndex = nextC;
+      return;
+    }
+
+    // Case: CHALLENGER passes
+    if (seatIndex === bids.challengerSeatIndex) {
+      bids.challengerSeatIndex = null;
+
+      const remaining = activeBidders(bids, allSeats);
+      if (remaining.length === 1 && remaining[0] === D) {
+        winBidding(state, D, bids.highestBid!);
+        return;
+      }
+
+      // Next challenger in table order after the passed challenger
+      const nextC = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
+      if (nextC === null || nextC === D) {
+        winBidding(state, D, bids.highestBid!);
+        return;
+      }
+      bids.challengerSeatIndex = nextC;
+      bids.turnSeatIndex = nextC;
+      state.actingSeatIndex = nextC;
+      return;
+    }
+
+    // Fallback for any other pass
+    const next = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
+    if (next === null || next === D) {
+      winBidding(state, D, bids.highestBid!);
+      return;
+    }
+    bids.turnSeatIndex = next;
+    state.actingSeatIndex = next;
+    return;
+  }
+
+  // ------------------- BID (or STAY) -------------------
+  validateBid(bids, seatIndex, bid);
+
+  // Case 1: First opening bid of the round
+  if (bids.highestBid === null) {
     bids.highestBid = bid;
     bids.bidderSeatIndex = seatIndex;
     bids.history.push({ seatIndex, bid });
     state.lastMove = { seatIndex, kind: "BID", bid };
-  }
 
-  const allSeats = [0, 1, 2, 3];
-  const active = activeBidders(bids, allSeats);
-
-  if (active.length === 0) {
-    cancelForRedeal(state);
-    return;
-  }
-
-  if (active.length === 1 && bids.highestBid !== null) {
-    const winner = active[0];
-    if (winner === undefined) throw new Error("engine bug: empty winner");
-    if (winner !== bids.bidderSeatIndex) {
-      throw new Error("engine bug: last remaining bidder never placed a bid");
+    const nextC = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
+    if (nextC === null || nextC === seatIndex) {
+      winBidding(state, seatIndex, bid);
+      return;
     }
-    winBidding(state, winner, bids.highestBid);
+    bids.challengerSeatIndex = nextC;
+    bids.turnSeatIndex = nextC;
+    state.actingSeatIndex = nextC;
     return;
   }
 
-  const next = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
-  if (next === null) {
-    cancelForRedeal(state);
+  const D = bids.bidderSeatIndex!;
+  const H = bids.highestBid;
+
+  // Case 2: Defender responds to challenge
+  if (seatIndex === D) {
+    const isStay = bid === H;
+    bids.history.push({ seatIndex, bid, isStay });
+    state.lastMove = { seatIndex, kind: "BID", bid };
+    if (!isStay) {
+      bids.highestBid = bid;
+    }
+
+    // If max bid 28 was matched by defender, challenger cannot bid higher
+    if (bids.highestBid >= TN_MAX_BID) {
+      winBidding(state, D, bids.highestBid);
+      return;
+    }
+
+    // Turn goes back to the Challenger
+    const C = bids.challengerSeatIndex;
+    if (C === null || C === undefined || bids.passedSeatIndexes.includes(C)) {
+      const nextC = nextActiveBidder(bids, tnNextSeat(D), allSeats);
+      if (nextC === null || nextC === D) {
+        winBidding(state, D, bids.highestBid);
+        return;
+      }
+      bids.challengerSeatIndex = nextC;
+      bids.turnSeatIndex = nextC;
+      state.actingSeatIndex = nextC;
+    } else {
+      bids.turnSeatIndex = C;
+      state.actingSeatIndex = C;
+    }
     return;
   }
-  bids.turnSeatIndex = next;
-  state.actingSeatIndex = next;
+
+  // Case 3: Teammate raises
+  const sameSide = tnTeamOfSeat(seatIndex) === tnTeamOfSeat(D);
+  if (sameSide) {
+    bids.highestBid = bid;
+    bids.bidderSeatIndex = seatIndex;
+    bids.challengerSeatIndex = null;
+    bids.history.push({ seatIndex, bid });
+    state.lastMove = { seatIndex, kind: "BID", bid };
+
+    const nextC = nextActiveBidder(bids, tnNextSeat(seatIndex), allSeats);
+    if (nextC === null || nextC === seatIndex) {
+      winBidding(state, seatIndex, bid);
+      return;
+    }
+    bids.challengerSeatIndex = nextC;
+    bids.turnSeatIndex = nextC;
+    state.actingSeatIndex = nextC;
+    return;
+  }
+
+  // Case 4: Opponent challenger challenges Defender D
+  bids.highestBid = bid;
+  bids.challengerSeatIndex = seatIndex;
+  bids.history.push({ seatIndex, bid });
+  state.lastMove = { seatIndex, kind: "BID", bid };
+
+  // Turn immediately returns to Defender D to Stay / Raise / Pass!
+  bids.turnSeatIndex = D;
+  state.actingSeatIndex = D;
 }
 
 function winBidding(state: TwentyNineState, winner: number, bid: number): void {
