@@ -14,10 +14,10 @@ import { PhysicalScoreBoard } from "./ScoreCard";
  * on the left. rel = (seatIndex - mySeat + 4) % 4.
  */
 const REL_POS: Record<number, string> = {
-  0: "left-1/2 bottom-[1%] -translate-x-1/2",
-  1: "left-[4%] top-[38%] -translate-y-1/2",
-  2: "left-1/2 top-[1%] -translate-x-1/2",
-  3: "right-[4%] top-[38%] -translate-y-1/2",
+  0: "left-1/2 bottom-1.5 sm:bottom-[-20px] -translate-x-1/2", // You (South)
+  1: "left-1.5 sm:left-[-24px] top-1/2 -translate-y-1/2",       // Left Player (West)
+  2: "left-1/2 top-1.5 sm:top-[-20px] -translate-x-1/2",       // Partner (North)
+  3: "right-1.5 sm:right-[-24px] top-1/2 -translate-y-1/2",     // Right Player (East)
 };
 
 /** Dev-only diagnostics (formula string, raw counters). Off in shipped UI. */
@@ -49,14 +49,14 @@ export function TwentyNineView() {
   return (
     <div className="flex min-h-dvh flex-col bg-room pb-28">
       {/* Header */}
-      <header className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pt-4">
+      <header className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 sm:px-4 pt-3 sm:pt-4">
         <div className="flex items-center gap-2">
-          <span className="rounded-xl bg-black/40 px-3 py-1.5 text-xs font-bold tracking-widest text-gold ring-1 ring-gold/40">
+          <span className="rounded-xl bg-black/40 px-2.5 sm:px-3 py-1.5 text-xs font-bold tracking-widest text-gold ring-1 ring-gold/40">
             {me?.roomCode}
           </span>
           <button
             onClick={copyCode}
-            className="rounded-xl bg-black/30 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
+            className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
           >
             {copied ? "copied!" : "copy"}
           </button>
@@ -64,32 +64,35 @@ export function TwentyNineView() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setShowRules(true)}
-            className="rounded-xl bg-black/30 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
+            className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
           >
             rules
           </button>
           <button
             onClick={toggleSound}
-            className="rounded-xl bg-black/30 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
+            className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
           >
             {soundOn ? "sound" : "muted"}
           </button>
           <button
             onClick={leaveRoom}
-            className="rounded-xl bg-black/30 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-crimson ring-1 ring-crimson/40 hover:brightness-125"
+            className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-crimson ring-1 ring-crimson/40 hover:brightness-125"
           >
             leave
           </button>
         </div>
       </header>
 
+      {/* Mobile Live Round Progress HUD */}
+      <div className="sm:hidden px-3 pt-2">
+        <LiveRoundProgress state={tnState} />
+      </div>
 
-
-      {/* Table — large oval, vertically centered in the remaining space.
+      {/* Table — large oval/stadium, vertically centered in the remaining space.
           While bidding, lift the oval above the dock so the bottom seat
           is never covered by the bid controls. */}
       <main
-        className={`relative flex flex-1 items-center justify-center px-4 py-3 transition-[padding] ${
+        className={`relative flex flex-1 items-center justify-center px-2 sm:px-4 py-2 sm:py-3 transition-[padding] ${
           tnState.phase === "BIDDING" ? "pb-48" : ""
         }`}
       >
@@ -98,33 +101,33 @@ export function TwentyNineView() {
           <div className="h-[72%] w-[86%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(122,74,34,0.20),transparent_70%)]" />
         </div>
 
-        {/* Live Round Progress Tracker — Outside the table */}
-        <div className="absolute left-[2%] top-[14%] sm:left-[3%] sm:top-[14%] z-20 pointer-events-none opacity-80 transition-opacity hover:opacity-100 hidden sm:block">
+        {/* Live Round Progress Tracker — Outside the table on desktop */}
+        <div className="hidden sm:block absolute left-3 top-3 lg:left-6 lg:top-6 z-30 pointer-events-auto">
           <LiveRoundProgress state={tnState} />
         </div>
 
-        <section className="relative aspect-[16/9] w-full max-w-[70rem] rounded-[50%] p-4 rail-surface">
-          <div className="relative h-full w-full overflow-hidden rounded-[50%] felt-surface gold-ring">
+        <section className="relative aspect-[1.15/1] sm:aspect-[16/9] w-full max-w-[70rem] rounded-[2.2rem] sm:rounded-[50%] p-2 sm:p-4 rail-surface">
+          <div className="relative h-full w-full overflow-hidden rounded-[1.8rem] sm:rounded-[50%] felt-surface gold-ring">
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
             {tnState.offlineFallback && (
               <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-crimson/20 px-3 py-1 text-[9.5px] font-bold uppercase tracking-widest text-crimson ring-1 ring-crimson/40">
                 seat {tnState.offlineFallback.seatIndex} offline · auto-play countdown
               </div>
             )}
-            <div className="absolute left-[80%] top-[47%] z-20 -translate-x-1/2 -translate-y-1/2">
+            <div className="absolute left-[82%] sm:left-[80%] top-[47%] z-20 -translate-x-1/2 -translate-y-1/2">
               <TrumpBanner state={tnState} />
             </div>
 
             {/* Scoreboards */}
-            <div className="absolute left-[28%] top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
+            <div className="absolute left-[28%] top-[20%] sm:top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
               <PhysicalScoreBoard team="my" score={tnState.matchScore[myTeam ?? "A"]} />
             </div>
-            <div className="absolute left-[68%] top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
+            <div className="absolute left-[68%] top-[20%] sm:top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
               <PhysicalScoreBoard team="opponent" score={tnState.matchScore[myTeam === "A" ? "B" : "A"]} />
             </div>
           </div>
 
-          {/* Seats around the oval, viewer-relative, with shrinking back-fans */}
+          {/* Seats around the oval, viewer-relative */}
           {tnState.seats.map((s) => {
             const rel = seatRel(mySeat, s.seatIndex);
             const isMe = s.seatIndex === mySeat;

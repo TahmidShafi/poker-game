@@ -57,14 +57,14 @@ function SixScoreCard({
 
   return (
     <div
-      className={`absolute inset-0 overflow-hidden rounded-xl
+      className={`absolute inset-0 overflow-hidden rounded-md sm:rounded-xl
         bg-white shadow-card ring-1 ring-black/20
         ${red ? "text-red-600" : "text-slate-900"}`}
     >
       {PIPS_6.map((p, index) => (
         <span
           key={index}
-          className="absolute z-[1] text-xl sm:text-2xl font-bold leading-none"
+          className="absolute z-[1] text-[10px] sm:text-2xl font-bold leading-none"
           style={{
             top: p.top,
             left: p.left,
@@ -115,7 +115,7 @@ export function PhysicalScoreBoard({
 
   return (
     <div
-      className="relative w-12 h-16 sm:w-14 sm:h-20 shrink-0 pointer-events-none"
+      className="relative w-7 h-10 sm:w-14 sm:h-20 shrink-0 pointer-events-none"
     >
       {/* ONE underlying 6 score card */}
       <SixScoreCard
@@ -123,19 +123,20 @@ export function PhysicalScoreBoard({
         score={absoluteScore}
       />
 
-      {/* ONE moving cover card */}
+      {/* ONE moving cover card with luxury art */}
       <div
-        className="absolute inset-0 z-10 rounded-xl
-          transition-transform duration-700 ease-out"
+        className="absolute inset-0 z-10 rounded-md sm:rounded-xl
+          transition-transform duration-700 ease-out shadow-card overflow-hidden ring-1 ring-black/20"
         style={{
           transform:
             scoreCoverPositions[absoluteScore],
         }}
       >
-        <PlayingCard
-          faceDown
-          size="sm"
-          className="!w-full !h-full m-0 shadow-none"
+        <div
+          className="w-full h-full rounded-md sm:rounded-xl bg-cover bg-center border border-amber-300/30"
+          style={{
+            backgroundImage: "url('/cards/cover_card_back.jpg')",
+          }}
         />
       </div>
     </div>

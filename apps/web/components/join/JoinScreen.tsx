@@ -84,7 +84,7 @@ export function JoinScreen() {
   const canSubmit = nameOk && (tab === "create" || code.length === 6) && !busy;
 
   return (
-    <div className="relative min-h-dvh overflow-hidden">
+    <div className="relative min-h-dvh overflow-x-hidden overflow-y-auto bg-room pb-10 sm:pb-8">
       {/* ================= floating cards layer ================= */}
       <div aria-hidden className="pointer-events-none absolute inset-0 hidden dt:block">
         <div className="absolute left-[8%] top-[14%] animate-floatY" style={{ "--fl-rot": "-10deg", animationDelay: "0s" } as React.CSSProperties}>
@@ -117,12 +117,12 @@ export function JoinScreen() {
       </div>
 
       {/* mobile ambient card */}
-      <div aria-hidden className="pointer-events-none absolute -right-6 top-10 rotate-12 opacity-25 dt:hidden">
+      <div aria-hidden className="pointer-events-none absolute -right-6 top-6 rotate-12 opacity-20 dt:hidden">
         <PlayingCard card={{ rank: 14, suit: "SPADES" }} size="md" />
       </div>
 
       {/* ================= layout grid ================= */}
-      <div className="mx-auto grid min-h-dvh w-full max-w-6xl items-center gap-10 px-4 py-8 dt:grid-cols-[1.05fr_420px]">
+      <div className="mx-auto grid min-h-dvh w-full max-w-6xl items-center gap-6 sm:gap-10 px-3.5 sm:px-4 py-4 sm:py-8 dt:grid-cols-[1.05fr_420px]">
         {/* Hero (desktop only) */}
         <section className="hidden dt:block">
           <Brand />
@@ -138,12 +138,12 @@ export function JoinScreen() {
         </section>
 
         {/* Action card */}
-        <section className="glass mx-auto w-full max-w-md rounded-3xl p-6 shadow-panel animate-riseFade">
-          <div className="dt:hidden">
+        <section className="glass mx-auto w-full max-w-md rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-panel animate-riseFade my-auto">
+          <div className="dt:hidden mb-2">
             <Brand compact />
           </div>
 
-          <div className="mt-4 space-y-3.5">
+          <div className="mt-3 sm:mt-4 space-y-3 sm:space-y-3.5">
             <AvatarStrip value={avatar} onChange={setAvatar} />
 
             <label className="block">
@@ -303,14 +303,16 @@ function rememberIdentity(name: string, avatar: number | null): void {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-gold to-goldDim text-ink shadow-glowGold">
-        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>
+    <div className="flex items-center gap-2.5 sm:gap-3">
+      <span className={`grid place-items-center rounded-2xl bg-gradient-to-br from-gold to-goldDim text-ink shadow-glowGold ${
+        compact ? "h-10 w-10 rounded-xl" : "h-12 w-12"
+      }`}>
+        <svg viewBox="0 0 24 24" className={`${compact ? "h-5 w-5" : "h-6 w-6"}`} fill="currentColor" aria-hidden>
           <path d="M12 2C9 7 4 9.5 4 13.6 4 17.2 7 20 12 22c5-2 8-4.8 8-8.4C20 9.5 15 7 12 2z" />
         </svg>
       </span>
       <div className="leading-none">
-        <h1 className="text-3xl font-black tracking-tight">
+        <h1 className={`${compact ? "text-2xl" : "text-3xl"} font-black tracking-tight`}>
           Hold<span className="text-gold">&apos;em</span> Club
         </h1>
         {!compact && (

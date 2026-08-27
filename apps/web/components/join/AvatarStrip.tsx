@@ -43,10 +43,10 @@ export function AvatarStrip({
 
   return (
     <div>
-      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
         Pick your look
       </div>
-      <div className="scrollbar-thin -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+      <div className="scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x">
         {available.map((n, idx) => (
           <button
             key={n}
@@ -58,7 +58,7 @@ export function AvatarStrip({
               value === n ? "ring-2 ring-gold shadow-glowGold" : "ring-1 ring-white/15 hover:ring-white/40"
             }`}
           >
-            <span className="block h-12 w-12">
+            <span className="block h-10 w-10 sm:h-12 sm:w-12">
               <SeatAvatar username={String(n)} avatar={n} />
             </span>
           </button>

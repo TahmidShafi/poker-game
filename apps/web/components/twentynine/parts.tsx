@@ -59,40 +59,83 @@ export function SeatCard({
   myTeam?: "A" | "B" | null;
 }) {
   const empty = seat.username === null;
+  const isTeammate = myTeam && seat.team === myTeam && !isMe;
+  const isOpponent = myTeam && seat.team !== myTeam;
+
   return (
     <div
-      className={`relative flex w-[9.5rem] items-center gap-2 rounded-2xl px-3 py-2.5 ring-1 backdrop-blur-sm transition-all ${
-        empty ? "bg-black/25 ring-white/10 opacity-50" : "bg-black/40"
-      } ${isActing ? `${tnTeamRing(seat.team)} shadow-glowGold scale-[1.03]` : "ring-white/10"} ${
-        seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""
-      }`}
+      className={`relative flex min-w-[6.5rem] sm:min-w-[9.5rem] max-w-[8.2rem] sm:max-w-[11rem] items-center gap-1.5 sm:gap-2 rounded-xl sm:rounded-2xl px-2 py-1 sm:px-3 sm:py-2 ring-1 backdrop-blur-md transition-all select-none ${
+        empty
+          ? "bg-black/20 ring-white/10 opacity-40"
+          : "bg-black/75 shadow-panel"
+      } ${
+        isActing
+          ? "ring-2 ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.4)] scale-[1.03] z-20"
+          : "ring-white/12 hover:ring-white/25 z-10"
+      } ${seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""}`}
     >
+      {/* Team color accent bar */}
+      {!empty && (
+        <div
+          className={`absolute left-0 inset-y-1.5 sm:inset-y-2 w-1 rounded-r-full ${
+            seat.team === "A" ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]"
+          }`}
+        />
+      )}
+
+      {/* Dealer chip */}
       {isDealer && (
-        <span className="absolute -left-1.5 -top-2 grid h-5 w-5 place-items-center rounded-full bg-gold text-[9px] font-black text-ink shadow-glowGold">
+        <span className="absolute -left-1.5 -top-1.5 sm:-left-2 sm:-top-2 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-[8px] sm:text-[10px] font-black text-slate-950 shadow-md ring-1 ring-white/40">
           D
         </span>
       )}
+
       {empty ? (
         <>
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-black/50 text-xs font-black text-white/30 ring-1 ring-white/10">
+          <span className="grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-full bg-black/40 text-xs font-black text-white/30 ring-1 ring-white/10">
             +
           </span>
           <div className="leading-tight">
-            <p className="text-[11px] font-bold text-white/35">open seat</p>
+            <p className="text-[9px] sm:text-[10px] font-bold text-white/30 tracking-wide">OPEN SEAT</p>
           </div>
         </>
       ) : (
         <>
-          <AvatarChip username={seat.username} avatar={seat.avatar} />
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-[11px] font-bold text-white/85">
-              {seat.username}
-              {isMe ? " (you)" : ""}
-            </p>
-            {seat.status === "DISCONNECTED" && (
-              <p className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-crimson">offline</span>
+          <div className="relative shrink-0">
+            <AvatarChip username={seat.username} avatar={seat.avatar} />
+            {isActing && (
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              </span>
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="flex items-center gap-1">
+              <p className="truncate text-[10px] sm:text-[11px] font-bold text-white/90">
+                {seat.username}
               </p>
+              {isMe && (
+                <span className="shrink-0 rounded bg-white/15 px-1 py-0.2 text-[7.5px] sm:text-[8px] font-black text-white/80 uppercase">
+                  YOU
+                </span>
+              )}
+              {isTeammate && (
+                <span className="shrink-0 rounded bg-amber-400/20 px-1 py-0.2 text-[7.5px] sm:text-[8px] font-bold text-amber-300 uppercase">
+                  PARTNER
+                </span>
+              )}
+            </div>
+
+            {(seat.status === "DISCONNECTED" || isActing) && (
+              <div className="mt-0.5 text-[8.5px] sm:text-[9px]">
+                {seat.status === "DISCONNECTED" ? (
+                  <span className="font-bold text-crimson">offline</span>
+                ) : (
+                  <span className="font-bold text-amber-300 animate-pulse">Thinking...</span>
+                )}
+              </div>
             )}
           </div>
         </>
@@ -242,27 +285,27 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
   
   let cardContent: React.ReactNode;
   
-  if (state.trumpStyle === null && state.trump.state === "NOT_SET") {
+  if (state.trump.state === "NOT_SET") {
     cardContent = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <span className="text-[8px] font-bold uppercase text-white/30">trump</span>
         <span className="text-lg text-white/20 mt-0.5">?</span>
       </div>
     );
-  } else if (state.trumpStyle === "JOKER") {
-    cardContent = (
-      <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card">
-        <span className="text-2xl">🃏</span>
-        <span className="text-[7px] font-black uppercase tracking-widest text-violet-600 mt-1">Joker</span>
-      </div>
-    );
-  } else if (state.trump.state === "HIDDEN" || (state.trumpStyle === "SEVENTH_CARD" && state.trump.state !== "REVEALED")) {
+  } else if (state.trump.state === "HIDDEN") {
     cardContent = (
       <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden">
         <PlayingCard faceDown size="sm" className="absolute inset-0" />
         <div className="absolute inset-0 bg-black/40 grid place-items-center">
           <span className="text-base shadow-black drop-shadow-md">🔒</span>
         </div>
+      </div>
+    );
+  } else if (state.trump.state === "JOKER_MODE") {
+    cardContent = (
+      <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card">
+        <span className="text-2xl">🃏</span>
+        <span className="text-[7px] font-black uppercase tracking-widest text-violet-600 mt-1">Joker</span>
       </div>
     );
   } else if (state.trump.state === "REVEALED") {

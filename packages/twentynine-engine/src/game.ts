@@ -450,7 +450,6 @@ export function getBidderPrivatePayload(state: TwentyNineState): TnBidderPrivate
 export function callTrump(state: TwentyNineState, seatIndex: number): void {
   if (state.phase !== TnPhase.PLAYING) throw new Error("not in the playing phase");
   if (state.actingSeatIndex !== seatIndex) throw new Error("not your turn");
-  if (state.trumpStyle === "JOKER") throw new Error("joker hands have no trump to reveal");
   if (!state.trumpSet) throw new Error("trump has not been determined yet");
   if (state.trumpRevealed) throw new Error("trump is already revealed");
   if (state.currentTrick.length === 0) throw new Error("cannot call trump before a card is led");
@@ -549,9 +548,9 @@ function completeTrick(state: TwentyNineState): void {
     const opponentTricksWon = state.tricksWon[opponentTeam];
     const maxPossibleBidderPoints = 29 - opponentPoints;
 
-    // 1. Full Board
+    // 1. Full Board (all 8 tricks won) -> +2 score
     if (bidderTricksWon === 8) {
-      finishHand(state, { scorePoints: 3, endReason: "FULL_BOARD" });
+      finishHand(state, { scorePoints: 2, endReason: "FULL_BOARD" });
       return;
     }
 
@@ -562,8 +561,8 @@ function completeTrick(state: TwentyNineState): void {
       return;
     }
 
-    // 3. Early Defeat (mathematically impossible to reach bid)
-    if (maxPossibleBidderPoints < requirement) {
+    // 3. Early Defeat (opponent reaches 29 - requirement, e.g. 9 points for a 20 bid)
+    if (opponentPoints >= (29 - requirement)) {
       const reason = state.trickNumber === 8 ? "NORMAL" : "EARLY_DEFEAT";
       finishHand(state, { scorePoints: 1, endReason: reason });
       return;
@@ -663,13 +662,13 @@ export function moveOptionsForSeat(state: TwentyNineState, seatIndex: number): S
   const hand = handOf(state, seatIndex);
   const led = state.currentTrick.length > 0 ? ledSuitOf(state) : null;
   const canCallTrump =
-    state.trumpStyle !== "JOKER" &&
     state.trumpSet &&
     !state.trumpRevealed &&
     state.currentTrick.length > 0 &&
     !hand.some((c) => c.suit === led);
   const canDeclareMarriage =
     state.marriageDeclaredBy === null &&
+    state.trumpStyle !== "JOKER" &&
     !!state.trumpSuit &&
     holdsMarriage(hand, state.trumpSuit);
   return { legalCards: legalCards(hand, led), canCallTrump, canDeclareMarriage };
@@ -694,11 +693,11 @@ export function toPublicTwentyNineState(
   const trumpView: TnTrumpView =
     state.trumpStyle === null
       ? { state: "NOT_SET" }
-      : state.trumpStyle === "JOKER"
-        ? { state: "JOKER_MODE" }
-        : state.trumpRevealed
-          ? { state: "REVEALED", suit: state.trumpSuit as TnSuit, card: state.indicatorCard ?? undefined }
-          : { state: "HIDDEN" };
+      : !state.trumpRevealed
+        ? { state: "HIDDEN" }
+        : state.trumpStyle === "JOKER"
+          ? { state: "JOKER_MODE" }
+          : { state: "REVEALED", suit: state.trumpSuit as TnSuit, card: state.indicatorCard ?? undefined };
 
   const seats: TnSeatView[] = state.seats.map((s) => ({
     seatIndex: s.seatIndex,

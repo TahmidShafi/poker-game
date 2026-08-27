@@ -50,7 +50,7 @@ export function CodeBoxes({
 
   return (
     <div
-      className={`flex justify-between gap-1.5 ${invalid ? "animate-shakeX" : ""}`}
+      className={`flex justify-between gap-1 sm:gap-1.5 w-full ${invalid ? "animate-shakeX" : ""}`}
       onPaste={(e) => {
         e.preventDefault();
         distributePaste(e.clipboardData.getData("text"));
@@ -92,7 +92,7 @@ export function CodeBoxes({
             }
           }}
           onFocus={(e) => e.currentTarget.select()}
-          className={`h-12 w-full rounded-xl bg-black/35 text-center text-lg font-black tabnum ring-1 transition-colors focus:outline-none focus:ring-gold/60 ${
+          className={`h-11 sm:h-12 w-full min-w-0 rounded-xl bg-black/35 text-center text-base sm:text-lg font-black tabnum ring-1 transition-colors focus:outline-none focus:ring-gold/60 ${
             invalid ? "text-crimson ring-crimson/60" : "ring-white/12"
           }`}
         />

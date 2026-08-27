@@ -31,6 +31,6 @@ export function resolveWinner(
   if (plays.length !== 4) {
     throw new Error(`resolveWinner: expected 4 plays, got ${plays.length}`);
   }
-  if (opts.jokerMode) return resolveJokerWinner(plays, ledSuit);
+  if (opts.jokerMode && opts.trumpRevealed) return resolveJokerWinner(plays, ledSuit);
   return resolveStandardWinner(plays, ledSuit, opts.trumpSuit, opts.trumpRevealed);
 }

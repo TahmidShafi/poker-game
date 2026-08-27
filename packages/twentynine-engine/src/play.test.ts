@@ -81,37 +81,49 @@ describe("standard trick resolution", () => {
 });
 
 describe("joker-mode trick resolution", () => {
-  it("J beats 9 across suits; priority J > 9 > A > 10", () => {
+  it("before reveal: standard led-suit resolution applies", () => {
     const plays = [
       play(0, c(9, "HEARTS")),
       play(1, c(11, "CLUBS")),
       play(2, c(14, "SPADES")),
       play(3, c(10, "DIAMONDS")),
     ];
+    // Heart led, unrevealed joker -> 9 of Hearts wins over offsuit cards
     const w = resolveWinner(plays, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: false });
+    expect(w.seatIndex).toBe(0); // 9 of Hearts
+  });
+
+  it("after reveal: J beats 9 across suits; priority J > 9 > A > 10", () => {
+    const plays = [
+      play(0, c(9, "HEARTS")),
+      play(1, c(11, "CLUBS")),
+      play(2, c(14, "SPADES")),
+      play(3, c(10, "DIAMONDS")),
+    ];
+    const w = resolveWinner(plays, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: true });
     expect(w.seatIndex).toBe(1); // J
   });
 
-  it("without power cards the highest of the led suit wins as normal", () => {
+  it("after reveal: without power cards the highest of the led suit wins as normal", () => {
     const plays = [
       play(0, c(13, "HEARTS")),
       play(1, c(8, "SPADES")),
       play(2, c(12, "HEARTS")),
       play(3, c(7, "CLUBS")),
     ];
-    const w = resolveWinner(plays, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: false });
-    expect(w.seatIndex).toBe(0); // K hearts (A is a power rank, so K tops here)
+    const w = resolveWinner(plays, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: true });
+    expect(w.seatIndex).toBe(0); // K hearts
   });
 
-  it("equal power ranks tie-break: led suit first, then earlier play", () => {
+  it("after reveal: equal power ranks tie-break: led suit first, then earlier play", () => {
     const jackLedFirst = [play(0, c(11, "HEARTS")), play(1, c(11, "CLUBS")), play(2, c(7, "DIAMONDS")), play(3, c(8, "SPADES"))];
     expect(
-      resolveWinner(jackLedFirst, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: false }).seatIndex
+      resolveWinner(jackLedFirst, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: true }).seatIndex
     ).toBe(0);
 
     const offsuitJacks = [play(0, c(11, "CLUBS")), play(1, c(11, "SPADES")), play(2, c(7, "DIAMONDS")), play(3, c(8, "HEARTS"))];
     expect(
-      resolveWinner(offsuitJacks, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: false }).seatIndex
+      resolveWinner(offsuitJacks, "HEARTS", { jokerMode: true, trumpSuit: null, trumpRevealed: true }).seatIndex
     ).toBe(0); // earlier play wins on full ties
   });
 });

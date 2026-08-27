@@ -12,7 +12,7 @@ export function TrumpPickerModal() {
   if (!tnState) return null;
 
   const myTurn = tnState.actingSeatIndex === me?.seatIndex;
-  
+
   // Show if phase is TRUMP_SETUP and it's our turn. (tnBidderPrivate is just extra validation/payload).
   if (tnState.phase !== "TRUMP_SETUP") return null;
   if (!myTurn) return null;

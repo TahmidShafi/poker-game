@@ -275,7 +275,7 @@ describe("SEVENTH_CARD choice", () => {
 });
 
 describe("JOKER choice", () => {
-  it("joker hands have no suit, skip reveal entirely, and resolve power ranks", () => {
+  it("joker hands start HIDDEN, can be revealed via callTrump, and resolve power ranks after reveal", () => {
     const state = makeMatch();
     startHand(state, { deck: orderedDeck() });
     driveBidding(state, 3, 19);
@@ -283,27 +283,28 @@ describe("JOKER choice", () => {
     declareTrumpPlan(state, 3, "JOKER");
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.trumpSuit).toBeNull();
-    expect(toPublicTwentyNineState(state).trump).toEqual({ state: "JOKER_MODE" });
-    expect(() => callTrump(state, 3)).toThrow(/joker hands have no trump/i);
+    // Hidden initially to everyone
+    expect(toPublicTwentyNineState(state).trump).toEqual({ state: "HIDDEN" });
 
-    // T1: S7(P3) -> S8(P2) -> S9(P1, power pri 3) -> S10(P0, pri 1). S9 wins for B.
+    // T1: S7(P3) -> S8(P2) -> S9(P1) -> S10(P0). S10 wins by normal ranking (Joker not yet revealed).
     playCard(state, 3, S(7));
     playCard(state, 2, S(8));
     playCard(state, 1, S(9));
     playCard(state, 0, S(10));
-    expect(state.tricksWon.B).toBe(1);
-    expect(state.capturedPoints.B).toBe(3);
-    expect(state.ledSeatIndex).toBe(1);
+    expect(state.tricksWon.B).toBe(1); // seat 1 (9 beats 10 by standard ranking)
+    expect(state.capturedPoints.B).toBe(3); // S9=2, S10=1
 
-    // Higher-priority power beats lower regardless of suit: A(P0) vs K(P1)?
-    // Next trick led by seat 1: SK(P1) -> SA(P0, pri 2 beats nothing here? K not power)
-    playCard(state, 1, S(13));
-    playCard(state, 0, S(14));
-    playCard(state, 3, S(11)); // SJ power pri 4 -> beats the ace
-    playCard(state, 2, S(12));
-    expect(state.tricksWon.B).toBe(2); // seat 3 again
+    // T2 led by winner of T1 (seat 1):
+    state.trumpRevealed = true;
+    expect(toPublicTwentyNineState(state).trump).toEqual({ state: "JOKER_MODE" });
+
+    // After reveal, J beats other power cards
+    playCard(state, 1, S(13)); // SK (seat 1 leads)
+    playCard(state, 0, S(14)); // SA (seat 0)
+    playCard(state, 3, S(11)); // SJ (seat 3, power rank 4 beats SA)
+    playCard(state, 2, S(12)); // SQ (seat 2)
+    expect(state.tricksWon.B).toBe(2); // SJ won for seat 3
     expect(state.capturedPoints.B).toBe(7); // prior 3 + SJ=3 + SA=1
-    expect(state.ledSeatIndex).toBe(3);
   });
 });
 

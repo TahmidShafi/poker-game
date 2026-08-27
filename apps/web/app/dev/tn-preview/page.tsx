@@ -48,6 +48,8 @@ function playingState(): PublicTwentyNineState {
     dealerSeatIndex: 0,
     trumpStyle: "JOKER",
     trump: { state: "JOKER_MODE" },
+    bid: 20,
+    bidderSeatIndex: 2,
     marriageDeclaredBy: null,
     bids: {
       highestBid: 20,
