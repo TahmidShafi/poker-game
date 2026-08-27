@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
 import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress } from "./panels";
-import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal } from "./modals";
+import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal, SeventhCardModal } from "./modals";
 import { PhysicalScoreBoard } from "./ScoreCard";
 
 
@@ -175,6 +175,7 @@ export function TwentyNineView() {
       </footer>
 
       <TrumpPickerModal />
+      <SeventhCardModal />
       <RoundBanner />
       <MatchOverBanner />
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}

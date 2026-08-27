@@ -282,6 +282,8 @@ export function TrickArea({
 export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
   const mySeat = useMySeat();
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
+  const { tnBidderPrivate } = useGame();
+  const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
   
   let cardContent: React.ReactNode;
   
@@ -293,14 +295,36 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
       </div>
     );
   } else if (state.trump.state === "HIDDEN") {
-    cardContent = (
-      <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden">
-        <PlayingCard faceDown size="sm" className="absolute inset-0" />
-        <div className="absolute inset-0 bg-black/40 grid place-items-center">
-          <span className="text-base shadow-black drop-shadow-md">🔒</span>
+    if (isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR") {
+      cardContent = (
+        <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden bg-slate-950 ring-2 ring-gold/70 shadow-card">
+          <PlayingCard card={tnBidderPrivate.indicatorCard} size="sm" />
+          <div className="absolute top-0 inset-x-0 bg-black/90 py-0.5 text-center">
+            <span className="text-[7px] font-black uppercase tracking-wider text-gold">7th (You)</span>
+          </div>
         </div>
-      </div>
-    );
+      );
+    } else if (isBidder && tnBidderPrivate?.kind === "SUIT_DECLARED") {
+      const suit = tnBidderPrivate.suit;
+      const color = suit === "HEARTS" || suit === "DIAMONDS" ? "text-crimson" : "text-ink";
+      cardContent = (
+        <div className="relative flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card ring-2 ring-gold/70">
+          <span className="text-[7px] font-black uppercase tracking-widest text-slate-800 absolute top-1">Trump (You)</span>
+          <span className={`text-3xl leading-none ${color} mt-2`}>
+            {TN_SUIT_SYMBOLS[suit]}
+          </span>
+        </div>
+      );
+    } else {
+      cardContent = (
+        <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden">
+          <PlayingCard faceDown size="sm" className="absolute inset-0" />
+          <div className="absolute inset-0 bg-black/40 grid place-items-center">
+            <span className="text-base shadow-black drop-shadow-md">🔒</span>
+          </div>
+        </div>
+      );
+    }
   } else if (state.trump.state === "JOKER_MODE") {
     cardContent = (
       <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card">

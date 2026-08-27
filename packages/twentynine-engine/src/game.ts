@@ -576,6 +576,13 @@ export function getBidderPrivatePayload(state: TwentyNineState): TnBidderPrivate
   ) {
     return { kind: "SEVENTH_INDICATOR", handNumber, indicatorCard: state.indicatorCard };
   }
+  if (
+    state.trumpStyle === "SUIT" &&
+    state.trumpSuit &&
+    !state.trumpRevealed
+  ) {
+    return { kind: "SUIT_DECLARED", handNumber, suit: state.trumpSuit };
+  }
   return null;
 }
 

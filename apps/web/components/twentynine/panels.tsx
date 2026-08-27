@@ -15,8 +15,11 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
 }
 
 export function HandFan({ state }: { state: PublicTwentyNineState }) {
-  const { me, myTnCards, tnPlayCard } = useGame();
+  const { me, myTnCards, tnPlayCard, tnBidderPrivate } = useGame();
   const mySeat = me?.seatIndex ?? null;
+  const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
+  const seventhCard = isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR" ? tnBidderPrivate.indicatorCard : null;
+
   // Cards are clickable EXACTLY when it is my turn in the PLAYING phase.
   // During bidding/trump-setup the fan stays visible but inert (never
   // "enabled-looking"), so a click can never fire an out-of-phase action.
@@ -35,12 +38,14 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
       {myTnCards.map((c, idx) => {
         const isLegal = legalKeys.has(`${c.rank}${c.suit}`);
         const clickable = myTurn && isLegal;
+        const isSeventh = seventhCard && c.suit === seventhCard.suit && c.rank === seventhCard.rank;
+
         return (
           <button
             key={`${c.rank}${c.suit}`}
             disabled={!clickable}
             onClick={() => tnPlayCard(c)}
-            className={`transition-all ${
+            className={`relative transition-all ${
               clickable ? "hover:-translate-y-3 cursor-pointer hover:z-30 active:scale-95" : ""
             } ${myTurn && !isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
             style={{ zIndex: idx }}
@@ -52,8 +57,13 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
                 : `waiting for seat ${state.actingSeatIndex}`
             }
           >
-            <PlayingCard card={c} size="sm" className="sm:hidden shadow-card" />
-            <PlayingCard card={c} size="md" className="hidden sm:block shadow-card" />
+            {isSeventh && (
+              <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 bg-amber-400 text-slate-950 px-1.5 py-0.2 text-[8px] font-black rounded-full shadow-lg whitespace-nowrap ring-1 ring-black/40">
+                7th 👑
+              </div>
+            )}
+            <PlayingCard card={c} size="sm" className={`sm:hidden shadow-card ${isSeventh ? "ring-2 ring-amber-400" : ""}`} />
+            <PlayingCard card={c} size="md" className={`hidden sm:block shadow-card ${isSeventh ? "ring-2 ring-amber-400" : ""}`} />
           </button>
         );
       })}

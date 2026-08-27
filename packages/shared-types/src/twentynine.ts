@@ -273,7 +273,8 @@ export interface YourTnHandPayload {
  */
 export type TnBidderPrivatePayload =
   | { kind: "CHOOSE_TRUMP"; handNumber: number }
-  | { kind: "SEVENTH_INDICATOR"; handNumber: number; indicatorCard: TnCard };
+  | { kind: "SEVENTH_INDICATOR"; handNumber: number; indicatorCard: TnCard }
+  | { kind: "SUIT_DECLARED"; handNumber: number; suit: TnSuit };
 
 // ---- Client -> Server moves ---------------------------------------------------------
 

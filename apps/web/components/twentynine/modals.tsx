@@ -4,6 +4,7 @@ import React from "react";
 import type { TnSuit } from "@poker/shared-types";
 import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { useGame } from "../../lib/store";
+import { PlayingCard } from "../common/PlayingCard";
 
 const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
@@ -62,6 +63,68 @@ export function TrumpPickerModal() {
             </span>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function SeventhCardModal() {
+  const { tnState, tnBidderPrivate, me } = useGame();
+  const [dismissedRound, setDismissedRound] = React.useState<number | null>(null);
+
+  if (!tnState || !me) return null;
+  const isBidder = tnState.bidderSeatIndex === me.seatIndex;
+  if (!isBidder) return null;
+
+  if (
+    tnBidderPrivate?.kind !== "SEVENTH_INDICATOR" ||
+    dismissedRound === tnState.roundNumber ||
+    tnState.phase === "ROUND_SCORED" ||
+    tnState.phase === "MATCH_OVER"
+  ) {
+    return null;
+  }
+
+  const card = tnBidderPrivate.indicatorCard;
+  const isRed = card.suit === "HEARTS" || card.suit === "DIAMONDS";
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 backdrop-blur-md px-4">
+      <div className="glass w-full max-w-sm rounded-3xl p-6 text-center shadow-panel animate-riseFade border border-gold/30">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold text-[11px] font-black uppercase tracking-wider mb-3">
+          <span>🃏</span> Secret 7th Card Trump
+        </div>
+
+        <h2 className="text-xl font-black tracking-tight text-white">
+          Your Trump is Set!
+        </h2>
+        <p className="mt-1 text-xs text-white/60">
+          Your 7th card was drawn. It establishes your secret trump suit for this hand:
+        </p>
+
+        <div className="my-5 flex flex-col items-center justify-center">
+          <div className="relative transform hover:scale-105 transition-transform">
+            <PlayingCard card={card} size="lg" className="shadow-2xl ring-2 ring-gold/50" />
+            <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-black/90 px-2.5 py-0.5 rounded-full border border-gold/50 text-[9px] font-black text-gold uppercase tracking-wider whitespace-nowrap shadow-md">
+              7th Card
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-base font-black">
+            <span className={isRed ? "text-crimson" : "text-amber-200"}>
+              {card.suit} {TN_SUIT_SYMBOLS[card.suit]}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-white/45 max-w-[240px]">
+            Other players cannot see this card until trump is called during the game.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setDismissedRound(tnState.roundNumber)}
+          className="w-full rounded-2xl bg-gold py-3 text-sm font-black tracking-wide text-slate-950 shadow-glowGold hover:brightness-105 active:scale-[0.98]"
+        >
+          Got It, Start Playing
+        </button>
       </div>
     </div>
   );
