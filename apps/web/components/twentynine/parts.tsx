@@ -79,9 +79,6 @@ export function SeatCard({
           </span>
           <div className="leading-tight">
             <p className="text-[11px] font-bold text-white/35">open seat</p>
-            <p className={`text-[10px] font-bold ${tnTeamColor(seat.team)}`}>
-              {myTeam ? (seat.team === myTeam ? "our team" : "their team") : `team ${seat.team}`}
-            </p>
           </div>
         </>
       ) : (
@@ -92,15 +89,11 @@ export function SeatCard({
               {seat.username}
               {isMe ? " (you)" : ""}
             </p>
-            <p className="flex items-center gap-1.5">
-              <span className={`text-[10px] font-black uppercase ${tnTeamColor(seat.team)}`}>
-                {myTeam ? (seat.team === myTeam ? "OUR TEAM" : "THEIR TEAM") : `TEAM ${seat.team}`}
-              </span>
-              <span className="text-[10px] tabnum text-white/45">{seat.cardsRemaining} cards</span>
-              {seat.status === "DISCONNECTED" && (
+            {seat.status === "DISCONNECTED" && (
+              <p className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-crimson">offline</span>
-              )}
-            </p>
+              </p>
+            )}
           </div>
         </>
       )}

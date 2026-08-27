@@ -537,10 +537,45 @@ function completeTrick(state: TwentyNineState): void {
   state.tricksWon[winnerTeam] += 1;
   state.currentTrick = [];
 
+  const bidder = state.bidderSeatIndex;
+  if (bidder !== null && state.bid !== null) {
+    const biddingTeam = tnTeamOfSeat(bidder);
+    const opponentTeam = otherTeam(biddingTeam);
+    const requirement = marriageAdjustedRequirement(state.bid, state.marriageDeclaredBy, biddingTeam);
+    
+    const bidderPoints = state.capturedPoints[biddingTeam];
+    const opponentPoints = state.capturedPoints[opponentTeam];
+    const bidderTricksWon = state.tricksWon[biddingTeam];
+    const opponentTricksWon = state.tricksWon[opponentTeam];
+    const maxPossibleBidderPoints = 29 - opponentPoints;
+
+    // 1. Full Board
+    if (bidderTricksWon === 8) {
+      finishHand(state, { scorePoints: 3, endReason: "FULL_BOARD" });
+      return;
+    }
+
+    // 2. Bid reached, Full Board impossible
+    if (bidderPoints >= requirement && opponentTricksWon > 0) {
+      const reason = state.trickNumber === 8 ? "NORMAL" : "EARLY_BID_REACHED";
+      finishHand(state, { scorePoints: 1, endReason: reason });
+      return;
+    }
+
+    // 3. Early Defeat (mathematically impossible to reach bid)
+    if (maxPossibleBidderPoints < requirement) {
+      const reason = state.trickNumber === 8 ? "NORMAL" : "EARLY_DEFEAT";
+      finishHand(state, { scorePoints: 1, endReason: reason });
+      return;
+    }
+  }
+
   if (state.trickNumber === TN_TRICKS_PER_HAND) {
-    finishHand(state);
+    // Fallback if none of the above matched (should not happen mathematically for a valid bid)
+    finishHand(state, { scorePoints: 1, endReason: "NORMAL" });
     return;
   }
+  
   state.trickNumber += 1;
   state.ledSeatIndex = winner.seatIndex; // winner leads next
   state.actingSeatIndex = winner.seatIndex;
@@ -550,25 +585,40 @@ function completeTrick(state: TwentyNineState): void {
 // Scoring & match end
 // ---------------------------------------------------------------------------
 
-function finishHand(state: TwentyNineState): void {
+function finishHand(
+  state: TwentyNineState,
+  options?: { scorePoints?: number; endReason?: "NORMAL" | "EARLY_BID_REACHED" | "EARLY_DEFEAT" | "FULL_BOARD" }
+): void {
   const totals = state.capturedPoints;
-  if (totals.A + totals.B !== 29) {
-    // Hard invariant from the ruleset: completed hands ALWAYS sum to 29.
+  const endReason = options?.endReason ?? "NORMAL";
+  const scorePoints = options?.scorePoints ?? 1;
+
+  if (endReason === "NORMAL" && totals.A + totals.B !== 29) {
+    // Hard invariant from the ruleset: normally completed hands ALWAYS sum to 29.
     throw new Error(
       `ENGINE BUG: captured points sum to ${totals.A + totals.B}, expected exactly 29`
     );
   }
+  
   const bidder = state.bidderSeatIndex;
   if (bidder === null || state.bid === null) throw new Error("engine bug: finishing without a bid");
   const biddingTeam = tnTeamOfSeat(bidder);
   const requirement = marriageAdjustedRequirement(state.bid, state.marriageDeclaredBy, biddingTeam);
-  const made = totals[biddingTeam] >= requirement;
-  const roundWinner: TnTeam = made ? biddingTeam : otherTeam(biddingTeam);
-  state.matchScore[roundWinner] += 1;
+  
+  let roundWinner: TnTeam;
+  if (endReason === "EARLY_DEFEAT") {
+    roundWinner = otherTeam(biddingTeam);
+  } else {
+    const made = totals[biddingTeam] >= requirement;
+    roundWinner = made ? biddingTeam : otherTeam(biddingTeam);
+  }
+  
+  state.matchScore[roundWinner] += scorePoints;
   state.roundHistory.push(roundWinner);
   state.dealerAdvancePending = true;
   state.ledSeatIndex = null;
   state.actingSeatIndex = null;
+  
   state.lastRoundSummary = {
     roundNumber: state.roundNumber,
     bid: state.bid,
@@ -580,6 +630,8 @@ function finishHand(state: TwentyNineState): void {
     marriageTeam: state.marriageDeclaredBy,
     matchScoreAfter: { A: state.matchScore.A, B: state.matchScore.B },
     trumpStyle: state.trumpStyle ?? "SUIT",
+    scoreAwarded: scorePoints,
+    endReason: endReason as any,
   };
 
   if (state.matchScore[roundWinner] >= state.roundsToWin) {
@@ -666,6 +718,8 @@ export function toPublicTwentyNineState(
     dealerSeatIndex: state.dealerSeatIndex,
     trumpStyle: state.trumpStyle,
     trump: trumpView,
+    bid: state.bid,
+    bidderSeatIndex: state.bidderSeatIndex,
     marriageDeclaredBy: state.marriageDeclaredBy,
     bids: state.bids
       ? {

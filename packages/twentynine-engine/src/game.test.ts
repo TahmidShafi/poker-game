@@ -352,7 +352,7 @@ describe("marriage (K+Q of the active suit)", () => {
     autoPlayHand(state);
     expect(state.lastRoundSummary?.requirement).toBe(14); // 18 - 4
     expect(state.lastRoundSummary?.marriageTeam).toBe("A");
-    expect(state.lastRoundSummary!.captured.A + state.lastRoundSummary!.captured.B).toBe(29);
+    expect(state.lastRoundSummary?.endReason).toBe("EARLY_DEFEAT");
   });
 
   it("defending-team marriage raises the requirement by 4", () => {
@@ -420,21 +420,5 @@ describe("offline-fallback helper", () => {
     declareTrumpPlan(state, 3, "SPADES");
     playCard(state, 3, S(7));
     expect(lowestLegalCard(state, 2)).toEqual({ rank: 8, suit: "SPADES" });
-  });
-});
-
-describe("scoring guard", () => {
-  it("throws an ENGINE BUG error if captured totals ever deviate from 29", () => {
-    const state = started();
-    driveBidding(state, 3, 16);
-    declareTrumpPlan(state, 3, "SPADES");
-    state.capturedPoints.A += 5;
-    let threw = false;
-    try {
-      autoPlayHand(state);
-    } catch (err) {
-      threw = /sum to .* expected exactly 29/.test((err as Error).message);
-    }
-    expect(threw).toBe(true);
   });
 });

@@ -258,3 +258,124 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
     </div>
   );
 }
+
+/** 
+ * Live Round Progress Table
+ * Tracks tricks, points, and Full Board possibilities in real-time.
+ */
+export function LiveRoundProgress({ state }: { state: PublicTwentyNineState }) {
+  if (state.phase !== "PLAYING" && state.phase !== "ROUND_SCORED" && state.phase !== "MATCH_OVER") {
+    return null;
+  }
+  const bidderSeat = state.bidderSeatIndex;
+  const bid = state.bid;
+  
+  // Wait until we have a bidder and bid
+  if (bidderSeat === null || bid === null) return null;
+
+  const biddingTeam = bidderSeat % 2 === 0 ? "A" : "B";
+  const opponentTeam = biddingTeam === "A" ? "B" : "A";
+
+  // Bid requirement shifts if there is a valid marriage declared
+  let bidRequirement = bid;
+  if (state.marriageDeclaredBy) {
+    if (state.marriageDeclaredBy === biddingTeam) bidRequirement -= 4;
+    else bidRequirement += 4;
+  }
+
+  const bidderPoints = state.capturedPoints[biddingTeam];
+  const opponentPoints = state.capturedPoints[opponentTeam];
+  const bidderTricks = state.tricksWon[biddingTeam];
+  const opponentTricks = state.tricksWon[opponentTeam];
+
+  const bidderNeeds = Math.max(0, bidRequirement - bidderPoints);
+  const opponentDefeatTarget = 29 - bidRequirement + 1;
+  const opponentNeeds = Math.max(0, opponentDefeatTarget - opponentPoints);
+
+  const fullBoardPossible = opponentTricks === 0;
+  
+  let statusBadge = null;
+  if (bidderTricks === 8) {
+    statusBadge = (
+      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-300 ring-1 ring-emerald-500/50">
+        FULL BOARD +3
+      </span>
+    );
+  } else if (opponentPoints >= opponentDefeatTarget) {
+    statusBadge = (
+      <span className="rounded-full bg-crimson/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-crimson ring-1 ring-crimson/40">
+        BID DEFEATED
+      </span>
+    );
+  } else if (bidderPoints >= bidRequirement) {
+    if (fullBoardPossible) {
+      statusBadge = (
+        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-blue-300 ring-1 ring-blue-500/50">
+          BID ACHIEVED — FULL BOARD STILL POSSIBLE
+        </span>
+      );
+    } else {
+      statusBadge = (
+        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-300 ring-1 ring-emerald-500/50">
+          BID ACHIEVED — +1
+        </span>
+      );
+    }
+  } else if (fullBoardPossible) {
+    statusBadge = (
+      <span className="rounded-full bg-black/40 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white/50 ring-1 ring-white/20">
+        FULL BOARD POSSIBLE
+      </span>
+    );
+  } else {
+    statusBadge = (
+      <span className="rounded-full bg-black/40 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white/30 ring-1 ring-white/10">
+        FULL BOARD LOST
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex w-56 flex-col overflow-hidden rounded-2xl bg-black/60 p-4 shadow-panel backdrop-blur-md ring-1 ring-white/10 font-mono">
+      <div className="mb-4 text-center text-[10px] font-black uppercase tracking-widest text-white/70">
+        Live Round Progress
+      </div>
+      
+      <div className="flex flex-col text-[11px]">
+        <div className="flex justify-between font-bold text-gold">
+          <span>BIDDING TEAM</span>
+          <span>{bidderTricks} TRICKS</span>
+        </div>
+        <div className="mt-1 flex justify-between text-white/90">
+          <span>Points</span>
+          <span>{bidderPoints} / {bidRequirement}</span>
+        </div>
+        <div className="flex justify-between text-white/50">
+          <span>Need</span>
+          <span>{bidderNeeds > 0 ? bidderNeeds : 0}</span>
+        </div>
+      </div>
+
+      <div className="my-3 h-[1px] w-full bg-white/10" />
+
+      <div className="flex flex-col text-[11px] mb-4">
+        <div className="flex justify-between font-bold text-violet-300">
+          <span>OPPONENT TEAM</span>
+          <span>{opponentTricks} TRICKS</span>
+        </div>
+        <div className="mt-1 flex justify-between text-white/90">
+          <span>Points</span>
+          <span>{opponentPoints} / {opponentDefeatTarget}</span>
+        </div>
+        <div className="flex justify-between text-white/50">
+          <span>Need</span>
+          <span>{opponentNeeds > 0 ? opponentNeeds : 0}</span>
+        </div>
+      </div>
+      
+      <div className="flex justify-center text-center">
+        {statusBadge}
+      </div>
+    </div>
+  );
+}

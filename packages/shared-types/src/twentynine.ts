@@ -179,6 +179,8 @@ export interface TnRoundSummary {
   marriageTeam: TnTeam | null;
   matchScoreAfter: TnTeamTotals;
   trumpStyle: TnTrumpStyle;
+  scoreAwarded: number;
+  endReason: "NORMAL" | "EARLY_BID_REACHED" | "EARLY_DEFEAT" | "FULL_BOARD";
 }
 
 // ---- Turn timing (offline fallback only) ----------------------------------------
@@ -232,6 +234,8 @@ export interface PublicTwentyNineState {
    */
   trumpStyle: TnTrumpStyle | null;
   trump: TnTrumpView;
+  bid: number | null;
+  bidderSeatIndex: number | null;
   /** Set once any side validly declares a K+Q marriage on the active suit. */
   marriageDeclaredBy: TnTeam | null;
   bids: TnBidState | null; // non-null during BIDDING/REDEALING-from-bids

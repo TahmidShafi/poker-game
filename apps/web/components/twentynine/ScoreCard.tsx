@@ -1,149 +1,143 @@
 "use client";
 
 import React from "react";
-import { TN_SUIT_SYMBOLS, type TnSuit } from "@poker/shared-types";
+import {
+  TN_SUIT_SYMBOLS,
+  type TnSuit,
+} from "@poker/shared-types";
+
+import { PlayingCard } from "../common/PlayingCard";
 
 /**
- * Traditional Bangladeshi 29 score card.
+ * Pip positions on a 6 card.
  *
- * Each team keeps a pair of real playing-card-styled counters:
- *   Team A -> ♥ (round wins)  + ♠ upside-down (round losses)
- *   Team B -> ♦ (round wins)  + ♣ upside-down (round losses)
+ * Visual order for scoring:
  *
- * The count is drawn as AUTHENTIC suit pips in the layout of a real card
- * face (1 = centre, 2 = vertical pair, 3 = diagonal, 4 = corners,
- * 5 = corners + centre, 6 = two columns of three). Bottom-half pips are
- * rotated like on a genuine deck. Zero shows a blank face.
+ * 1   2
+ * 3   4
+ * 5   6
  */
+const PIPS_6 = [
+  { top: "20%", left: "28%", flip: false },
+  { top: "20%", left: "72%", flip: false },
 
-const PIP_LAYOUTS: Record<number, Array<{ top: string; left: string; flip?: boolean }>> = {
-  0: [],
-  1: [{ top: "50%", left: "50%" }],
-  2: [
-    { top: "18%", left: "50%" },
-    { top: "82%", left: "50%", flip: true },
-  ],
-  3: [
-    { top: "16%", left: "50%" },
-    { top: "50%", left: "50%" },
-    { top: "84%", left: "50%", flip: true },
-  ],
-  4: [
-    { top: "18%", left: "28%" },
-    { top: "18%", left: "72%", flip: true },
-    { top: "82%", left: "28%" },
-    { top: "82%", left: "72%", flip: true },
-  ],
-  5: [
-    { top: "18%", left: "28%" },
-    { top: "18%", left: "72%", flip: true },
-    { top: "50%", left: "50%" },
-    { top: "82%", left: "28%" },
-    { top: "82%", left: "72%", flip: true },
-  ],
-  6: [
-    { top: "16%", left: "28%" },
-    { top: "50%", left: "28%" },
-    { top: "84%", left: "28%", flip: true },
-    { top: "16%", left: "72%", flip: true },
-    { top: "50%", left: "72%" },
-    { top: "84%", left: "72%", flip: true },
-  ],
+  { top: "50%", left: "28%", flip: false },
+  { top: "50%", left: "72%", flip: false },
+
+  { top: "80%", left: "28%", flip: true },
+  { top: "80%", left: "72%", flip: true },
+];
+
+/**
+ * Cover-card animation positions.
+ *
+ * These are visual positions only.
+ * Exact pip visibility is controlled separately by score.
+ */
+const scoreCoverPositions: Record<number, string> = {
+  0: "translate(0%, 0%) rotate(0deg)",
+  1: "translate(45%, 35%) rotate(-12deg)",
+  2: "translate(0%, 45%) rotate(0deg)",
+  3: "translate(45%, 55%) rotate(-12deg)",
+  4: "translate(0%, 65%) rotate(0deg)",
+  5: "translate(55%, 75%) rotate(-12deg)",
+  6: "translate(130%, 10%) rotate(8deg)",
 };
 
-export function ScoreCard({
-  count,
+function SixScoreCard({
   suit,
-  inverted = false,
-  size = 92,
-  highlight = false,
-  animKey,
+  score,
 }: {
-  /** 0..6 */
-  count: number;
   suit: TnSuit;
-  /** Renders every pip and label upside-down (the black loss side). */
-  inverted?: boolean;
-  /** Pixel width of the card. */
-  size?: number;
-  /** Match-point glow when a team reaches the target. */
-  highlight?: boolean;
-  /** Changing this key re-triggers the pop animation after each round. */
-  animKey?: number;
+  score: number;
 }) {
-  const clamped = Math.max(0, Math.min(6, Math.round(count)));
   const red = suit === "HEARTS" || suit === "DIAMONDS";
   const glyph = TN_SUIT_SYMBOLS[suit];
-  const pips = PIP_LAYOUTS[clamped] ?? [];
+  const visibleScore = Math.max(0, Math.min(6, Math.abs(score)));
 
   return (
     <div
-      key={animKey}
-      className={`relative select-none overflow-hidden rounded-xl bg-gradient-to-br from-white via-white to-stone-200 shadow-card transition-transform ${
-        red ? "text-crimson" : "text-ink"
-      } ${highlight ? "ring-2 ring-gold shadow-glowGold" : "ring-1 ring-black/10"} animate-scorePop`}
-      style={{
-        width: size,
-        height: Math.round(size * 1.42),
-        // Inverted cards (loss side) flip as ONE unit — no per-pip math.
-        transform: inverted ? "rotate(180deg)" : undefined,
-      }}
-      aria-label={`${clamped} ${suit}`}
+      className={`absolute inset-0 overflow-hidden rounded-xl
+        bg-white shadow-card ring-1 ring-black/20
+        ${red ? "text-red-600" : "text-slate-900"}`}
     >
-      {/* corner indices, both corners like a real card */}
-      <div className="absolute left-1 top-0.5 font-bold leading-none" style={{ fontSize: size * 0.15 }}>
-        {clamped}
-        <div className="text-[0.85em]">{glyph}</div>
-      </div>
-      <div className="absolute bottom-0.5 right-1 rotate-180 font-bold leading-none" style={{ fontSize: size * 0.15 }}>
-        {clamped}
-        <div className="text-[0.85em]">{glyph}</div>
-      </div>
-
-      {/* pips — bottom-half pips rotate like a genuine deck face */}
-      {pips.map((p, i) => (
+      {PIPS_6.map((p, index) => (
         <span
-          key={i}
-          className="absolute leading-none"
+          key={index}
+          className="absolute z-[1] text-xl sm:text-2xl font-bold leading-none"
           style={{
             top: p.top,
             left: p.left,
-            fontSize: size * (clamped >= 4 ? 0.26 : 0.32),
-            transform: `translate(-50%,-50%)${p.flip ? " rotate(180deg)" : ""}`,
+            opacity: index < visibleScore ? 1 : 0,
+            transform: `translate(-50%, -50%)${
+              p.flip ? " rotate(180deg)" : ""
+            }`,
+            transition: "opacity 250ms ease",
           }}
         >
           {glyph}
         </span>
       ))}
-
-      {clamped === 0 && (
-        <span className="absolute inset-0 grid place-items-center text-stone-300" style={{ fontSize: size * 0.2 }}>
-          —
-        </span>
-      )}
-
-      <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-black/10" />
     </div>
   );
 }
 
-/** Small caption chip above each team's card pair. */
-export function ScorePairCaption({
+export function PhysicalScoreBoard({
   team,
-  label,
-  mine,
+  score,
 }: {
-  team: "A" | "B";
-  label: string;
-  mine?: boolean;
+  team: "my" | "opponent";
+  score: number;
 }) {
+  /**
+   * My Team:
+   * + = Hearts
+   * - = Spades
+   *
+   * Opponent:
+   * + = Diamonds
+   * - = Clubs
+   */
+  const positiveSuit: TnSuit =
+    team === "my" ? "HEARTS" : "DIAMONDS";
+
+  const negativeSuit: TnSuit =
+    team === "my" ? "SPADES" : "CLUBS";
+
+  const absoluteScore = Math.min(6, Math.abs(score));
+
+  /**
+   * At score 0, default to positive card,
+   * but everything is completely covered.
+   */
+  const activeSuit =
+    score < 0 ? negativeSuit : positiveSuit;
+
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
-        team === "A" ? "bg-gold/15 text-gold" : "bg-violet-400/15 text-violet-300"
-      } ${mine ? "ring-1 ring-gold/60" : ""}`}
+    <div
+      className="relative w-12 h-16 sm:w-14 sm:h-20 shrink-0 pointer-events-none"
     >
-      {label}
-    </span>
+      {/* ONE underlying 6 score card */}
+      <SixScoreCard
+        suit={activeSuit}
+        score={absoluteScore}
+      />
+
+      {/* ONE moving cover card */}
+      <div
+        className="absolute inset-0 z-10 rounded-xl
+          transition-transform duration-700 ease-out"
+        style={{
+          transform:
+            scoreCoverPositions[absoluteScore],
+        }}
+      >
+        <PlayingCard
+          faceDown
+          size="sm"
+          className="!w-full !h-full m-0 shadow-none"
+        />
+      </div>
+    </div>
   );
 }

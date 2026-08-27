@@ -3,8 +3,9 @@
 import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
-import { ActionPills, BiddingPanel, HandFan, TurnStatus } from "./panels";
+import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal } from "./modals";
+import { PhysicalScoreBoard } from "./ScoreCard";
 
 
 /**
@@ -97,6 +98,11 @@ export function TwentyNineView() {
           <div className="h-[72%] w-[86%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(122,74,34,0.20),transparent_70%)]" />
         </div>
 
+        {/* Live Round Progress Tracker — Outside the table */}
+        <div className="absolute left-[2%] top-[14%] sm:left-[3%] sm:top-[14%] z-20 pointer-events-none opacity-80 transition-opacity hover:opacity-100 hidden sm:block">
+          <LiveRoundProgress state={tnState} />
+        </div>
+
         <section className="relative aspect-[16/9] w-full max-w-[70rem] rounded-[50%] p-4 rail-surface">
           <div className="relative h-full w-full overflow-hidden rounded-[50%] felt-surface gold-ring">
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
@@ -107,6 +113,14 @@ export function TwentyNineView() {
             )}
             <div className="absolute left-[80%] top-[47%] z-20 -translate-x-1/2 -translate-y-1/2">
               <TrumpBanner state={tnState} />
+            </div>
+
+            {/* Scoreboards */}
+            <div className="absolute left-[28%] top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
+              <PhysicalScoreBoard team="my" score={tnState.matchScore[myTeam ?? "A"]} />
+            </div>
+            <div className="absolute left-[68%] top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
+              <PhysicalScoreBoard team="opponent" score={tnState.matchScore[myTeam === "A" ? "B" : "A"]} />
             </div>
           </div>
 

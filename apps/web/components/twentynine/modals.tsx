@@ -68,39 +68,7 @@ export function TrumpPickerModal() {
 }
 
 export function RoundBanner() {
-  const { lastTnRound, me } = useGame();
-  if (!lastTnRound) return null;
-  const mySeat = me?.seatIndex ?? -1;
-  const myTeam = (mySeat % 2 === 0 ? "A" : "B") as "A" | "B";
-  const iWon = lastTnRound.winnerTeam === myTeam;
-
-  return (
-    <div className="fixed inset-x-0 top-[16%] z-40 flex justify-center px-4">
-      <div className="glass w-full max-w-md rounded-3xl p-5 text-center shadow-panel animate-riseFade">
-        <p className={`text-xl font-black tracking-tight ${iWon ? "text-emerald-300" : "text-crimson"}`}>
-          {iWon ? "Your team won the round!" : "Other team won the round"}
-        </p>
-        <p className="mt-1.5 text-xs text-white/60">
-          bid <b className="tabnum text-gold">{lastTnRound.bid}</b> · needed{" "}
-          <b className="tabnum text-white/85">{lastTnRound.requirement}</b>
-          {lastTnRound.marriageTeam && (
-            <>
-              {" "}
-              · marriage{" "}
-              <b className={lastTnRound.marriageTeam === "A" ? "text-gold" : "text-violet-300"}>
-                {lastTnRound.marriageTeam === myTeam ? "(our team)" : "(their team)"}
-              </b>
-            </>
-          )}
-        </p>
-        <p className="mt-2 tabnum text-sm font-bold text-white/80">
-          A {lastTnRound.captured.A} — {lastTnRound.captured.B} B
-          <span className="mx-2 text-white/25">·</span>
-          score {lastTnRound.matchScoreAfter.A}–{lastTnRound.matchScoreAfter.B}
-        </p>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export function MatchOverBanner() {
