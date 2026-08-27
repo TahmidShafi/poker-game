@@ -23,6 +23,7 @@ import {
   lowestLegalCard,
   playCard,
   resolveWinner,
+  respondSingleHand,
   startHand,
   toPublicTwentyNineState,
   TwentyNineState,
@@ -359,6 +360,12 @@ export class TwentyNineGameManager implements RoomLike {
     });
   }
 
+  game29SingleHandDecision(socketId: string, declare: boolean): void {
+    this.move(socketId, (seatIndex) => {
+      respondSingleHand(this.match, seatIndex, declare);
+    });
+  }
+
   game29PlayCard(socketId: string, card: TnCard): void {
     this.move(
       socketId,
@@ -436,9 +443,8 @@ export class TwentyNineGameManager implements RoomLike {
     actorSeatIndex: number,
     played: TnCard
   ): void {
-    // Completed = the snapshot held the first three plays and the trick has
-    // since been cleared (works for tricks 1-7 AND the final 8th).
-    if (!(snap.trick.length === 3 && this.match.currentTrick.length === 0)) return;
+    const expectedSnapLength = this.match.isSingleHand ? 2 : 3;
+    if (!(snap.trick.length === expectedSnapLength && this.match.currentTrick.length === 0)) return;
     const plays = [...snap.trick, { seatIndex: actorSeatIndex, card: played }];
     this.emitTrickResolved(plays, snap.trumpRevealed, snap.trickNumber);
   }
@@ -448,11 +454,20 @@ export class TwentyNineGameManager implements RoomLike {
    * round/match completion. Used by BOTH live moves and offline fallbacks.
    */
   private emitDerivedEvents(snap: MoveSnapshot, actorSeatIndex: number): void {
-    if (!snap.trumpRevealed && this.match.trumpRevealed && this.match.trumpSuit) {
-      this.io.to(this.socketRoom()).emit("TN_TRUMP_REVEALED", {
-        suit: this.match.trumpSuit,
-        revealedBySeatIndex: actorSeatIndex,
-      });
+    if (!snap.trumpRevealed && this.match.trumpRevealed) {
+      if (this.match.trumpSuit) {
+        this.io.to(this.socketRoom()).emit("TN_TRUMP_REVEALED", {
+          suit: this.match.trumpSuit,
+          revealedBySeatIndex: actorSeatIndex,
+        });
+      }
+      // If 7th card was locked, sync the bidder's restored hand snapshot
+      if (this.match.trumpStyle === "SEVENTH_CARD" && this.match.bidderSeatIndex !== null) {
+        const bidderRec = [...this.players.values()].find((r) => r.seatIndex === this.match.bidderSeatIndex);
+        if (bidderRec) {
+          this.sendPrivateSnapshot(bidderRec);
+        }
+      }
     }
     const nowPhase = this.match.phase;
     const finished =
@@ -486,13 +501,14 @@ export class TwentyNineGameManager implements RoomLike {
     trumpWasRevealed: boolean,
     trickNumberThatJustEnded: number
   ): void {
-    if (plays.length !== 4) return;
+    const requiredPlays = this.match.isSingleHand ? 3 : 4;
+    if (plays.length !== requiredPlays) return;
     const ledSuit = plays[0]!.card.suit;
     const winner = resolveWinner(plays, ledSuit, {
       jokerMode: this.match.trumpStyle === "JOKER",
-      trumpSuit: this.match.trumpSuit,
+      trumpSuit: this.match.isSingleHand ? null : this.match.trumpSuit,
       // Resolution used the reveal state AT PLAY TIME of the final card.
-      trumpRevealed: trumpWasRevealed,
+      trumpRevealed: this.match.isSingleHand ? false : trumpWasRevealed,
     });
     let points = plays.reduce((sum, p) => sum + tnCardPoints(p.card), 0);
     if (trickNumberThatJustEnded === 8) points += 1; // last-trick bonus
@@ -529,10 +545,22 @@ export class TwentyNineGameManager implements RoomLike {
       }
       if (seat.batch2.length === 4 && !sent.has(`${rec.seatIndex}:2`)) {
         sent.add(`${rec.seatIndex}:2`);
+        const isBidderSeventhLocked =
+          rec.seatIndex === this.match.bidderSeatIndex &&
+          this.match.trumpStyle === "SEVENTH_CARD" &&
+          !this.match.trumpRevealed &&
+          this.match.indicatorCard;
+
+        const cardsToSend = isBidderSeventhLocked
+          ? seat.batch2.filter(
+              (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
+            )
+          : seat.batch2;
+
         this.emitToPlayer(rec, "YOUR_TN_HAND", {
           handNumber: round,
           batch: 2,
-          cards: seat.batch2.map((c) => ({ ...c })),
+          cards: cardsToSend.map((c) => ({ ...c })),
         });
       }
     }
@@ -677,7 +705,7 @@ export class TwentyNineGameManager implements RoomLike {
     const phase = this.match.phase;
     // TRUMP_SETUP is included: a disconnected BID WINNER must never deadlock
     // the room (nobody else may act in this phase and no other timer runs).
-    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") return;
     const acting = this.match.actingSeatIndex;
     if (acting === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
@@ -695,7 +723,7 @@ export class TwentyNineGameManager implements RoomLike {
   /**
    * Auto-acts for a disconnected player: bidding -> PASS, trump setup ->
    * dominant suit of their own first batch (server-side, leaks nothing),
-   * card play -> lowest legal card.
+   * single hand -> skip, card play -> lowest legal card.
    */
   private fireOfflineFallback(): void {
     if (this.destroyed) return;
@@ -703,7 +731,7 @@ export class TwentyNineGameManager implements RoomLike {
     const acting = this.match.actingSeatIndex;
     if (
       acting === null ||
-      (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING")
+      (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING")
     ) {
       return;
     }
@@ -717,6 +745,8 @@ export class TwentyNineGameManager implements RoomLike {
       } else if (phase === "TRUMP_SETUP") {
         const seat = this.match.seats[acting];
         declareTrumpPlan(this.match, acting, dominantSuit(seat?.batch1 ?? []));
+      } else if (phase === "SINGLE_HAND_DECISION") {
+        respondSingleHand(this.match, acting, false);
       } else {
         const card = lowestLegalCard(this.match, acting);
         if (!card) throw new Error("no legal card for offline fallback");
@@ -815,18 +845,21 @@ export class TwentyNineGameManager implements RoomLike {
     this.clearBotTimer();
     if (this.destroyed) return;
     const phase = this.match.phase;
-    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") return;
     const acting = this.match.actingSeatIndex;
     if (acting === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
     if (!rec?.isBot) return; // humans drive themselves; empty seats use offline fallback
     // Human-like think delay, deterministic-ish per round/seat.
-    let delay = 650 + ((this.match.roundNumber * 37 + acting * 13) % 500);
-    
+    let delay =
+      process.env.NODE_ENV === "test"
+        ? 80 + ((this.match.roundNumber * 37 + acting * 13) % 100)
+        : 650 + ((this.match.roundNumber * 37 + acting * 13) % 500);
+
     // Give the frontend time to play the trick resolution sweep animation
     // (or initial card deal) before the bot throws the first card of a trick.
     if (phase === "PLAYING" && this.match.currentTrick.length === 0) {
-      delay += 2500;
+      delay += process.env.NODE_ENV === "test" ? 50 : 2500;
     }
 
     this.botTimer = setTimeout(() => {
@@ -840,7 +873,7 @@ export class TwentyNineGameManager implements RoomLike {
   private performBotMove(seatIndex: number): void {
     if (this.destroyed) return;
     const phase = this.match.phase;
-    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "PLAYING") return;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") return;
     if (this.match.actingSeatIndex !== seatIndex) return; // stale tick
     try {
       const snap = Snapshot.of(this.match);
@@ -852,6 +885,8 @@ export class TwentyNineGameManager implements RoomLike {
         else applyBid(this.match, seatIndex); // pass
       } else if (phase === "TRUMP_SETUP") {
         declareTrumpPlan(this.match, seatIndex, chooseTrumpStyle(this.match, seatIndex));
+      } else if (phase === "SINGLE_HAND_DECISION") {
+        respondSingleHand(this.match, seatIndex, false);
       } else {
         const d = decidePlay(this.match, seatIndex);
         if (!d) return;

@@ -106,6 +106,8 @@ export interface TnSeatView {
   status: TnSeatStatus;
   /** Public knowledge in trick-taking: everyone sees played cards, so remaining card count is derivable/public. */
   cardsRemaining: number;
+  /** True when this seat is sitting out (e.g. partner of Single Hand player). */
+  isInactive?: boolean;
 }
 
 // ---- Phases -------------------------------------------------------------------
@@ -122,6 +124,7 @@ export enum TnPhase {
   BIDDING = "BIDDING",
   TRUMP_SETUP = "TRUMP_SETUP", // bid winner chooses style (+suit when SUIT)
   DEALING_BATCH_2 = "DEALING_BATCH_2",
+  SINGLE_HAND_DECISION = "SINGLE_HAND_DECISION", // anti-clockwise decision for Single Hand
   PLAYING = "PLAYING",
   ROUND_SCORED = "ROUND_SCORED", // round summary on screen before next deal
   MATCH_OVER = "MATCH_OVER",
@@ -179,9 +182,11 @@ export interface TnRoundSummary {
   /** Team that declared a valid marriage this round, if any. */
   marriageTeam: TnTeam | null;
   matchScoreAfter: TnTeamTotals;
-  trumpStyle: TnTrumpStyle;
+  trumpStyle: TnTrumpStyle | null;
   scoreAwarded: number;
-  endReason: "NORMAL" | "EARLY_BID_REACHED" | "EARLY_DEFEAT" | "FULL_BOARD";
+  endReason: "NORMAL" | "EARLY_BID_REACHED" | "EARLY_DEFEAT" | "FULL_BOARD" | "SINGLE_HAND_WIN" | "SINGLE_HAND_FAIL";
+  isSingleHand?: boolean;
+  singleHandSeatIndex?: number | null;
 }
 
 // ---- Turn timing (offline fallback only) ----------------------------------------
@@ -205,7 +210,9 @@ export type TnMoveKind =
   | "TRUMP_DECLARED"
   | "CALL_TRUMP"
   | "DECLARE_MARRIAGE"
-  | "PLAY";
+  | "PLAY"
+  | "DECLARE_SINGLE_HAND"
+  | "SKIP_SINGLE_HAND";
 
 export interface TnLastMove {
   seatIndex: number;
@@ -253,6 +260,10 @@ export interface PublicTwentyNineState {
   actingSeatIndex: number | null;
   offlineFallback: TnOfflineFallback | null;
   lastMove: TnLastMove | null;
+  // ---- Single Hand Mode ----
+  isSingleHand?: boolean;
+  singleHandSeatIndex?: number | null;
+  inactiveSeatIndex?: number | null;
 }
 
 // ---- Private payloads (single-socket) ---------------------------------------------
@@ -306,4 +317,8 @@ export interface TnDeclareMarriagePayload {
 
 export interface TnPlayCardPayload {
   card: TnCard;
+}
+
+export interface TnSingleHandDecisionPayload {
+  declare: boolean;
 }

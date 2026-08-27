@@ -37,6 +37,14 @@ export function tnNextSeat(seatIndex: number): number {
   return (seatIndex + 3) % 4;
 }
 
+export function tnNextActiveSeat(seatIndex: number, inactiveSeatIndex?: number | null): number {
+  let next = tnNextSeat(seatIndex);
+  if (inactiveSeatIndex !== null && inactiveSeatIndex !== undefined && next === inactiveSeatIndex) {
+    next = tnNextSeat(next);
+  }
+  return next;
+}
+
 export function tnSeatsFrom(startSeatIndex: number): number[] {
   return [startSeatIndex, tnNextSeat(startSeatIndex), tnNextSeat(tnNextSeat(startSeatIndex)), tnNextSeat(tnNextSeat(tnNextSeat(startSeatIndex)))];
 }

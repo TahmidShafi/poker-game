@@ -98,11 +98,9 @@ export function PhysicalScoreBoard({
    * + = Diamonds
    * - = Clubs
    */
-  const positiveSuit: TnSuit =
-    team === "my" ? "HEARTS" : "DIAMONDS";
-
-  const negativeSuit: TnSuit =
-    team === "my" ? "SPADES" : "CLUBS";
+  const isMyTeam = team === "my";
+  const positiveSuit: TnSuit = isMyTeam ? "HEARTS" : "DIAMONDS";
+  const negativeSuit: TnSuit = isMyTeam ? "SPADES" : "CLUBS";
 
   const absoluteScore = Math.min(6, Math.abs(score));
 
@@ -110,34 +108,53 @@ export function PhysicalScoreBoard({
    * At score 0, default to positive card,
    * but everything is completely covered.
    */
-  const activeSuit =
-    score < 0 ? negativeSuit : positiveSuit;
+  const activeSuit = score < 0 ? negativeSuit : positiveSuit;
 
   return (
-    <div
-      className="relative w-7 h-10 sm:w-14 sm:h-20 shrink-0 pointer-events-none"
-    >
-      {/* ONE underlying 6 score card */}
-      <SixScoreCard
-        suit={activeSuit}
-        score={absoluteScore}
-      />
-
-      {/* ONE moving cover card with luxury art */}
+    <div className="flex flex-col items-center gap-0.5 sm:gap-1.5 pointer-events-none select-none">
+      {/* Team Label Badge */}
       <div
-        className="absolute inset-0 z-10 rounded-md sm:rounded-xl
-          transition-transform duration-700 ease-out shadow-card overflow-hidden ring-1 ring-black/20"
-        style={{
-          transform:
-            scoreCoverPositions[absoluteScore],
-        }}
+        className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 sm:px-2.5 sm:py-0.5 backdrop-blur-md border shadow-md ${
+          isMyTeam
+            ? "bg-emerald-950/85 border-emerald-500/40 text-emerald-300 ring-1 ring-emerald-500/20"
+            : "bg-rose-950/85 border-rose-500/40 text-rose-300 ring-1 ring-rose-500/20"
+        }`}
       >
-        <div
-          className="w-full h-full rounded-md sm:rounded-xl bg-cover bg-center border border-amber-300/30"
-          style={{
-            backgroundImage: "url('/cards/cover_card_back.jpg')",
-          }}
+        <span
+          className={`h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ${
+            isMyTeam
+              ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+              : "bg-rose-400 shadow-[0_0_6px_#fb7185]"
+          }`}
         />
+        <span className="text-[7.5px] sm:text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
+          {isMyTeam ? "My Team" : "Opponent"}
+        </span>
+      </div>
+
+      {/* ONE underlying 6 score card + moving cover card */}
+      <div className="relative w-7 h-10 sm:w-14 sm:h-20 shrink-0">
+        {/* ONE underlying 6 score card */}
+        <SixScoreCard
+          suit={activeSuit}
+          score={absoluteScore}
+        />
+
+        {/* ONE moving cover card with luxury art */}
+        <div
+          className="absolute inset-0 z-10 rounded-md sm:rounded-xl
+            transition-transform duration-700 ease-out shadow-card overflow-hidden ring-1 ring-black/20"
+          style={{
+            transform: scoreCoverPositions[absoluteScore],
+          }}
+        >
+          <div
+            className="w-full h-full rounded-md sm:rounded-xl bg-cover bg-center border border-amber-300/30"
+            style={{
+              backgroundImage: "url('/cards/cover_card_back.jpg')",
+            }}
+          />
+        </div>
       </div>
     </div>
   );

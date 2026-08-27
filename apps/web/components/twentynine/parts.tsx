@@ -16,18 +16,19 @@ export function tnTeamRing(team: "A" | "B"): string {
 
 /** Letter disc / avatar image, shared style with the poker lobby. */
 function AvatarChip({ username, avatar }: { username: string | null; avatar?: number }) {
+  const sizeClass = "h-9 w-9 sm:h-12 sm:w-12";
   if (avatar && username) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={`/avatars/avatar-${avatar}.png`}
         alt=""
-        className="h-8 w-8 rounded-full object-cover ring-1 ring-white/20"
+        className={`${sizeClass} rounded-full object-cover`}
       />
     );
   }
   return (
-    <span className="grid h-8 w-8 place-items-center rounded-full bg-black/50 text-xs font-black text-white/70 ring-1 ring-white/15">
+    <span className={`grid ${sizeClass} place-items-center rounded-full bg-slate-900 text-xs sm:text-sm font-black text-white/85`}>
       {(username ?? "?").slice(0, 1).toUpperCase()}
     </span>
   );
@@ -60,48 +61,38 @@ export function SeatCard({
 }) {
   const empty = seat.username === null;
   const isTeammate = myTeam && seat.team === myTeam && !isMe;
-  const isOpponent = myTeam && seat.team !== myTeam;
+
+  const teamRing = seat.team === "A" 
+    ? "ring-2 ring-amber-400/80 shadow-[0_0_12px_rgba(251,191,36,0.35)]" 
+    : "ring-2 ring-violet-400/80 shadow-[0_0_12px_rgba(167,139,250,0.35)]";
 
   return (
-    <div
-      className={`relative flex min-w-[6.5rem] sm:min-w-[9.5rem] max-w-[8.2rem] sm:max-w-[11rem] items-center gap-1.5 sm:gap-2 rounded-xl sm:rounded-2xl px-2 py-1 sm:px-3 sm:py-2 ring-1 backdrop-blur-md transition-all select-none ${
-        empty
-          ? "bg-black/20 ring-white/10 opacity-40"
-          : "bg-black/75 shadow-panel"
-      } ${
-        isActing
-          ? "ring-2 ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.4)] scale-[1.03] z-20"
-          : "ring-white/12 hover:ring-white/25 z-10"
-      } ${seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""}`}
-    >
-      {/* Team color accent bar */}
-      {!empty && (
-        <div
-          className={`absolute left-0 inset-y-1.5 sm:inset-y-2 w-1 rounded-r-full ${
-            seat.team === "A" ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]"
-          }`}
-        />
-      )}
-
-      {/* Dealer chip */}
-      {isDealer && (
-        <span className="absolute -left-1.5 -top-1.5 sm:-left-2 sm:-top-2 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-[8px] sm:text-[10px] font-black text-slate-950 shadow-md ring-1 ring-white/40">
-          D
-        </span>
-      )}
-
-      {empty ? (
-        <>
-          <span className="grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-full bg-black/40 text-xs font-black text-white/30 ring-1 ring-white/10">
-            +
+    <div className="flex flex-col items-center select-none transition-all">
+      {/* Circular Avatar Container */}
+      <div
+        className={`relative grid place-items-center rounded-full p-0.5 sm:p-1 transition-all ${
+          empty
+            ? "h-10 w-10 sm:h-13 sm:w-13 bg-black/30 border border-dashed border-white/20 opacity-40"
+            : "bg-slate-950/90 backdrop-blur-md shadow-xl"
+        } ${!empty ? teamRing : ""} ${
+          isActing
+            ? "ring-[3px] ring-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.75)] scale-110 z-20"
+            : "hover:scale-105 z-10"
+        } ${seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""} ${
+          seat.isInactive ? "opacity-40 grayscale" : ""
+        }`}
+      >
+        {/* Dealer chip */}
+        {isDealer && (
+          <span className="absolute -top-1 -right-1 z-30 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-[8px] sm:text-[9px] font-black text-slate-950 shadow-md ring-1 ring-white/50">
+            D
           </span>
-          <div className="leading-tight">
-            <p className="text-[9px] sm:text-[10px] font-bold text-white/30 tracking-wide">OPEN SEAT</p>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="relative shrink-0">
+        )}
+
+        {empty ? (
+          <span className="text-xs font-black text-white/40">+</span>
+        ) : (
+          <div className="relative rounded-full overflow-hidden">
             <AvatarChip username={seat.username} avatar={seat.avatar} />
             {isActing && (
               <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
@@ -110,35 +101,48 @@ export function SeatCard({
               </span>
             )}
           </div>
+        )}
+      </div>
 
-          <div className="min-w-0 flex-1 leading-tight">
-            <div className="flex items-center gap-1">
-              <p className="truncate text-[10px] sm:text-[11px] font-bold text-white/90">
-                {seat.username}
-              </p>
-              {isMe && (
-                <span className="shrink-0 rounded bg-white/15 px-1 py-0.2 text-[7.5px] sm:text-[8px] font-black text-white/80 uppercase">
-                  YOU
-                </span>
-              )}
-              {isTeammate && (
-                <span className="shrink-0 rounded bg-amber-400/20 px-1 py-0.2 text-[7.5px] sm:text-[8px] font-bold text-amber-300 uppercase">
-                  PARTNER
-                </span>
-              )}
-            </div>
-
-            {(seat.status === "DISCONNECTED" || isActing) && (
-              <div className="mt-0.5 text-[8.5px] sm:text-[9px]">
-                {seat.status === "DISCONNECTED" ? (
-                  <span className="font-bold text-crimson">offline</span>
-                ) : (
-                  <span className="font-bold text-amber-300 animate-pulse">Thinking...</span>
-                )}
-              </div>
-            )}
+      {/* Floating Name Tag Pill */}
+      {!empty && (
+        <div className="mt-1 flex flex-col items-center">
+          <div
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.2rem] sm:max-w-[6.8rem] truncate ${
+              seat.isInactive
+                ? "bg-black/60 border-white/10 text-white/40"
+                : isActing
+                ? "bg-amber-500/25 border-amber-400/70 text-amber-300 ring-1 ring-amber-400/40"
+                : isMe
+                ? "bg-white/20 border-white/20 text-white font-black"
+                : isTeammate
+                ? "bg-amber-400/15 border-amber-400/30 text-amber-200 font-bold"
+                : "bg-black/80 border-white/10 text-white/90 font-medium"
+            }`}
+          >
+            <p className="truncate text-[8.5px] sm:text-[10px] text-center w-full">
+              {isMe ? "YOU" : isTeammate ? "PARTNER" : seat.username}
+            </p>
           </div>
-        </>
+          {seat.isInactive && (
+            <span className="text-[7.5px] font-bold uppercase tracking-wider text-white/40 mt-0.5">
+              Sitting Out
+            </span>
+          )}
+          {!seat.isInactive && seat.status === "DISCONNECTED" && (
+            <span className="text-[7.5px] font-black uppercase text-crimson mt-0.5">offline</span>
+          )}
+          {!seat.isInactive && isActing && (
+            <span className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-amber-300 animate-pulse mt-0.5">
+              Thinking
+            </span>
+          )}
+        </div>
+      )}
+      {empty && (
+        <span className="mt-1 text-[8px] sm:text-[9px] font-bold text-white/30 tracking-wider uppercase">
+          Open
+        </span>
       )}
     </div>
   );
@@ -286,8 +290,16 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
   const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
   
   let cardContent: React.ReactNode;
-  
-  if (state.trump.state === "NOT_SET") {
+
+  if (state.isSingleHand) {
+    cardContent = (
+      <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-amber-500/20 to-amber-700/30 rounded-lg shadow-card border border-amber-400/40 text-center p-1">
+        <span className="text-xl">👑</span>
+        <span className="text-[6.5px] font-black uppercase tracking-wider text-amber-300 mt-0.5">Solo</span>
+        <span className="text-[5.5px] font-bold text-white/50">No Trump</span>
+      </div>
+    );
+  } else if (state.trump.state === "NOT_SET") {
     cardContent = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <span className="text-[8px] font-bold uppercase text-white/30">trump</span>
@@ -299,9 +311,6 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
       cardContent = (
         <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden bg-slate-950 ring-2 ring-gold/70 shadow-card">
           <PlayingCard card={tnBidderPrivate.indicatorCard} size="sm" />
-          <div className="absolute top-0 inset-x-0 bg-black/90 py-0.5 text-center">
-            <span className="text-[7px] font-black uppercase tracking-wider text-gold">7th (You)</span>
-          </div>
         </div>
       );
     } else if (isBidder && tnBidderPrivate?.kind === "SUIT_DECLARED") {
@@ -309,8 +318,7 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
       const color = suit === "HEARTS" || suit === "DIAMONDS" ? "text-crimson" : "text-ink";
       cardContent = (
         <div className="relative flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card ring-2 ring-gold/70">
-          <span className="text-[7px] font-black uppercase tracking-widest text-slate-800 absolute top-1">Trump (You)</span>
-          <span className={`text-3xl leading-none ${color} mt-2`}>
+          <span className={`text-3xl leading-none ${color}`}>
             {TN_SUIT_SYMBOLS[suit]}
           </span>
         </div>
@@ -334,7 +342,11 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
     );
   } else if (state.trump.state === "REVEALED") {
     if (state.trumpStyle === "SEVENTH_CARD" && 'card' in state.trump && state.trump.card) {
-      cardContent = <PlayingCard card={state.trump.card} size="sm" />;
+      cardContent = (
+        <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden ring-2 ring-gold/50 shadow-card">
+          <PlayingCard card={state.trump.card} size="sm" />
+        </div>
+      );
     } else {
       // Suit only
       const color = (state.trump.suit === "HEARTS" || state.trump.suit === "DIAMONDS") ? "text-crimson" : "text-ink";

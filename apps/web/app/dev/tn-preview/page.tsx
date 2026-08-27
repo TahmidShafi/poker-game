@@ -160,6 +160,7 @@ export default function TnPreviewPage() {
       tnCallTrump: noop,
       tnDeclareMarriage: noop,
       tnPlayCard: noop,
+      tnSingleHandDecision: noop,
     };
   }, [state]);
 

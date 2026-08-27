@@ -212,7 +212,10 @@ async function simpleAuctionToTrumpSetup(seats: Seat[], bid = 16): Promise<numbe
   const deadline = Date.now() + 20000;
   for (;;) {
     const st = latestOf(seats[0]!.log);
-    if (!st) throw new Error("simpleAuction: no state yet");
+    if (!st || st.phase === "WAITING_FOR_PLAYERS") {
+      await sleep(40);
+      continue;
+    }
     if (st.phase === "TRUMP_SETUP") {
       const bidder = st.bids?.bidderSeatIndex;
       if (bidder == null) throw new Error("simpleAuction: no bidder recorded");
@@ -240,6 +243,33 @@ async function simpleAuctionToTrumpSetup(seats: Seat[], bid = 16): Promise<numbe
       (s2) => s2.phase !== "BIDDING" || s2.bids === null || s2.bids.history.length > histLen,
       3000
     ).catch(() => null);
+  }
+}
+
+async function skipSingleHandForAll(
+  seats: { seatIndex: number; socket: Socket; log?: LogEntry[] }[]
+): Promise<void> {
+  const connected = seats.find((s) => s.socket.connected) ?? seats[0];
+  if (!connected || !connected.log) return;
+
+  await waitFor(
+    null,
+    () => latestOf(connected.log!),
+    (st) => st.phase === "SINGLE_HAND_DECISION" || st.phase === "PLAYING",
+    8000
+  ).catch(() => null);
+
+  for (let guard = 0; guard < 25; guard++) {
+    const st = latestOf(connected.log!);
+    if (!st || st.phase !== "SINGLE_HAND_DECISION") break;
+    const turn = st.actingSeatIndex;
+    if (turn !== null) {
+      const s = seats.find((x) => x.seatIndex === turn);
+      if (s && s.socket.connected) {
+        s.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: false });
+      }
+    }
+    await sleep(80);
   }
 }
 
@@ -323,11 +353,12 @@ async function playFullHand(
       const bids = st.bids!;
       const H = bids.highestBid!;
       let v: number | null;
-      if (teamOf(turn) === teamOf(bids.bidderSeatIndex!)) {
-        v = Math.max(16, H + 1);
+      if (bids.bidderSeatIndex === turn && bids.challengerSeatIndex !== null && bids.challengerSeatIndex !== turn) {
+        v = H; // Defender Stay
+      } else if (bids.bidderSeatIndex !== null && bids.bidderSeatIndex % 2 === turn % 2) {
+        v = 99; // Partner holds highest bid -> pass
       } else {
-        const priorMatches = bids.history.filter((h) => h.bid === H).length;
-        v = priorMatches === 1 ? H : H + 1;
+        v = Math.max(16, H + 1);
       }
       if (v > 26) {
         // freshness gate before conceding a pass too
@@ -375,7 +406,21 @@ async function playFullHand(
     throw new Error("hand was redealt - caller should retry");
   }
 
-    // --- Tricks ---
+  // --- Single Hand Decision ---
+  for (let shGuard = 0; shGuard < 30; shGuard++) {
+    const current = latestOf(anyLog());
+    if (!current || current.phase !== "SINGLE_HAND_DECISION") break;
+    const acting = current.actingSeatIndex;
+    if (acting !== null) {
+      const h = humans.find((x) => x.seat.seatIndex === acting);
+      if (h) {
+        h.seat.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: false });
+      }
+    }
+    await sleep(60);
+  }
+
+  // --- Tricks ---
     let safety = 0;
     const playDeadline = Date.now() + 120000;
     for (;;) {
@@ -583,7 +628,7 @@ describe("twenty-nine: multiplayer integration", () => {
         for (const e of s.log) {
           if (e.ev === "TN_STATE" && (e.data as PublicTwentyNineState).phase !== "WAITING_FOR_PLAYERS") {
             const tv = (e.data as PublicTwentyNineState).trump.state;
-            expect(["NOT_SET", "JOKER_MODE"]).toContain(tv);
+            expect(["NOT_SET", "HIDDEN", "JOKER_MODE"]).toContain(tv);
           }
         }
       }
@@ -709,7 +754,47 @@ describe("twenty-nine: multiplayer integration", () => {
       const tricks = seats[0]!.log.filter((e) => e.ev === "TN_TRICK_RESOLVED");
       expect(tricks).toHaveLength(8);
     },
-    90000
+    120000
+  );
+
+  it(
+    "SINGLE HAND mode: declaration plays solo, partner sits out with isInactive flag",
+    async () => {
+      const { seats } = await makeTnRoom(false);
+      const humans = seats.map((seat) => ({ seat, spent: new Set<string>() }));
+      
+      // Simple auction to TRUMP_SETUP
+      const bidder = await simpleAuctionToTrumpSetup(seats);
+      const bidderHuman = humans.find((h) => h.seat.seatIndex === bidder)!;
+      bidderHuman.seat.socket.emit("GAME29_DECLARE_TRUMP", { choice: "HEARTS" });
+
+      // Wait for SINGLE_HAND_DECISION
+      const shState = await waitFor(
+        null,
+        () => latestOf(seats[0]!.log),
+        (st) => st.phase === "SINGLE_HAND_DECISION",
+        5000
+      );
+      expect(shState.phase).toBe("SINGLE_HAND_DECISION");
+
+      // Acting seat declares single hand
+      const actingSeat = shState.actingSeatIndex!;
+      const declaringHuman = humans.find((h) => h.seat.seatIndex === actingSeat)!;
+      declaringHuman.seat.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: true });
+
+      // Wait for PLAYING phase with isSingleHand: true
+      const playState = await waitFor(
+        null,
+        () => latestOf(seats[0]!.log),
+        (st) => st.phase === "PLAYING" && st.isSingleHand === true,
+        5000
+      );
+      expect(playState.isSingleHand).toBe(true);
+      expect(playState.singleHandSeatIndex).toBe(actingSeat);
+      const inactivePartner = (actingSeat + 2) % 4;
+      expect(playState.seats[inactivePartner]!.isInactive).toBe(true);
+    },
+    30000
   );
 });
 
@@ -749,6 +834,7 @@ describe("twenty-nine: second deal & core-flow regression", () => {
 
       // Bid winner declares the dominant suit of their own first batch.
       bidderSeat.socket.emit("GAME29_DECLARE_TRUMP", { choice: dominantSuit(batchCardsOf(bidderSeat, 1)) });
+      await skipSingleHandForAll(seats);
 
       await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "phase PLAYING");
       await pollUntil(() => seats.every((s) => batchCardsOf(s, 2).length === 4), 8000, "batch 2 = 4 per seat");
@@ -803,6 +889,7 @@ describe("twenty-nine: second deal & core-flow regression", () => {
     expect(latestOf(seats[0]!.log)!.phase).toBe("TRUMP_SETUP");
 
     seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
     await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing after valid declare");
   }, 20000);
 
@@ -820,11 +907,13 @@ describe("twenty-nine: second deal & core-flow regression", () => {
       await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
       const bidder = await simpleAuctionToTrumpSetup(seats);
       const bidderSeat = seats.find((s) => s.seatIndex === bidder)!;
+      const surviving = seats.find((s) => s.seatIndex !== bidder)!;
 
       bidderSeat.socket.disconnect();
-      await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 8000, "fallback reached PLAYING");
+      await skipSingleHandForAll(seats.filter((s) => s.seatIndex !== bidder));
+      await pollUntil(() => latestOf(surviving.log)!.phase === "PLAYING", 12000, "fallback reached PLAYING");
 
-      const st = latestOf(seats[0]!.log)!;
+      const st = latestOf(surviving.log)!;
       expect(st.trumpStyle).toBe("SUIT"); // dominant-suit auto-declare
       expect(st.trump.state).toBe("HIDDEN"); // the fallback never reveals trump
       for (const s of seats) {
@@ -843,6 +932,7 @@ describe("twenty-nine: race & reconnect stability", () => {
     await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
     const bidder = await simpleAuctionToTrumpSetup(seats);
     seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
     await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
 
     const st = latestOf(seats[0]!.log)!;
@@ -853,9 +943,9 @@ describe("twenty-nine: race & reconnect stability", () => {
 
     await pollUntil(() => latestOf(seats[0]!.log)!.trick.length === 1, 4000, "trick grew by exactly one");
     await sleep(300); // let the duplicate submission settle
-  expect(leader.log.filter((e) => e.ev === "ACTION_REJECTED")).toHaveLength(1);
-  expect(latestOf(seats[0]!.log)!.trick).toHaveLength(1);
-}, 20000);
+    expect(leader.log.filter((e) => e.ev === "ACTION_REJECTED")).toHaveLength(1);
+    expect(latestOf(seats[0]!.log)!.trick).toHaveLength(1);
+  }, 20000);
 
   it("reconnect matrix: mid-bidding restore keeps seat, hand and phase", async () => {
     const { seats, code } = await makeTnRoom(false);
@@ -907,7 +997,11 @@ describe("twenty-nine: race & reconnect stability", () => {
 
     // Room is still actionable: the real bidder completes trump.
     seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
-    await pollUntil(() => latestOf(log)!.phase === "PLAYING", 6000, "playing");
+    await skipSingleHandForAll([
+      ...seats.filter((s) => s.seatIndex !== victim.seatIndex),
+      { seatIndex: victim.seatIndex, socket: re, log },
+    ]);
+    await pollUntil(() => latestOf(log)!.phase === "PLAYING", 8000, "playing");
     re.disconnect();
   }, 20000);
 
@@ -916,6 +1010,7 @@ describe("twenty-nine: race & reconnect stability", () => {
     await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
     const bidder = await simpleAuctionToTrumpSetup(seats);
     seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
     await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
 
     const leader = seats.find((s) => s.seatIndex === latestOf(seats[0]!.log)!.actingSeatIndex)!;

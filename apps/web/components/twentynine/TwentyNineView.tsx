@@ -3,10 +3,9 @@
 import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
-import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress } from "./panels";
+import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress, SingleHandPrompt } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal, SeventhCardModal } from "./modals";
 import { PhysicalScoreBoard } from "./ScoreCard";
-
 
 /**
  * Viewer-relative seat positions: the local player is ALWAYS at the bottom,
@@ -14,10 +13,10 @@ import { PhysicalScoreBoard } from "./ScoreCard";
  * on the left. rel = (seatIndex - mySeat + 4) % 4.
  */
 const REL_POS: Record<number, string> = {
-  0: "left-1/2 bottom-1.5 sm:bottom-[-20px] -translate-x-1/2", // You (South)
-  1: "left-1.5 sm:left-[-24px] top-1/2 -translate-y-1/2",       // Left Player (West)
-  2: "left-1/2 top-1.5 sm:top-[-20px] -translate-x-1/2",       // Partner (North)
-  3: "right-1.5 sm:right-[-24px] top-1/2 -translate-y-1/2",     // Right Player (East)
+  0: "left-1/2 -bottom-6 sm:-bottom-9 -translate-x-1/2 z-30", // You (South) - Outside Bottom Rail
+  1: "-left-5 sm:-left-9 top-1/2 -translate-y-1/2 z-30",       // Left Player (West) - Outside Left Rail
+  2: "left-1/2 -top-6 sm:-top-9 -translate-x-1/2 z-30",       // Partner (North) - Outside Top Rail
+  3: "-right-5 sm:-right-9 top-1/2 -translate-y-1/2 z-30",     // Right Player (East) - Outside Right Rail
 };
 
 /** Dev-only diagnostics (formula string, raw counters). Off in shipped UI. */
@@ -88,12 +87,10 @@ export function TwentyNineView() {
         <LiveRoundProgress state={tnState} />
       </div>
 
-      {/* Table — large oval/stadium, vertically centered in the remaining space.
-          While bidding, lift the oval above the dock so the bottom seat
-          is never covered by the bid controls. */}
+      {/* Table Area */}
       <main
-        className={`relative flex flex-1 items-center justify-center px-2 sm:px-4 py-2 sm:py-3 transition-[padding] ${
-          tnState.phase === "BIDDING" ? "pb-48" : ""
+        className={`relative flex flex-1 items-center justify-center px-6 sm:px-12 py-8 sm:py-12 transition-[padding] ${
+          tnState.phase === "BIDDING" ? "pb-32 sm:pb-28" : ""
         }`}
       >
         {/* ambient wood-tone glow behind the felt */}
@@ -106,7 +103,8 @@ export function TwentyNineView() {
           <LiveRoundProgress state={tnState} />
         </div>
 
-        <section className="relative aspect-[1.15/1] sm:aspect-[16/9] w-full max-w-[70rem] rounded-[2.2rem] sm:rounded-[50%] p-2 sm:p-4 rail-surface">
+        <section className="relative aspect-[1.15/1] sm:aspect-[16/9] w-full max-w-[68rem] rounded-[2.2rem] sm:rounded-[50%] p-2 sm:p-4 rail-surface">
+          {/* Inner Felt */}
           <div className="relative h-full w-full overflow-hidden rounded-[1.8rem] sm:rounded-[50%] felt-surface gold-ring">
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
             {tnState.offlineFallback && (
@@ -118,7 +116,7 @@ export function TwentyNineView() {
               <TrumpBanner state={tnState} />
             </div>
 
-            {/* Scoreboards */}
+            {/* Scoreboards inside the felt */}
             <div className="absolute left-[28%] top-[20%] sm:top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
               <PhysicalScoreBoard team="my" score={tnState.matchScore[myTeam ?? "A"]} />
             </div>
@@ -127,16 +125,14 @@ export function TwentyNineView() {
             </div>
           </div>
 
-          {/* Seats around the oval, viewer-relative */}
+          {/* Seats placed OUTSIDE the felt around the table rail */}
           {tnState.seats.map((s) => {
             const rel = seatRel(mySeat, s.seatIndex);
             const isMe = s.seatIndex === mySeat;
             return (
               <div
                 key={s.seatIndex}
-                className={`absolute ${REL_POS[rel]} flex items-center gap-1.5 ${
-                  rel === 2 ? "flex-col" : "flex-row"
-                }`}
+                className={`absolute ${REL_POS[rel]}`}
               >
                 <SeatCard
                   seat={s}
@@ -151,8 +147,7 @@ export function TwentyNineView() {
         </section>
       </main>
 
-      {/* Bid + hand live in the fixed dock so the hand fan can never cover
-          the bid controls (they used to overlap underneath it). */}
+      {/* Bid + hand live in the fixed dock */}
       <footer className="fixed inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3">
         {TN_DEBUG_UI && (
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 text-[9.5px] uppercase tracking-widest text-white/25">
@@ -174,6 +169,7 @@ export function TwentyNineView() {
         <HandFan state={tnState} />
       </footer>
 
+      <SingleHandPrompt state={tnState} />
       <TrumpPickerModal />
       <SeventhCardModal />
       <RoundBanner />

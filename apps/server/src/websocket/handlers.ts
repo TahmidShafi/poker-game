@@ -321,6 +321,15 @@ export function registerSocketHandlers(
       tn.game29DeclareMarriage(socket.id, payload.suit as TnSuit);
     });
 
+    socket.on("GAME29_SINGLE_HAND_DECISION", (payload) => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      if (typeof payload !== "object" || payload === null || typeof payload.declare !== "boolean") {
+        return tn.reject(socket.id, "malformed single-hand decision payload");
+      }
+      tn.game29SingleHandDecision(socket.id, payload.declare);
+    });
+
     socket.on("GAME29_PLAY_CARD", (payload) => {
       const tn = tnRoomOf();
       if (!tn) return;

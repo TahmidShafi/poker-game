@@ -10,6 +10,7 @@ import {
   TnDeclareMarriagePayload,
   TnDeclareTrumpPayload,
   TnPlayCardPayload,
+  TnSingleHandDecisionPayload,
   TnRoundSummary,
   TnSuit,
   TnTeam,
@@ -99,6 +100,7 @@ export interface ClientToServerEvents {
   GAME29_CALL_TRUMP: (payload: TnCallTrumpPayload) => void;
   GAME29_DECLARE_MARRIAGE: (payload: TnDeclareMarriagePayload) => void;
   GAME29_PLAY_CARD: (payload: TnPlayCardPayload) => void;
+  GAME29_SINGLE_HAND_DECISION: (payload: TnSingleHandDecisionPayload) => void;
 }
 
 /** Acknowledgement payload for CREATE_ROOM / JOIN_ROOM / RECONNECT. */

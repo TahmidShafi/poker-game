@@ -129,10 +129,9 @@ describe("joker-mode trick resolution", () => {
 });
 
 describe("resolveWinner guards", () => {
-  it("requires exactly four plays", () => {
-    const plays = [play(0, c(7, "SPADES"))];
+  it("rejects empty tricks", () => {
     expect(() =>
-      resolveWinner(plays, "SPADES", { jokerMode: false, trumpSuit: null, trumpRevealed: false })
-    ).toThrow(/expected 4 plays/);
+      resolveWinner([], "SPADES", { jokerMode: false, trumpSuit: null, trumpRevealed: false })
+    ).toThrow(/trick is empty/);
   });
 });

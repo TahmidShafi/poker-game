@@ -131,7 +131,44 @@ export function SeventhCardModal() {
 }
 
 export function RoundBanner() {
-  return null;
+  const { tnState, me } = useGame();
+  if (!tnState || tnState.phase !== "ROUND_SCORED" || !tnState.lastRoundSummary) return null;
+  const summary = tnState.lastRoundSummary;
+  const mySeat = me?.seatIndex ?? null;
+  const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
+  const iWon = myTeam !== null && summary.winnerTeam === myTeam;
+
+  let title = iWon ? "Round Won!" : "Round Lost";
+  let subtitle = `${summary.captured[summary.winnerTeam]} points captured`;
+  let pointsAwardedText = `+${summary.scoreAwarded ?? 1} Match Points`;
+
+  if (summary.endReason === "SINGLE_HAND_WIN") {
+    title = iWon ? "👑 SINGLE HAND SUCCESS!" : "👑 OPPONENT SINGLE HAND SUCCESS";
+    subtitle = "Single Hand player won all 8 tricks!";
+    pointsAwardedText = "+3 Match Points";
+  } else if (summary.endReason === "SINGLE_HAND_FAIL") {
+    title = iWon ? "🛡️ SINGLE HAND DEFEATED!" : "❌ SINGLE HAND FAILED";
+    subtitle = "Single hand attempt failed. Opponent receives +3 points.";
+    pointsAwardedText = iWon ? "+3 Match Points" : "Opponents +3 Match Points";
+  } else if (summary.endReason === "FULL_BOARD") {
+    title = "🌟 FULL BOARD!";
+    subtitle = "All 8 tricks won by bidding team!";
+    pointsAwardedText = "+2 Match Points";
+  }
+
+  return (
+    <div className="fixed inset-x-0 top-16 z-40 flex justify-center pointer-events-none px-4 animate-riseFade">
+      <div className="rounded-2xl bg-slate-950/92 px-6 py-4 border border-amber-400/40 shadow-2xl backdrop-blur-xl text-center ring-1 ring-white/10 max-w-sm w-full">
+        <h3 className={`text-lg font-black tracking-wide ${iWon ? "text-emerald-400" : "text-rose-400"}`}>
+          {title}
+        </h3>
+        <p className="text-xs text-white/70 mt-0.5 font-medium">{subtitle}</p>
+        <div className="mt-2 inline-block rounded-full bg-amber-400/20 px-3 py-1 text-[11px] font-black text-amber-300 ring-1 ring-amber-400/30">
+          {pointsAwardedText}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function MatchOverBanner() {
@@ -176,14 +213,15 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
           Twenty-Nine <span className="text-gold">rules</span>
         </h2>
         <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-white/65">
-          <li>� Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0?3?2?1?0.</li>
-          <li>� 32-card deck (7�A). Eight cards each, dealt in two batches of four.</li>
-          <li>� Bid 16�28. Raise the other team by any amount, or MATCH their value once; your own side must always go strictly higher.</li>
-          <li>� Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
-          <li>� Points: J=3, 9=2, A=1, 10=1. Last trick +1 ? always 29 total.</li>
-          <li>� Trump stays ?? HIDDEN until someone void in the led suit calls it � reveal and playing are separate actions.</li>
-          <li>� Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it � bidding team needs bid-4, defending team pushes it to bid+4.</li>
-          <li>� Bidding team scores at captured = requirement; otherwise defenders do. First team to {tnState?.roundsToWin ?? 6} round-wins takes the match.</li>
+          <li>• Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0→3→2→1→0.</li>
+          <li>• 32-card deck (7–A). Eight cards each, dealt in two batches of four.</li>
+          <li>• Bid 16–28. Raise the other team by any amount, or MATCH their value once; your own side must always go strictly higher.</li>
+          <li>• Single Hand (Solo): After 8 cards are dealt, any player can declare Single Hand in turn order. The player plays alone without trump and must win all 8 tricks (+3 match points). Losing even one trick awards +3 match points to opponents immediately.</li>
+          <li>• Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
+          <li>• Points: J=3, 9=2, A=1, 10=1. Last trick +1 → always 29 total.</li>
+          <li>• Trump stays 🔒 HIDDEN until someone void in the led suit calls it — reveal and playing are separate actions.</li>
+          <li>• Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it — bidding team needs bid-4, defending team pushes it to bid+4.</li>
+          <li>• Bidding team scores at captured &ge; requirement; otherwise defenders do. First team to {tnState?.roundsToWin ?? 6} round-wins takes the match.</li>
         </ul>
         <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
           this hand: {(tnState?.trumpStyle ?? "bidder chooses").replace("_", " ").toLowerCase()}

@@ -28,8 +28,8 @@ export function resolveWinner(
   ledSuit: TnSuit,
   opts: { jokerMode: boolean; trumpSuit: TnSuit | null; trumpRevealed: boolean }
 ): TnTrickPlay {
-  if (plays.length !== 4) {
-    throw new Error(`resolveWinner: expected 4 plays, got ${plays.length}`);
+  if (plays.length === 0) {
+    throw new Error("resolveWinner: trick is empty");
   }
   if (opts.jokerMode && opts.trumpRevealed) return resolveJokerWinner(plays, ledSuit);
   return resolveStandardWinner(plays, ledSuit, opts.trumpSuit, opts.trumpRevealed);

@@ -124,11 +124,9 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
     bids?.turnSeatIndex !== null &&
     bids?.turnSeatIndex === mySeat;
 
-  // v2 mirror of the server rule: own side holds -> strictly higher;
-  // opponents hold an UNMATCHED value -> matching that value is allowed.
-  const teamOf = (s: number) => (s % 2 === 0 ? "A" : "B");
   const H = bids?.highestBid ?? null;
-  const isDefender = mySeat !== null && bids?.bidderSeatIndex === mySeat;
+  const holderSeat = bids?.bidderSeatIndex ?? null;
+  const isDefender = mySeat !== null && holderSeat === mySeat;
   const isChallenged = bids?.challengerSeatIndex !== null && bids?.challengerSeatIndex !== undefined && bids?.challengerSeatIndex !== mySeat;
   const canStay = isDefender && isChallenged && H !== null;
 
@@ -153,120 +151,156 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
   const currentBid = Math.min(28, Math.max(bidValue, floor));
   const canBidHigher = floor <= 28;
 
+  // Presets for quick jumping
+  const presets = [
+    { label: canStay && floor === H ? `Stay ${H}` : `Min ${floor}`, value: floor },
+    ...(floor + 1 <= 28 && floor + 1 !== floor ? [{ label: `+1 (${floor + 1})`, value: floor + 1 }] : []),
+    ...(20 >= floor && 20 <= 28 && floor !== 20 && floor + 1 !== 20 ? [{ label: "20", value: 20 }] : []),
+    ...(24 >= floor && 24 <= 28 && floor !== 24 ? [{ label: "24", value: 24 }] : []),
+    ...(28 >= floor && floor !== 28 ? [{ label: "28", value: 28 }] : []),
+  ];
+
+  // Active actor name
+  const actingSeat = bids?.turnSeatIndex;
+  const actor = actingSeat !== null && actingSeat !== undefined ? state.seats[actingSeat] : null;
+  const actorName = actor?.username ?? (actingSeat !== null && actingSeat !== undefined ? `Seat ${actingSeat}` : "Unknown");
+
   return (
-    <div className="rounded-2xl bg-black/50 p-4 ring-1 ring-white/10 backdrop-blur-md shadow-panel">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/50">
-          BIDDING (16 – 28)
-        </p>
-        <span className="text-[10px] text-white/40 font-mono">Round #{state.roundNumber}</span>
-      </div>
+    <div className="mx-auto w-full max-w-md rounded-2xl bg-slate-950/92 p-2.5 sm:p-3 border border-amber-500/30 ring-1 ring-white/10 shadow-2xl backdrop-blur-xl animate-riseFade select-none">
+      {/* Compact Info Bar */}
+      <div className="flex items-center justify-between px-1 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9.5px] font-bold uppercase tracking-wider text-white/45">High:</span>
+          {H !== null ? (
+            <span className="font-black text-amber-300 text-xs">
+              {H} <span className="text-[9.5px] font-normal text-white/50">({holderSeat === mySeat ? "You" : `Seat ${holderSeat}`})</span>
+            </span>
+          ) : (
+            <span className="text-white/60 text-[10.5px] font-bold">16 (Starts)</span>
+          )}
+        </div>
 
-      <div className="mt-2 flex items-center justify-between text-xs">
-        <span className="text-white/70">
-          Current High:{" "}
-          <b className="tabnum font-black text-gold text-sm">
-            {bids?.highestBid ?? "None (Starts at 16)"}
-          </b>
-          {bids?.bidderSeatIndex !== null && bids?.bidderSeatIndex !== undefined && (
-            <span className="text-white/45">
-              {" "}
-              · {bids.bidderSeatIndex === mySeat ? "held by YOU" : `held by seat ${bids.bidderSeatIndex}`}
+        <div>
+          {myTurn ? (
+            canStay ? (
+              <span className="text-[10px] font-black uppercase text-amber-300 animate-pulse">
+                ⚡ Challenged! Stay ({H}) or Raise
+              </span>
+            ) : (
+              <span className="text-[10px] font-black uppercase text-emerald-400">
+                Your Turn
+              </span>
+            )
+          ) : (
+            <span className="text-[10px] font-medium text-white/50">
+              Waiting for <b className="text-white/80">{actorName}</b>…
             </span>
           )}
-        </span>
-        <span className="flex gap-1">
-          {(bids?.passedSeatIndexes ?? []).map((s) => (
-            <span
-              key={s}
-              className="rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-bold text-white/30 line-through"
-            >
-              P{s}
-            </span>
-          ))}
-        </span>
+        </div>
       </div>
 
-      {myTurn ? (
-        <div className="mt-3 space-y-2.5">
-          {canStay && (
-            <p className="text-center text-[10px] font-bold uppercase tracking-widest text-amber-300 animate-pulse">
-              ⚡ You are challenged with {H}! Stay or raise
-            </p>
-          )}
-
+      {myTurn && (
+        <div className="mt-2 space-y-2">
           {canBidHigher ? (
             <>
-              {/* Stepper + Slider */}
+              {/* Stepper + Slider + Value */}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   disabled={currentBid <= floor}
                   onClick={() => setBidValue((v) => Math.max(floor, v - 1))}
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-sm font-black text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none active:scale-95"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/10 text-xs font-black text-white hover:bg-white/20 disabled:opacity-20 active:scale-95 transition-all"
                 >
                   −
                 </button>
+
                 <input
                   type="range"
                   min={floor}
                   max={28}
                   value={currentBid}
                   onChange={(e) => setBidValue(Number(e.target.value))}
-                  className="w-full accent-gold cursor-pointer"
+                  className="w-full accent-amber-400 cursor-pointer h-1.5 bg-white/15 rounded-lg appearance-none"
                 />
+
                 <button
                   type="button"
                   disabled={currentBid >= 28}
                   onClick={() => setBidValue((v) => Math.min(28, v + 1))}
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-sm font-black text-white hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none active:scale-95"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/10 text-xs font-black text-white hover:bg-white/20 disabled:opacity-20 active:scale-95 transition-all"
                 >
                   +
                 </button>
-                <span className="w-9 text-center tabnum text-base font-black text-gold">
-                  {currentBid}
-                </span>
+
+                <div className="grid h-7 w-10 shrink-0 place-items-center rounded-lg bg-amber-400/20 border border-amber-400/50 shadow-inner">
+                  <span className="tabnum text-xs font-black text-amber-300">
+                    {currentBid}
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* Quick Presets */}
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+                {presets.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => setBidValue(p.value)}
+                    className={`rounded-md px-2 py-0.5 text-[9px] font-bold transition-all shrink-0 ${
+                      currentBid === p.value
+                        ? "bg-amber-400 text-slate-950 ring-1 ring-white/40 font-black"
+                        : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
                 <button
+                  type="button"
                   onClick={() => tnBid(currentBid)}
-                  className={`rounded-xl py-2 text-xs font-black tracking-wide text-slate-950 shadow-glowGold hover:brightness-105 active:scale-[0.98] ${
-                    canStay && currentBid === H ? "bg-gradient-to-r from-amber-400 to-gold ring-1 ring-white/30" : "bg-gold"
+                  className={`rounded-xl py-2 text-xs font-black tracking-wide text-slate-950 transition-all active:scale-[0.98] shadow-md ${
+                    canStay && currentBid === H
+                      ? "bg-gradient-to-r from-emerald-400 to-amber-300 shadow-glowGold ring-1 ring-white/40"
+                      : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-glowGold hover:brightness-105"
                   }`}
                 >
                   {canStay && currentBid === H
                     ? `STAY (${currentBid})`
                     : canStay && currentBid > H
                     ? `RAISE ${currentBid}`
-                    : `BID ${currentBid}`}
+                    : H === null
+                    ? `BID ${currentBid}`
+                    : `RAISE ${currentBid}`}
                 </button>
+
                 <button
+                  type="button"
                   onClick={() => tnBid()}
-                  className="rounded-xl bg-black/60 py-2 text-xs font-black tracking-wide text-white/80 ring-1 ring-white/15 hover:bg-white/10 hover:text-white active:scale-[0.98]"
+                  className="rounded-xl bg-red-950/40 border border-red-500/30 hover:bg-red-900/60 py-2 text-xs font-black tracking-wide text-red-200 hover:text-white transition-all active:scale-[0.98]"
                 >
                   PASS
                 </button>
               </div>
             </>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <p className="text-center text-[10px] font-bold text-amber-300 uppercase">
-                Maximum bid (28) reached
+                Max Bid (28) Reached
               </p>
               <button
+                type="button"
                 onClick={() => tnBid()}
-                className="w-full rounded-xl bg-black/60 py-2 text-xs font-black tracking-wide text-white/80 ring-1 ring-white/15 hover:bg-white/10 hover:text-white active:scale-[0.98]"
+                className="w-full rounded-xl bg-red-950/40 border border-red-500/30 hover:bg-red-900/60 py-2 text-xs font-black tracking-wide text-red-200 hover:text-white transition-all active:scale-[0.98]"
               >
                 PASS
               </button>
             </div>
           )}
         </div>
-      ) : (
-        <p className="mt-2 text-center text-[11px] font-medium text-white/40">
-          waiting for seat {bids?.turnSeatIndex} to act…
-        </p>
       )}
     </div>
   );
@@ -278,7 +312,7 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
   const { me, myTnCards, tnCallTrump, tnDeclareMarriage } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTurn = state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
-  if (!myTnCards || state.phase !== "PLAYING") return null;
+  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand) return null;
 
   const canCall =
     myTurn &&
@@ -322,6 +356,52 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
+/**
+ * Single Hand Decision Prompt: clean tray with Single Hand Call title and buttons.
+ */
+export function SingleHandPrompt({ state }: { state: PublicTwentyNineState }) {
+  const { me, tnSingleHandDecision } = useGame();
+  const mySeat = me?.seatIndex ?? null;
+
+  if (state.phase !== "SINGLE_HAND_DECISION") return null;
+
+  const acting = state.actingSeatIndex;
+  const isMyTurn = mySeat !== null && acting === mySeat;
+  const actor = acting !== null ? state.seats[acting] : null;
+  const actorName = actor?.username ?? (acting !== null ? `Seat ${acting}` : "Unknown");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 select-none">
+      <div className="w-full max-w-sm rounded-2xl bg-slate-950/95 p-5 border border-amber-400/40 shadow-2xl text-center">
+        <h3 className="text-lg font-black uppercase tracking-wider text-amber-300">
+          Single Hand Call
+        </h3>
+
+        {isMyTurn ? (
+          <div className="mt-4 flex gap-2.5 justify-center">
+            <button
+              onClick={() => tnSingleHandDecision(true)}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Single Hand
+            </button>
+            <button
+              onClick={() => tnSingleHandDecision(false)}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/15 transition-colors cursor-pointer"
+            >
+              Skip
+            </button>
+          </div>
+        ) : (
+          <div className="mt-4 py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-white/70">
+            Waiting for <span className="text-amber-300 font-bold">{actorName}</span>…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** 
  * Live Round Progress Table
  * Tracks tricks, points, and Full Board possibilities in real-time,
@@ -331,6 +411,60 @@ export function LiveRoundProgress({ state }: { state: PublicTwentyNineState }) {
   const { me } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
+
+  // Single Hand HUD Display
+  if (state.isSingleHand && state.singleHandSeatIndex !== null && state.singleHandSeatIndex !== undefined) {
+    const singleSeat = state.singleHandSeatIndex;
+    const isMeSingle = mySeat === singleSeat;
+    const singleTeam = singleSeat % 2 === 0 ? "A" : "B";
+    const isMyTeamSingle = myTeam === singleTeam;
+    const singleTricks = state.tricksWon[singleTeam];
+    const opponentTeam = singleTeam === "A" ? "B" : "A";
+    const opponentTricks = state.tricksWon[opponentTeam];
+
+    return (
+      <>
+        {/* Mobile compact HUD */}
+        <div className="sm:hidden flex items-center justify-between w-full max-w-sm mx-auto rounded-xl bg-amber-950/80 px-3 py-1.5 backdrop-blur-md ring-1 ring-amber-400/40 text-[10.5px] font-mono select-none">
+          <div className="flex items-center gap-1.5 font-bold text-amber-300">
+            👑 SOLO: {singleTricks}/8 TRICKS
+          </div>
+          <div className="text-[10px] font-bold text-white/70">
+            {isMyTeamSingle ? (isMeSingle ? "YOU SOLO" : "PARTNER SOLO") : "OPPONENT SOLO"}
+          </div>
+        </div>
+
+        {/* Desktop full floating card */}
+        <div className="hidden sm:flex w-60 flex-col overflow-hidden rounded-2xl bg-slate-950/85 p-4 shadow-panel backdrop-blur-md ring-1 ring-amber-400/30 font-mono select-none">
+          <div className="mb-2 text-center text-[10.5px] font-black uppercase tracking-widest text-amber-300 flex items-center justify-center gap-1">
+            <span>👑</span> SINGLE HAND MODE
+          </div>
+          <div className="text-[10px] text-center text-white/60 mb-3">
+            {isMeSingle ? "You are playing solo" : isMyTeamSingle ? "Partner playing solo" : `Seat ${singleSeat} playing solo`}
+          </div>
+          <div className="flex justify-between items-center bg-white/5 rounded-xl p-2.5 border border-white/10 text-xs">
+            <span className="font-bold text-white/70">Tricks Won:</span>
+            <span className="font-black text-amber-300 text-sm">{singleTricks} / 8</span>
+          </div>
+          <div className="mt-3 text-center">
+            {opponentTricks > 0 ? (
+              <span className="rounded-full bg-rose-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-rose-300 ring-1 ring-rose-500/50">
+                FAILED
+              </span>
+            ) : singleTricks === 8 ? (
+              <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-300 ring-1 ring-emerald-500/50">
+                SUCCESS (+3)
+              </span>
+            ) : (
+              <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-300 ring-1 ring-amber-500/50 animate-pulse">
+                MUST WIN ALL 8
+              </span>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const bidderSeat = state.bidderSeatIndex ?? state.bids?.bidderSeatIndex ?? state.lastRoundSummary?.bidderSeatIndex ?? null;
   const bid = state.bid ?? state.bids?.highestBid ?? state.lastRoundSummary?.bid ?? null;
