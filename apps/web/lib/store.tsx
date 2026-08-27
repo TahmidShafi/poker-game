@@ -95,7 +95,7 @@ export interface GameContextValue {
   gameType: GameType;
   // ---- Twenty-Nine slices ----
   tnState: PublicTwentyNineState | null;
-  tnResolvedTrick: { plays: { seatIndex: number; card: TnCard }[] } | null;
+  tnResolvedTrick: { plays: { seatIndex: number; card: TnCard }[]; winnerSeatIndex?: number } | null;
   myTnCards: TnCard[] | null;
   tnBidderPrivate: TnBidderPrivatePayload | null;
   lastTnRound: TnRoundSummary | null;
