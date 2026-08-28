@@ -162,6 +162,7 @@ export default function TnPreviewPage() {
       tnPlayCard: noop,
       tnSingleHandDecision: noop,
       tnFillBots: noop,
+      tnSyncHand: noop,
     };
   }, [state]);
 

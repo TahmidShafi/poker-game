@@ -253,8 +253,14 @@ export class TwentyNineGameManager implements RoomLike {
     seat.connected = true;
 
     this.io.to(this.socketRoom()).emit("PLAYER_JOINED", { seatIndex, username: name });
+    if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+      console.log(`[TN_SYNC ${this.roomCode}] player joined: ${name} (seat ${seatIndex}, socket ${opts.socketId})`);
+    }
     if (this.vsBots) {
       this.fillBots(); // single-player mode: complete the table instantly
+    }
+    if (seat.hand.length > 0) {
+      this.sendPrivateSnapshot(record);
     }
     this.broadcastState();
     this.maybeScheduleAutoStart();
@@ -268,6 +274,9 @@ export class TwentyNineGameManager implements RoomLike {
     rec.lastSeen = Date.now();
     const seat = this.match.seats[rec.seatIndex];
     if (seat) seat.connected = true;
+    if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+      console.log(`[TN_SYNC ${this.roomCode}] socket attached: ${socketId} for ${rec.username} (seat ${rec.seatIndex})`);
+    }
     // RECONNECT/multi-tab attach: re-deliver this seat's private state
     // (full current hand + bidder channel) — the public broadcast alone
     // carries no hands, so without this a reconnected client has no cards.
@@ -376,6 +385,18 @@ export class TwentyNineGameManager implements RoomLike {
     this.fillBots();
     this.broadcastState();
     this.maybeScheduleAutoStart();
+  }
+
+  game29SyncHand(socketId: string): void {
+    if (this.destroyed) return;
+    const rec = this.findPlayerBySocket(socketId);
+    if (!rec) return this.reject(socketId, "you are not in this room");
+    if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+      console.log(
+        `[TN_SYNC ${this.roomCode}] GAME29_SYNC_HAND requested by socket ${socketId} (seat ${rec.seatIndex}, ${rec.username})`
+      );
+    }
+    this.sendPrivateSnapshot(rec);
   }
 
   game29PlayCard(socketId: string, card: TnCard): void {
@@ -549,6 +570,11 @@ export class TwentyNineGameManager implements RoomLike {
       if (!seat || seat.username === null) continue;
       if (seat.batch1.length === 4 && !sent.has(`${rec.seatIndex}:1`)) {
         sent.add(`${rec.seatIndex}:1`);
+        if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+          console.log(
+            `[TN_SYNC ${this.roomCode}] emitting batch 1 to seat ${rec.seatIndex} (${rec.username}): 4 cards across ${rec.socketIds.size} sockets`
+          );
+        }
         this.emitToPlayer(rec, "YOUR_TN_HAND", {
           handNumber: round,
           batch: 1,
@@ -569,6 +595,11 @@ export class TwentyNineGameManager implements RoomLike {
             )
           : seat.batch2;
 
+        if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+          console.log(
+            `[TN_SYNC ${this.roomCode}] emitting batch 2 to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards across ${rec.socketIds.size} sockets`
+          );
+        }
         this.emitToPlayer(rec, "YOUR_TN_HAND", {
           handNumber: round,
           batch: 2,
@@ -621,14 +652,31 @@ export class TwentyNineGameManager implements RoomLike {
     }
   }
 
-  private sendPrivateSnapshot(rec: TnPlayerRecord): void {
+  sendPrivateSnapshot(rec: TnPlayerRecord): void {
     const seat = this.match.seats[rec.seatIndex];
     if (!seat) return;
     if (seat.hand.length > 0) {
+      const isBidderSeventhLocked =
+        rec.seatIndex === this.match.bidderSeatIndex &&
+        this.match.trumpStyle === "SEVENTH_CARD" &&
+        !this.match.trumpRevealed &&
+        this.match.indicatorCard;
+
+      const cardsToSend = isBidderSeventhLocked
+        ? seat.hand.filter(
+            (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
+          )
+        : seat.hand;
+
+      if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+        console.log(
+          `[TN_SYNC ${this.roomCode}] sending authoritative hand snapshot to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards (batch FULL_RECONNECT) across ${rec.socketIds.size} sockets`
+        );
+      }
       this.emitToPlayer(rec, "YOUR_TN_HAND", {
         handNumber: this.match.roundNumber,
         batch: "FULL_RECONNECT",
-        cards: seat.hand.map((c) => ({ ...c })),
+        cards: cardsToSend.map((c) => ({ ...c })),
       });
     }
     // Re-evaluate the bidder channel for THIS reconnecting player only.

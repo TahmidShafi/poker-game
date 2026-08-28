@@ -6,7 +6,19 @@
   color-scheme: dark;
 }
 
+html {
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 body {
+  max-width: 100%;
+  overflow-x: hidden;
   background:
     radial-gradient(1200px 700px at 50% -10%, rgba(216, 179, 106, 0.08), transparent),
     radial-gradient(900px 500px at 85% 110%, rgba(27, 94, 67, 0.18), transparent),

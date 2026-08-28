@@ -1079,6 +1079,60 @@ describe("twenty-nine: race & reconnect stability", () => {
     expect(latestOf(log)!.trick).toHaveLength(1);
     re.disconnect();
   }, 20000);
+
+  it("GAME29_SYNC_HAND: client requests hand sync and receives current authoritative remaining cards", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+    // Client requests hand sync explicitly (simulating missed deal / slow connection)
+    const client = seats[0]!;
+    const initialHandCount = client.log.filter((e) => e.ev === "YOUR_TN_HAND").length;
+    client.socket.emit("GAME29_SYNC_HAND");
+
+    await pollUntil(
+      () => client.log.filter((e) => e.ev === "YOUR_TN_HAND").length > initialHandCount,
+      4000,
+      "sync hand received"
+    );
+
+    const latestHandEvent = client.log.filter((e) => e.ev === "YOUR_TN_HAND").slice(-1)[0]!;
+    expect(latestHandEvent.data).toMatchObject({
+      batch: "FULL_RECONNECT",
+    });
+    expect((latestHandEvent.data as { cards: TnCard[] }).cards).toHaveLength(4);
+  }, 20000);
+
+  it("GAME29_SYNC_HAND: mid-hand sync returns only remaining unplayed cards", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    // Leader plays 1 card from their 8
+    const leader = seats.find((s) => s.seatIndex === latestOf(seats[0]!.log)!.actingSeatIndex)!;
+    const cardToPlay = batchCardsOf(leader, 1)[0]!;
+    leader.socket.emit("GAME29_PLAY_CARD", { card: cardToPlay });
+    await pollUntil(() => latestOf(seats[0]!.log)!.trick.length === 1, 4000, "trick started");
+
+    // Leader now asks for GAME29_SYNC_HAND
+    const beforeCount = leader.log.filter((e) => e.ev === "YOUR_TN_HAND").length;
+    leader.socket.emit("GAME29_SYNC_HAND");
+
+    await pollUntil(
+      () => leader.log.filter((e) => e.ev === "YOUR_TN_HAND").length > beforeCount,
+      4000,
+      "synced hand received"
+    );
+
+    const syncedHand = leader.log.filter((e) => e.ev === "YOUR_TN_HAND").slice(-1)[0]!;
+    const cards = (syncedHand.data as { cards: TnCard[] }).cards;
+    // Exactly 7 cards remaining (1 card played)
+    expect(cards).toHaveLength(7);
+    // Played card is not present in remaining hand
+    expect(cards.some((c) => c.suit === cardToPlay.suit && c.rank === cardToPlay.rank)).toBe(false);
+  }, 20000);
 });
 
 describe("twenty-nine: room lifecycle & leaks", () => {

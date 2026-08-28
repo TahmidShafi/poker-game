@@ -86,45 +86,48 @@ export function JoinScreen() {
   const canSubmit = nameOk && (tab === "create" || code.length === 6) && !busy;
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden overflow-y-auto bg-room pb-10 sm:pb-8">
-      {/* ================= floating cards layer ================= */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 hidden dt:block">
-        <div className="absolute left-[8%] top-[14%] animate-floatY" style={{ "--fl-rot": "-10deg", animationDelay: "0s" } as React.CSSProperties}>
-          <PlayingCard card={{ rank: 14, suit: "SPADES" }} size="lg" className="shadow-panel" />
-        </div>
-        <div className="absolute left-[20%] top-[38%] animate-floatY" style={{ "--fl-rot": "7deg", animationDelay: "-2s" } as React.CSSProperties}>
-          <PlayingCard card={{ rank: 13, suit: "HEARTS" }} size="lg" className="shadow-panel" />
-        </div>
-        <div className="absolute left-[9%] top-[60%] animate-floatY" style={{ "--fl-rot": "-4deg", animationDelay: "-3.6s" } as React.CSSProperties}>
-          <PlayingCard card={{ rank: 12, suit: "DIAMONDS" }} size="lg" className="shadow-panel" />
-        </div>
-        <div className="absolute left-[26%] top-[76%] hidden xl:block animate-floatY" style={{ "--fl-rot": "11deg", animationDelay: "-1.2s" } as React.CSSProperties}>
-          <PlayingCard faceDown size="lg" className="shadow-panel" />
-        </div>
+    <div className="relative min-h-dvh w-full max-w-full overflow-x-hidden overflow-y-auto bg-room pb-10 sm:pb-8">
+      {/* ================= floating cards layer (strictly overflow-clipped) ================= */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden select-none">
+        {/* desktop hero cards */}
+        <div className="hidden dt:block absolute inset-0">
+          <div className="absolute left-[8%] top-[14%] animate-floatY" style={{ "--fl-rot": "-10deg", animationDelay: "0s" } as React.CSSProperties}>
+            <PlayingCard card={{ rank: 14, suit: "SPADES" }} size="lg" className="shadow-panel" />
+          </div>
+          <div className="absolute left-[20%] top-[38%] animate-floatY" style={{ "--fl-rot": "7deg", animationDelay: "-2s" } as React.CSSProperties}>
+            <PlayingCard card={{ rank: 13, suit: "HEARTS" }} size="lg" className="shadow-panel" />
+          </div>
+          <div className="absolute left-[9%] top-[60%] animate-floatY" style={{ "--fl-rot": "-4deg", animationDelay: "-3.6s" } as React.CSSProperties}>
+            <PlayingCard card={{ rank: 12, suit: "DIAMONDS" }} size="lg" className="shadow-panel" />
+          </div>
+          <div className="absolute left-[26%] top-[76%] hidden xl:block animate-floatY" style={{ "--fl-rot": "11deg", animationDelay: "-1.2s" } as React.CSSProperties}>
+            <PlayingCard faceDown size="lg" className="shadow-panel" />
+          </div>
 
-        {/* mini felt preview under the brand */}
-        <div className="absolute bottom-[7%] left-[13%]">
-          <div className="rail-surface rounded-full p-3">
-            <div className="felt-surface gold-ring grid h-40 w-[24rem] place-items-center rounded-full">
-              <div className="flex gap-1.5">
-                <PlayingCard card={{ rank: 10, suit: "SPADES" }} size="sm" delay={200} animate="deal" />
-                <PlayingCard card={{ rank: 11, suit: "SPADES" }} size="sm" delay={350} animate="deal" />
-                <PlayingCard card={{ rank: 12, suit: "SPADES" }} size="sm" delay={500} animate="deal" />
-                <PlayingCard faceDown size="sm" delay={650} animate="deal" />
-                <PlayingCard faceDown size="sm" delay={800} animate="deal" />
+          {/* mini felt preview under the brand */}
+          <div className="absolute bottom-[7%] left-[13%]">
+            <div className="rail-surface rounded-full p-3">
+              <div className="felt-surface gold-ring grid h-40 w-[24rem] place-items-center rounded-full">
+                <div className="flex gap-1.5">
+                  <PlayingCard card={{ rank: 10, suit: "SPADES" }} size="sm" delay={200} animate="deal" />
+                  <PlayingCard card={{ rank: 11, suit: "SPADES" }} size="sm" delay={350} animate="deal" />
+                  <PlayingCard card={{ rank: 12, suit: "SPADES" }} size="sm" delay={500} animate="deal" />
+                  <PlayingCard faceDown size="sm" delay={650} animate="deal" />
+                  <PlayingCard faceDown size="sm" delay={800} animate="deal" />
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* mobile ambient card */}
-      <div aria-hidden className="pointer-events-none absolute -right-6 top-6 rotate-12 opacity-20 dt:hidden">
-        <PlayingCard card={{ rank: 14, suit: "SPADES" }} size="md" />
+        {/* mobile ambient card */}
+        <div className="absolute -right-4 top-6 rotate-12 opacity-20 dt:hidden">
+          <PlayingCard card={{ rank: 14, suit: "SPADES" }} size="md" />
+        </div>
       </div>
 
       {/* ================= layout grid ================= */}
-      <div className="mx-auto grid min-h-dvh w-full max-w-6xl items-center gap-6 sm:gap-10 px-3.5 sm:px-4 py-4 sm:py-8 dt:grid-cols-[1.05fr_420px]">
+      <div className="relative z-10 mx-auto grid min-h-dvh w-full max-w-6xl items-center gap-6 sm:gap-10 px-3 sm:px-4 py-4 sm:py-8 dt:grid-cols-[1.05fr_420px]">
         {/* Hero (desktop only) */}
         <section className="hidden dt:block">
           <Brand />
@@ -140,15 +143,15 @@ export function JoinScreen() {
         </section>
 
         {/* Action card */}
-        <section className="glass mx-auto w-full max-w-md rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-panel animate-riseFade my-auto">
+        <section className="glass mx-auto w-full max-w-[calc(100vw-24px)] sm:max-w-md min-w-0 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 shadow-panel animate-riseFade my-auto">
           <div className="dt:hidden mb-2">
             <Brand compact />
           </div>
 
-          <div className="mt-3 sm:mt-4 space-y-3 sm:space-y-3.5">
+          <div className="mt-3 sm:mt-4 space-y-3 sm:space-y-3.5 w-full min-w-0">
             <AvatarStrip value={avatar} onChange={setAvatar} />
 
-            <label className="block">
+            <label className="block w-full min-w-0">
               <span className="mb-1 flex items-baseline justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Username</span>
                 <span className={`text-[10px] tabnum ${nameOk ? "text-white/30" : "text-crimson"}`}>
@@ -156,7 +159,7 @@ export function JoinScreen() {
                 </span>
               </span>
               <input
-                className="w-full rounded-xl bg-black/35 px-3.5 py-2.5 text-sm ring-1 ring-white/12 focus:outline-none focus:ring-gold/50 placeholder:text-white/30"
+                className="w-full min-w-0 rounded-xl bg-black/35 px-3.5 py-2.5 text-sm ring-1 ring-white/12 focus:outline-none focus:ring-gold/50 placeholder:text-white/30"
                 placeholder="What should the table call you?"
                 maxLength={16}
                 value={username}
@@ -165,15 +168,15 @@ export function JoinScreen() {
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-black/30 p-1 text-sm font-semibold">
+            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-black/30 p-1 text-sm font-semibold w-full min-w-0">
               <button
-                className={`rounded-xl py-2 transition-colors ${tab === "join" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
+                className={`rounded-xl py-2 px-1 text-center truncate transition-colors ${tab === "join" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
                 onClick={() => setTab("join")}
               >
                 Join room
               </button>
               <button
-                className={`rounded-xl py-2 transition-colors ${tab === "create" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
+                className={`rounded-xl py-2 px-1 text-center truncate transition-colors ${tab === "create" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
                 onClick={() => setTab("create")}
               >
                 Create room
@@ -181,40 +184,40 @@ export function JoinScreen() {
             </div>
 
             {tab === "create" && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 w-full min-w-0">
                 <button
                   type="button"
                   onClick={() => setGame("POKER")}
-                  className={`rounded-2xl px-3 py-2.5 text-left ring-1 transition-all ${
+                  className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
                     game === "POKER"
                       ? "bg-gold/15 ring-gold/60"
                       : "bg-black/30 ring-white/10 hover:ring-white/25"
                   }`}
                 >
-                  <span className={`block text-sm font-black ${game === "POKER" ? "text-gold" : "text-white/70"}`}>
+                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "POKER" ? "text-gold" : "text-white/70"}`}>
                     ♠ Texas Hold&apos;em
                   </span>
-                  <span className="block text-[9.5px] text-white/40">blinds, side pots & loans</span>
+                  <span className="block text-[9px] sm:text-[9.5px] text-white/40 leading-tight">blinds, side pots & loans</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setGame("TWENTY_NINE")}
-                  className={`rounded-2xl px-3 py-2.5 text-left ring-1 transition-all ${
+                  className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
                     game === "TWENTY_NINE"
                       ? "bg-gold/15 ring-gold/60"
                       : "bg-black/30 ring-white/10 hover:ring-white/25"
                   }`}
                 >
-                  <span className={`block text-sm font-black ${game === "TWENTY_NINE" ? "text-gold" : "text-white/70"}`}>
+                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "TWENTY_NINE" ? "text-gold" : "text-white/70"}`}>
                     ♦ Twenty-Nine
                   </span>
-                  <span className="block text-[9.5px] text-white/40">4 players · teams · hidden trump</span>
+                  <span className="block text-[9px] sm:text-[9.5px] text-white/40 leading-tight">4 players · teams · trump</span>
                 </button>
               </div>
             )}
 
             {tab === "join" ? (
-              <div className="space-y-2">
+              <div className="space-y-2 w-full min-w-0">
                 <span className="block text-center text-[10px] font-bold uppercase tracking-[0.25em] text-white/40">
                   Room code
                 </span>
@@ -225,27 +228,27 @@ export function JoinScreen() {
                 />
               </div>
             ) : game === "TWENTY_NINE" ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 w-full min-w-0">
                 {(
                   [
                     { bots: false, icon: "👥", title: "Play with friends", hint: "share the room code" },
-                    { bots: true, icon: "🤖", title: "Play with bots", hint: "single player · instant start" },
+                    { bots: true, icon: "🤖", title: "Play with bots", hint: "single player · instant" },
                   ] as const
                 ).map((opt) => (
                   <button
                     key={opt.bots ? "bots" : "friends"}
                     type="button"
                     onClick={() => setTnVsBots(opt.bots)}
-                    className={`rounded-2xl px-3 py-3 text-left ring-1 transition-all ${
+                    className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
                       tnVsBots === opt.bots
                         ? "bg-gold/15 ring-gold/60"
                         : "bg-black/30 ring-white/10 hover:ring-white/25"
                     }`}
                   >
-                    <span className={`block text-sm font-black ${tnVsBots === opt.bots ? "text-gold" : "text-white/70"}`}>
+                    <span className={`block text-xs sm:text-sm font-black truncate ${tnVsBots === opt.bots ? "text-gold" : "text-white/70"}`}>
                       {opt.icon} {opt.title}
                     </span>
-                    <span className="block text-[9.5px] leading-tight text-white/40">{opt.hint}</span>
+                    <span className="block text-[9px] sm:text-[9.5px] leading-tight text-white/40 truncate">{opt.hint}</span>
                   </button>
                 ))}
                 <p className="col-span-2 text-center text-[10px] text-white/35">
@@ -259,7 +262,7 @@ export function JoinScreen() {
             <button
               disabled={!canSubmit}
               onClick={submit}
-              className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+              className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none min-w-0"
             >
               {busy
                 ? "Connecting…"
@@ -274,7 +277,7 @@ export function JoinScreen() {
                     : "Open the table"}
             </button>
 
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-1 pt-1 w-full min-w-0">
               <p className="text-[10px] text-white/30">
                 Virtual chips only — no real-money gambling.
               </p>

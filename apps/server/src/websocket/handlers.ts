@@ -354,6 +354,12 @@ export function registerSocketHandlers(
       tn.game29FillBots(socket.id);
     });
 
+    socket.on("GAME29_SYNC_HAND", () => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      tn.game29SyncHand(socket.id);
+    });
+
     // ---- DISCONNECT ----------------------------------------------------------
     socket.on("disconnect", () => {
       const room = findRoomOf(registry, socket.id);

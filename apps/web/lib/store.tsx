@@ -146,6 +146,7 @@ export interface GameContextValue {
   tnPlayCard: (card: TnCard) => void;
   tnSingleHandDecision: (declare: boolean) => void;
   tnFillBots: () => void;
+  tnSyncHand: () => void;
 }
 
 // Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
@@ -375,9 +376,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     // ---- Twenty-Nine ----
     socket.on("TN_STATE", (s) => {
       setTnState(s);
+
+      const mine = meRef.current;
+      if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
+
       // Record my cards visible in the current trick as played.
       const hand = myTnHandRef.current;
-      const mySeat = meRef.current?.seatIndex;
+      const mySeat = mine?.seatIndex;
       if (hand && mySeat !== undefined && s.roundNumber === hand.handNumber) {
         let played = tnPlayedRef.current;
         if (!played || played.handNumber !== hand.handNumber) {
@@ -389,8 +394,37 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         tnPlayedRef.current = played;
         publishMyTnHand();
       }
+
+      // Proactive authoritative Hand-Sync:
+      // If the game has started (in bidding/trump/playing) and we are seated with
+      // cards remaining, but local hand is missing or from an old round, pull from server.
+      const isGameActive =
+        s.phase !== "WAITING_FOR_PLAYERS" &&
+        s.phase !== "REDEALING" &&
+        s.phase !== "ROUND_SCORED" &&
+        s.phase !== "MATCH_OVER";
+
+      if (isGameActive && mySeat !== undefined) {
+        const mySeatView = s.seats.find((st) => st.seatIndex === mySeat);
+        const hasServerCards = mySeatView && mySeatView.cardsRemaining > 0;
+        const missingLocalCards = !hand || hand.handNumber !== s.roundNumber || hand.cards.length === 0;
+
+        if (hasServerCards && missingLocalCards) {
+          if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
+            console.log(
+              `[TN_SYNC] missing hand detected for round ${s.roundNumber} (phase=${s.phase}, cardsRemaining=${mySeatView?.cardsRemaining}) -> requesting GAME29_SYNC_HAND`
+            );
+          }
+          socket.emit("GAME29_SYNC_HAND");
+        }
+      }
     });
     socket.on("YOUR_TN_HAND", (payload) => {
+      if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
+        console.log(
+          `[TN_SYNC] YOUR_TN_HAND received: batch=${payload.batch} handNumber=${payload.handNumber} cards=${payload.cards.length}`
+        );
+      }
       const prev = myTnHandRef.current;
       myTnHandRef.current = accumulateTnHand(prev, payload);
       // New hand or authoritative reconnect snapshot: the server hand is the
@@ -485,12 +519,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
       setIsReconnecting(false);
       if (ack.ok && ack.roomCode) {
-        setMe({
+        const newMe = {
           roomCode: ack.roomCode,
           seatIndex: ack.seatIndex!,
           sessionToken: token,
           config: ack.config,
-        });
+        };
+        meRef.current = newMe;
+        setMe(newMe);
         setState(ack.state ?? null);
       } else {
         localStorage.removeItem(TOKEN_KEY);
@@ -507,12 +543,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (ack.ok && ack.roomCode && ack.sessionToken) {
         localStorage.setItem(TOKEN_KEY, ack.sessionToken);
         localStorage.setItem(ROOM_KEY, ack.roomCode);
-        setMe({
+        const newMe = {
           roomCode: ack.roomCode,
           seatIndex: ack.seatIndex!,
           sessionToken: ack.sessionToken,
           config: ack.config,
-        });
+        };
+        meRef.current = newMe;
+        setMe(newMe);
         setSession(EMPTY_STATS);
         setRecentHands([]);
         if (typeof window !== "undefined") {
@@ -564,12 +602,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
       setIsReconnecting(false);
       if (ack.ok && ack.roomCode) {
-        setMe({
+        const newMe = {
           roomCode: ack.roomCode,
           seatIndex: ack.seatIndex!,
           sessionToken: token,
           config: ack.config,
-        });
+        };
+        meRef.current = newMe;
+        setMe(newMe);
       } else {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(ROOM_KEY);
@@ -582,6 +622,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     endTurnAlerts();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROOM_KEY);
+    meRef.current = null;
     setMe(null);
     setState(null);
     setMyCards(null);
@@ -650,6 +691,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     void unlockAudio();
     socketRef.current?.emit("GAME29_FILL_BOTS");
   }, []);
+  const tnSyncHandFn = useCallback(() => {
+    socketRef.current?.emit("GAME29_SYNC_HAND");
+  }, []);
 
   const toggleSound = useCallback(() => {
     void unlockAudio();
@@ -706,6 +750,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnPlayCard: tnPlayCardFn,
       tnSingleHandDecision: tnSingleHandDecisionFn,
       tnFillBots: tnFillBotsFn,
+      tnSyncHand: tnSyncHandFn,
     }),
     [
       status, isReconnecting, audioUnlocked, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
@@ -713,7 +758,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,
-      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn, tnFillBotsFn,
+      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn, tnFillBotsFn, tnSyncHandFn,
     ]
   );
 

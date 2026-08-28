@@ -42,11 +42,11 @@ export function AvatarStrip({
   if (available.length === 0) return null;
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
         Pick your look
       </div>
-      <div className="scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x">
+      <div className="scrollbar-none w-full min-w-0 flex gap-1.5 sm:gap-2 overflow-x-auto px-0.5 pb-1 touch-pan-x overscroll-x-contain">
         {available.map((n, idx) => (
           <button
             key={n}

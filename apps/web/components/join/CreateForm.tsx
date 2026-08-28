@@ -24,8 +24,8 @@ export function CreateForm({
   const set = (patch: Partial<RoomConfig>) => onChange({ ...cfg, ...patch });
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-1.5">
+    <div className="space-y-3 w-full min-w-0">
+      <div className="grid grid-cols-3 gap-1 sm:gap-1.5 w-full min-w-0">
         {PRESETS.map((p) => {
           const active =
             cfg.startingCoins === p.cfg.startingCoins &&
@@ -37,7 +37,7 @@ export function CreateForm({
               key={p.id}
               type="button"
               onClick={() => onChange({ ...p.cfg })}
-              className={`rounded-xl py-2 text-xs font-bold transition-colors ${
+              className={`rounded-xl py-2 px-1 text-xs font-bold truncate transition-colors min-w-0 ${
                 active
                   ? "bg-gold/20 text-gold ring-1 ring-gold/50"
                   : "bg-black/30 text-white/60 ring-1 ring-white/10 hover:text-white"
@@ -57,7 +57,7 @@ export function CreateForm({
         max={1_000_000}
         onChange={(v) => set({ startingCoins: v })}
       />
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-2.5 w-full min-w-0">
         <Stepper
           label="Small blind"
           value={cfg.smallBlind}
@@ -112,14 +112,14 @@ function Stepper({
 }) {
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
   return (
-    <label className="block">
-      <span className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">{label}</span>
-      <span className="flex items-stretch overflow-hidden rounded-xl bg-black/35 ring-1 ring-white/12 focus-within:ring-gold/50">
+    <label className="block w-full min-w-0">
+      <span className="mb-1 block text-[10px] uppercase tracking-wider text-white/45 truncate">{label}</span>
+      <span className="flex items-stretch overflow-hidden rounded-xl bg-black/35 ring-1 ring-white/12 focus-within:ring-gold/50 w-full min-w-0">
         <button
           type="button"
           tabIndex={-1}
           onClick={() => onChange(clamp(value - step))}
-          className="w-9 shrink-0 text-white/50 transition-colors hover:bg-white/5 hover:text-gold"
+          className="w-8 sm:w-9 shrink-0 text-white/50 transition-colors hover:bg-white/5 hover:text-gold"
         >
           −
         </button>
@@ -128,13 +128,13 @@ function Stepper({
           value={value}
           onBlur={() => onChange(clamp(Math.round(value) || min))}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full bg-transparent px-1.5 py-2 text-center text-sm tabnum focus:outline-none"
+          className="w-full min-w-0 bg-transparent px-1 py-2 text-center text-sm tabnum focus:outline-none"
         />
         <button
           type="button"
           tabIndex={-1}
           onClick={() => onChange(clamp(value + step))}
-          className="w-9 shrink-0 text-white/50 transition-colors hover:bg-white/5 hover:text-gold"
+          className="w-8 sm:w-9 shrink-0 text-white/50 transition-colors hover:bg-white/5 hover:text-gold"
         >
           +
         </button>
