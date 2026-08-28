@@ -366,6 +366,18 @@ export class TwentyNineGameManager implements RoomLike {
     });
   }
 
+  game29FillBots(socketId: string): void {
+    if (this.destroyed) return;
+    const rec = this.findPlayerBySocket(socketId);
+    if (!rec) return this.reject(socketId, "you are not in this room");
+    if (this.match.phase !== "WAITING_FOR_PLAYERS") {
+      return this.reject(socketId, "cannot fill bots once game has started");
+    }
+    this.fillBots();
+    this.broadcastState();
+    this.maybeScheduleAutoStart();
+  }
+
   game29PlayCard(socketId: string, card: TnCard): void {
     this.move(
       socketId,
@@ -809,21 +821,24 @@ export class TwentyNineGameManager implements RoomLike {
   // ------------------------------------------------------------------ bots
 
   /**
-   * Single-player mode: fills every empty seat with a named bot the moment
-   * the human creator takes their seat. Bots are plain player records with
+   * Fills every empty seat with a named bot. Bots are plain player records with
    * no socket — they act through performBotMove() below.
    */
-  private fillBots(): void {
-    const NAMES = ["Bot Rana", "Bot Mithu", "Bot Shapan"];
-    const AVATARS = [8, 4, 6];
+  fillBots(): void {
+    const NAMES = ["Bot Rana", "Bot Mithu", "Bot Shapan", "Bot Karim", "Bot Jamal", "Bot Tumpa", "Bot Sohel"];
+    const AVATARS = [8, 4, 6, 2, 7, 5, 9];
+    const existingNames = new Set([...this.players.values()].map((p) => p.username));
+    const availableNames = NAMES.filter((name) => !existingNames.has(name));
+
     let n = 0;
     for (let i = 0; i < 4; i++) {
       const seat = this.match.seats[i];
       if (!seat || seat.username !== null) continue;
-      const name = NAMES[n % NAMES.length]!;
+      const name = availableNames.length > 0 ? availableNames[n % availableNames.length]! : `Bot ${i + 1}`;
       seat.username = name;
-      seat.avatar = AVATARS[n % AVATARS.length]!;
+      seat.avatar = AVATARS[(n + i) % AVATARS.length]!;
       seat.connected = true;
+      seat.isBot = true;
       const record: TnPlayerRecord = {
         playerId: randomUUID(),
         username: name,

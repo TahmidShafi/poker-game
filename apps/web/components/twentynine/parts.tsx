@@ -52,15 +52,20 @@ export function SeatCard({
   isActing,
   isMe,
   myTeam,
+  onFillBots,
+  isWaiting,
 }: {
   seat: TnSeatView;
   isDealer: boolean;
   isActing: boolean;
   isMe: boolean;
   myTeam?: "A" | "B" | null;
+  onFillBots?: () => void;
+  isWaiting?: boolean;
 }) {
   const empty = seat.username === null;
   const isTeammate = myTeam && seat.team === myTeam && !isMe;
+  const isBot = !!seat.isBot || (seat.username?.startsWith("Bot ") ?? false);
 
   const teamRing = seat.team === "A" 
     ? "ring-2 ring-amber-400/80 shadow-[0_0_12px_rgba(251,191,36,0.35)]" 
@@ -90,7 +95,16 @@ export function SeatCard({
         )}
 
         {empty ? (
-          <span className="text-xs font-black text-white/40">+</span>
+          <button
+            type="button"
+            onClick={isWaiting ? onFillBots : undefined}
+            className={`text-xs font-black text-white/40 ${
+              isWaiting ? "hover:text-amber-300 hover:scale-110 cursor-pointer transition-transform" : ""
+            }`}
+            title={isWaiting ? "Click to add bot" : undefined}
+          >
+            +
+          </button>
         ) : (
           <div className="relative rounded-full overflow-hidden">
             <AvatarChip username={seat.username} avatar={seat.avatar} />
@@ -108,7 +122,7 @@ export function SeatCard({
       {!empty && (
         <div className="mt-1 flex flex-col items-center">
           <div
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.2rem] sm:max-w-[6.8rem] truncate ${
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.6rem] sm:max-w-[7.2rem] truncate ${
               seat.isInactive
                 ? "bg-black/60 border-white/10 text-white/40"
                 : isActing
@@ -120,8 +134,9 @@ export function SeatCard({
                 : "bg-black/80 border-white/10 text-white/90 font-medium"
             }`}
           >
-            <p className="truncate text-[8.5px] sm:text-[10px] text-center w-full">
-              {isMe ? "YOU" : isTeammate ? "PARTNER" : seat.username}
+            <p className="truncate text-[8.5px] sm:text-[10px] text-center w-full flex items-center justify-center gap-0.5">
+              {isBot && <span className="text-[8px] sm:text-[9px]">🤖</span>}
+              <span className="truncate">{isMe ? "YOU" : isTeammate ? "PARTNER" : seat.username}</span>
             </p>
           </div>
           {seat.isInactive && (
@@ -140,9 +155,17 @@ export function SeatCard({
         </div>
       )}
       {empty && (
-        <span className="mt-1 text-[8px] sm:text-[9px] font-bold text-white/30 tracking-wider uppercase">
-          Open
-        </span>
+        <button
+          type="button"
+          onClick={isWaiting ? onFillBots : undefined}
+          className={`mt-1 text-[8px] sm:text-[9px] font-bold tracking-wider uppercase transition-all ${
+            isWaiting
+              ? "text-amber-300 hover:text-amber-200 cursor-pointer bg-amber-400/15 hover:bg-amber-400/25 px-1.5 py-0.5 rounded-full ring-1 ring-amber-400/30"
+              : "text-white/30"
+          }`}
+        >
+          {isWaiting ? "+ Bot" : "Open"}
+        </button>
       )}
     </div>
   );

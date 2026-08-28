@@ -23,7 +23,7 @@ const REL_POS: Record<number, string> = {
 const TN_DEBUG_UI = process.env.NEXT_PUBLIC_TN_DEBUG === "1";
 
 export function TwentyNineView() {
-  const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound } = useGame();
+  const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots } = useGame();
   const [showRules, setShowRules] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -37,6 +37,9 @@ export function TwentyNineView() {
 
   const mySeat = me?.seatIndex ?? null;
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
+  const seatedCount = tnState.seats.filter((s) => s.username !== null).length;
+  const neededCount = 4 - seatedCount;
+
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(me?.roomCode ?? "");
@@ -61,6 +64,14 @@ export function TwentyNineView() {
           </button>
         </div>
         <div className="flex items-center gap-1.5">
+          {tnState.phase === "WAITING_FOR_PLAYERS" && (
+            <button
+              onClick={tnFillBots}
+              className="rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 px-2.5 sm:px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-950 shadow-glowGold hover:brightness-110 active:scale-95 transition-all cursor-pointer ring-1 ring-white/30"
+            >
+              🤖 Fill Bots
+            </button>
+          )}
           <button
             onClick={() => setShowRules(true)}
             className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
@@ -116,6 +127,28 @@ export function TwentyNineView() {
               <TrumpBanner state={tnState} />
             </div>
 
+            {/* Waiting for Players overlay inside the felt */}
+            {tnState.phase === "WAITING_FOR_PLAYERS" && (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-4 bg-black/45 backdrop-blur-[2px] rounded-[1.8rem] sm:rounded-[50%] select-none animate-riseFade">
+                <div className="flex flex-col items-center text-center max-w-xs sm:max-w-sm space-y-2 sm:space-y-3">
+                  <div className="flex items-center gap-2 rounded-full bg-amber-400/20 px-3 py-1 border border-amber-400/40 text-amber-300 text-xs font-black uppercase tracking-wider">
+                    <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                    Waiting for Players ({seatedCount}/4)
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-white/70">
+                    Need <b className="text-white font-bold">{neededCount}</b> more player{neededCount > 1 ? "s" : ""}. Share code <span className="font-mono text-gold font-bold">{me?.roomCode}</span> or start with AI bots:
+                  </p>
+                  <button
+                    onClick={tnFillBots}
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 px-4 py-2 text-xs sm:text-sm font-black text-slate-950 uppercase tracking-wider shadow-glowGold hover:scale-105 active:scale-95 transition-all cursor-pointer ring-1 ring-white/40"
+                  >
+                    <span>🤖</span>
+                    <span>Fill with Bots ({neededCount})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Scoreboards inside the felt */}
             <div className="absolute left-[28%] top-[20%] sm:top-[22%] -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
               <PhysicalScoreBoard team="my" score={tnState.matchScore[myTeam ?? "A"]} />
@@ -140,6 +173,8 @@ export function TwentyNineView() {
                   isActing={tnState.actingSeatIndex === s.seatIndex && s.username !== null}
                   isMe={isMe}
                   myTeam={myTeam as "A" | "B" | null}
+                  onFillBots={tnFillBots}
+                  isWaiting={tnState.phase === "WAITING_FOR_PLAYERS"}
                 />
               </div>
             );

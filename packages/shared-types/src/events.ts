@@ -101,6 +101,7 @@ export interface ClientToServerEvents {
   GAME29_DECLARE_MARRIAGE: (payload: TnDeclareMarriagePayload) => void;
   GAME29_PLAY_CARD: (payload: TnPlayCardPayload) => void;
   GAME29_SINGLE_HAND_DECISION: (payload: TnSingleHandDecisionPayload) => void;
+  GAME29_FILL_BOTS: () => void;
 }
 
 /** Acknowledgement payload for CREATE_ROOM / JOIN_ROOM / RECONNECT. */

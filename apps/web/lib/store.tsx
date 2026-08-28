@@ -145,6 +145,7 @@ export interface GameContextValue {
   tnDeclareMarriage: (suit: TnSuit) => void;
   tnPlayCard: (card: TnCard) => void;
   tnSingleHandDecision: (declare: boolean) => void;
+  tnFillBots: () => void;
 }
 
 // Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
@@ -645,6 +646,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     void unlockAudio();
     socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
   }, []);
+  const tnFillBotsFn = useCallback(() => {
+    void unlockAudio();
+    socketRef.current?.emit("GAME29_FILL_BOTS");
+  }, []);
 
   const toggleSound = useCallback(() => {
     void unlockAudio();
@@ -700,6 +705,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnDeclareMarriage: tnDeclareMarriageFn,
       tnPlayCard: tnPlayCardFn,
       tnSingleHandDecision: tnSingleHandDecisionFn,
+      tnFillBots: tnFillBotsFn,
     }),
     [
       status, isReconnecting, audioUnlocked, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
@@ -707,7 +713,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,
-      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn,
+      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn, tnFillBotsFn,
     ]
   );
 

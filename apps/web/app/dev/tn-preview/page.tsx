@@ -161,6 +161,7 @@ export default function TnPreviewPage() {
       tnDeclareMarriage: noop,
       tnPlayCard: noop,
       tnSingleHandDecision: noop,
+      tnFillBots: noop,
     };
   }, [state]);
 

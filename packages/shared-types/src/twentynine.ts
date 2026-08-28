@@ -108,6 +108,8 @@ export interface TnSeatView {
   cardsRemaining: number;
   /** True when this seat is sitting out (e.g. partner of Single Hand player). */
   isInactive?: boolean;
+  /** True when this seat is controlled by a bot. */
+  isBot?: boolean;
 }
 
 // ---- Phases -------------------------------------------------------------------

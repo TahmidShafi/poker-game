@@ -348,6 +348,12 @@ export function registerSocketHandlers(
       tn.game29PlayCard(socket.id, { suit: (payload.card as TnCard).suit, rank: (payload.card as TnCard).rank });
     });
 
+    socket.on("GAME29_FILL_BOTS", () => {
+      const tn = tnRoomOf();
+      if (!tn) return;
+      tn.game29FillBots(socket.id);
+    });
+
     // ---- DISCONNECT ----------------------------------------------------------
     socket.on("disconnect", () => {
       const room = findRoomOf(registry, socket.id);

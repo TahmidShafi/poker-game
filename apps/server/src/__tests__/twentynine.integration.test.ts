@@ -761,6 +761,50 @@ describe("twenty-nine: multiplayer integration", () => {
   );
 
   it(
+    "bot filling: 3 real players + 1 bot fills remaining seat and starts match",
+    async () => {
+      const s0 = connect();
+      const s1 = connect();
+      const s2 = connect();
+      const log0 = recorder(s0);
+
+      const ack0 = await emitAck(s0, "CREATE_ROOM", {
+        username: "Player1",
+        startingCoins: 1000,
+        gameType: "TWENTY_NINE",
+      });
+      expect(ack0.ok).toBe(true);
+      const code = ack0.roomCode!;
+
+      const ack1 = await emitAck(s1, "JOIN_ROOM", { username: "Player2", roomCode: code });
+      expect(ack1.ok).toBe(true);
+      const ack2 = await emitAck(s2, "JOIN_ROOM", { username: "Player3", roomCode: code });
+      expect(ack2.ok).toBe(true);
+
+      // Verify currently 3 players in WAITING_FOR_PLAYERS
+      const mid = await waitFor(null, () => latestOf(log0), (s) => s.seats.filter((x) => x.username !== null).length === 3, 4000);
+      expect(mid.phase).toBe("WAITING_FOR_PLAYERS");
+
+      // Player 1 requests filling the remaining seat with bots
+      s0.emit("GAME29_FILL_BOTS");
+
+      // Verify all 4 seats are full and the 4th is a bot
+      const started = await waitFor(null, () => latestOf(log0), (s) => s.seats.every((x) => x.username !== null), 4000);
+      const bots = started.seats.filter((s) => s.isBot || /^Bot /.test(s.username ?? ""));
+      expect(bots).toHaveLength(1);
+
+      // Auto start transitions to BIDDING
+      const bidding = await waitFor(null, () => latestOf(log0), (s) => s.phase === "BIDDING", 6000);
+      expect(bidding.phase).toBe("BIDDING");
+
+      s0.disconnect();
+      s1.disconnect();
+      s2.disconnect();
+    },
+    20000
+  );
+
+  it(
     "SINGLE HAND mode: declaration plays solo, partner sits out with isInactive flag",
     async () => {
       const { seats } = await makeTnRoom(false);

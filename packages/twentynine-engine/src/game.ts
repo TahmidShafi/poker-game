@@ -40,6 +40,7 @@ export interface TnEngineSeat {
   hand: TnCard[];
   batch1: TnCard[];
   batch2: TnCard[];
+  isBot?: boolean;
 }
 
 /**
@@ -1000,6 +1001,7 @@ export function toPublicTwentyNineState(
     status: s.username === null ? "EMPTY" : s.connected ? "SEATED" : "DISCONNECTED",
     cardsRemaining: s.hand.length,
     isInactive: state.isSingleHand ? s.seatIndex === state.inactiveSeatIndex : false,
+    isBot: s.isBot,
   }));
 
   return {
