@@ -148,8 +148,8 @@ export function RoundBanner() {
     pointsAwardedText = "+3 Match Points";
   } else if (summary.endReason === "SINGLE_HAND_FAIL") {
     title = iWon ? "🛡️ SINGLE HAND DEFEATED!" : "❌ SINGLE HAND FAILED";
-    subtitle = "Single hand attempt failed. Opponent receives +3 points.";
-    pointsAwardedText = iWon ? "+3 Match Points" : "Opponents +3 Match Points";
+    subtitle = "Single hand attempt failed. Caller's team loses 3 points.";
+    pointsAwardedText = iWon ? "Opponent -3 Match Points" : "-3 Match Points";
   } else if (summary.endReason === "FULL_BOARD") {
     title = "🌟 FULL BOARD!";
     subtitle = "All 8 tricks won by bidding team!";
@@ -216,11 +216,11 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
           <li>• Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0→3→2→1→0.</li>
           <li>• 32-card deck (7–A). Eight cards each, dealt in two batches of four.</li>
           <li>• Bid 16–28. Raise the other team by any amount, or MATCH their value once; your own side must always go strictly higher.</li>
-          <li>• Single Hand (Solo): After 8 cards are dealt, any player can declare Single Hand in turn order. The player plays alone without trump and must win all 8 tricks (+3 match points). Losing even one trick awards +3 match points to opponents immediately.</li>
+          <li>• Single Hand (Solo): After 8 cards are dealt, any player can declare Single Hand in turn order. The player plays alone without trump and must win all 8 tricks (+3 match points). Losing even one trick loses 3 match points (-3) immediately.</li>
           <li>• Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
           <li>• Points: J=3, 9=2, A=1, 10=1. Last trick +1 → always 29 total.</li>
           <li>• Trump stays 🔒 HIDDEN until someone void in the led suit calls it — reveal and playing are separate actions.</li>
-          <li>• Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it — bidding team needs bid-4, defending team pushes it to bid+4.</li>
+          <li>• Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it — bidding team lowers requirement by 4 (min 16), defending team pushes it to bid+4.</li>
           <li>• Bidding team scores at captured &ge; requirement; otherwise defenders do. First team to {tnState?.roundsToWin ?? 6} round-wins takes the match.</li>
         </ul>
         <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">

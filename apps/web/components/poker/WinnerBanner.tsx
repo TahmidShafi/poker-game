@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import type { ShowdownResult } from "@poker/shared-types";
 import { describeHand } from "@poker/shared-types";
 import { PlayingCard } from "../common/PlayingCard";
@@ -33,20 +33,29 @@ export function WinnerBanner({
     return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [results]);
 
+  if (grouped.length === 0) return null;
+
   return (
-    <div className="fixed inset-x-0 top-20 z-40 flex justify-center px-4">
-      <div className="w-full max-w-md rounded-3xl bg-panel p-4 shadow-panel ring-1 line animate-riseFade" role="status">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-black uppercase tracking-widest text-gold">Showdown</h3>
-          <button className="text-xs text-white/50 hover:text-white" onClick={onClose}>
-            dismiss
+    <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4 pointer-events-auto">
+      <div className="w-full max-w-md rounded-3xl bg-panel/95 backdrop-blur p-4 shadow-panel ring-1 line animate-riseFade" role="status">
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">🏆</span>
+            <h3 className="text-xs font-black uppercase tracking-widest text-gold">Showdown Results</h3>
+          </div>
+          <button
+            className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-white/60 hover:bg-white/20 hover:text-white transition-colors"
+            onClick={onClose}
+          >
+            ✕ Dismiss
           </button>
         </div>
-        <ul className="space-y-2.5">
+
+        <ul className="space-y-2">
           {grouped.map(([seatIndex, info]) => (
-            <li key={seatIndex} className="rounded-2xl bg-white/[0.05] p-3">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="flex items-center gap-2 font-bold">
+            <li key={seatIndex} className="rounded-2xl bg-white/[0.05] p-3 ring-1 ring-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 font-bold text-sm">
                   <span className="h-6 w-6 shrink-0 overflow-hidden rounded-full ring-1 ring-white/15">
                     <SeatAvatar
                       username={info.username}
@@ -55,17 +64,21 @@ export function WinnerBanner({
                   </span>
                   {info.username}
                 </span>
-                <span className="text-gold font-bold tabnum">+{info.total.toLocaleString()}</span>
+                {info.total > 0 && (
+                  <span className="text-sm font-black text-gold tabnum bg-gold/15 px-2 py-0.5 rounded-lg ring-1 ring-gold/30">
+                    +{info.total.toLocaleString()}
+                  </span>
+                )}
               </div>
-              <div className="mt-0.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-emerald-300/90">
-                  {info.hand ? describeHand(info.hand) : "won without showdown"}
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-emerald-300">
+                  {info.hand ? describeHand(info.hand) : "Won uncontested"}
                 </span>
               </div>
-              {info.hand && (
-                <div className="mt-1.5 flex gap-0.5">
+              {info.hand && info.hand.bestFive && (
+                <div className="mt-2 flex gap-1 justify-start">
                   {info.hand.bestFive.map((c, i) => (
-                    <PlayingCard key={i} card={c} size="xs" animate="flip" delay={i * 70} />
+                    <PlayingCard key={i} card={c} size="xs" animate="flip" delay={i * 80} />
                   ))}
                 </div>
               )}

@@ -12,7 +12,7 @@ export function Panel({
 }) {
   return (
     <div className="rounded-2xl bg-panel p-4 ring-1 line shadow-panel">
-      <div className="mb-2.5 text-[10px] font-black uppercase tracking-[0.22em] text-white/40">
+      <div className="mb-2.5 text-[10px] font-black uppercase tracking-[0.22em] text-white/60">
         {title}
       </div>
       {children}
@@ -23,7 +23,7 @@ export function Panel({
 function Row({ label, value, gold }: { label: string; value: React.ReactNode; gold?: boolean }) {
   return (
     <div className="flex items-center justify-between py-[3px] text-xs">
-      <span className="text-white/50">{label}</span>
+      <span className="text-white/70">{label}</span>
       <span className={`font-bold tabnum ${gold ? "text-gold" : "text-white/85"}`}>{value}</span>
     </div>
   );

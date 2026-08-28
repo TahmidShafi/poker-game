@@ -55,9 +55,13 @@ describe("marriage trump", () => {
     expect(MARRIAGE_BONUS).toBe(4);
   });
 
-  it("bidding team marriage lowers the requirement by 4", () => {
+  it("bidding team marriage lowers the requirement by 4 (floor at 16)", () => {
     expect(marriageAdjustedRequirement(20, "A", "A")).toBe(16);
-    expect(marriageAdjustedRequirement(17, "B", "B")).toBe(13);
+    expect(marriageAdjustedRequirement(19, "B", "B")).toBe(16);
+    expect(marriageAdjustedRequirement(18, "B", "B")).toBe(16);
+    expect(marriageAdjustedRequirement(17, "B", "B")).toBe(16);
+    expect(marriageAdjustedRequirement(16, "B", "B")).toBe(16);
+    expect(marriageAdjustedRequirement(24, "A", "A")).toBe(20);
   });
 
   it("defending team marriage raises the requirement by 4", () => {

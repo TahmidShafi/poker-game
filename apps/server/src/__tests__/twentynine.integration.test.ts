@@ -645,8 +645,11 @@ describe("twenty-nine: multiplayer integration", () => {
       const fin = seats[0]!.log.find((e) => e.ev === "TN_ROUND_FINISHED")!;
       const summary = (fin.data as { summary: { captured: { A: number; B: number }; marriageTeam: string | null; bid: number; requirement: number } }).summary;
       expect(summary.captured.A + summary.captured.B).toBe(29);
-      if (summary.marriageTeam === null) expect(summary.requirement).toBe(summary.bid);
-      else expect(Math.abs(summary.requirement - summary.bid)).toBe(4);
+      if (summary.marriageTeam === null) {
+        expect(summary.requirement).toBe(summary.bid);
+      } else {
+        expect([Math.max(16, summary.bid - 4), summary.bid + 4]).toContain(summary.requirement);
+      }
     },
     45000
   );

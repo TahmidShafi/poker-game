@@ -49,24 +49,29 @@ export function ActionBar({
   const turnTimeMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
   const remaining = useCountdown(isMyTurn ? turnDeadline : null, isMyTurn);
 
-  const [raiseTo, setRaiseTo] = useState(legal.minRaiseTo);
+  const [raiseInput, setRaiseInput] = useState<string>(String(legal.minRaiseTo));
+
   useEffect(() => {
-    setRaiseTo(Math.min(legal.minRaiseTo, legal.maxRaiseTo));
+    setRaiseInput(String(Math.min(legal.minRaiseTo, legal.maxRaiseTo)));
   }, [legal.minRaiseTo, legal.maxRaiseTo, isMyTurn]);
+
+  const parsedRaise = Number(raiseInput) || legal.minRaiseTo;
+  const clampedRaise = Math.min(Math.max(parsedRaise, legal.minRaiseTo), legal.maxRaiseTo);
 
   const doAct = (a: PlayerAction, amount?: number) => {
     if (a === "BET" || a === "RAISE") {
-      if (amount === undefined || amount < legal.minRaiseTo || amount > legal.maxRaiseTo) {
-        pushToast(`raise must be ${legal.minRaiseTo}-${legal.maxRaiseTo}`);
+      const target = amount ?? clampedRaise;
+      if (target < legal.minRaiseTo || target > legal.maxRaiseTo) {
+        pushToast(`amount must be ${legal.minRaiseTo}-${legal.maxRaiseTo}`);
         return;
       }
+      act(a, target);
+      return;
     }
     act(a, amount);
   };
 
   // Keyboard shortcuts: F/C/R/A + arrows nudge raise by one big blind.
-  // Desktop-viewport only (width and height): the mobile action bar is mounted
-  // alongside this one on compact screens, and both must never fire together.
   const isDesktopViewport = useMediaQuery("(min-width: 768px) and (min-height: 520px)");
   useEffect(() => {
     if (!isMyTurn || !isDesktopViewport) return;
@@ -76,27 +81,47 @@ export function ActionBar({
       if (k === "f") doAct("FOLD");
       else if (k === "c" && legal.actions.includes("CHECK")) doAct("CHECK");
       else if (k === "c" && legal.actions.includes("CALL")) doAct("CALL");
-      else if (k === "r" && legal.actions.includes("RAISE")) doAct("RAISE", raiseTo);
-      else if (k === "a" && legal.actions.includes("ALL_IN")) doAct("ALL_IN");
-      else if (e.key === "ArrowUp") setRaiseTo((v) => Math.min(legal.maxRaiseTo, v + state.bigBlind));
-      else if (e.key === "ArrowDown") setRaiseTo((v) => Math.max(legal.minRaiseTo, v - state.bigBlind));
+      else if (k === "r" && (legal.actions.includes("RAISE") || legal.actions.includes("BET"))) {
+        doAct(state.currentBet === 0 ? "BET" : "RAISE", clampedRaise);
+      } else if (k === "a" && legal.actions.includes("ALL_IN")) doAct("ALL_IN");
+      else if (e.key === "ArrowUp") {
+        setRaiseInput((v) => String(Math.min(legal.maxRaiseTo, (Number(v) || legal.minRaiseTo) + state.bigBlind)));
+      } else if (e.key === "ArrowDown") {
+        setRaiseInput((v) => String(Math.max(legal.minRaiseTo, (Number(v) || legal.minRaiseTo) - state.bigBlind)));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMyTurn, isDesktopViewport, legal, raiseTo, state.bigBlind]);
+  }, [isMyTurn, isDesktopViewport, legal, clampedRaise, state.currentBet, state.bigBlind]);
 
   const presets = useMemo(() => {
-    const pot = state.seats.reduce((s, x) => s + x.totalInvestedThisHand, 0);
+    const potTotal =
+      state.pots.reduce((s, p) => s + p.amount, 0) ||
+      state.seats.reduce((s, x) => s + x.totalInvestedThisHand, 0);
+
+    const isBet = state.currentBet === 0;
     const mk = (label: string, v: number) => ({
       label,
-      value: Math.min(Math.max(legal.minRaiseTo, Math.floor(v)), legal.maxRaiseTo),
+      value: Math.min(Math.max(legal.minRaiseTo, Math.round(v)), legal.maxRaiseTo),
     });
+
+    if (isBet) {
+      return [
+        mk("25%", potTotal * 0.25),
+        mk("50%", potTotal * 0.5),
+        mk("75%", potTotal * 0.75),
+        mk("POT", potTotal),
+        mk("ALL-IN", legal.maxRaiseTo),
+      ];
+    }
+
+    // Facing a bet: standard pot-raise formula
+    const callAmt = legal.callAmount;
+    const potAfterCall = potTotal + callAmt;
     return [
-      mk("25%", legal.minRaiseTo + (pot - state.currentBet) * 0.25),
-      mk("50%", legal.minRaiseTo + (pot - state.currentBet) * 0.5),
-      mk("75%", legal.minRaiseTo + (pot - state.currentBet) * 0.75),
-      mk("POT", state.currentBet + pot),
+      mk("50%", state.currentBet + potAfterCall * 0.5),
+      mk("75%", state.currentBet + potAfterCall * 0.75),
+      mk("POT", state.currentBet + potAfterCall),
       mk("ALL-IN", legal.maxRaiseTo),
     ];
   }, [state, legal]);
@@ -108,7 +133,7 @@ export function ActionBar({
   if (!inHand) {
     if (seat.status === "BUSTED") return <BustedPanel seat={seat} />;
     return (
-      <div className="rounded-2xl bg-panel px-5 py-4 text-center text-sm text-white/50 ring-1 line">
+      <div className="rounded-2xl bg-panel px-5 py-4 text-center text-sm text-white/50 ring-1 line shadow-panel">
         {seat.status === "SITTING_OUT"
           ? "You'll be dealt in on the next hand"
           : seat.status === "FOLDED"
@@ -121,27 +146,43 @@ export function ActionBar({
   // ---------- Not my turn ----------
   if (!isMyTurn) {
     return (
-      <div className="rounded-2xl bg-panel p-4 ring-1 line flex items-center justify-between gap-3">
-        <span className="text-sm text-white/55">
+      <div className="rounded-2xl bg-panel p-4 ring-1 line flex items-center justify-between gap-3 shadow-panel">
+        <span className="text-sm text-white/60">
           {seat.preAction ? (
-            <>Queued: <b className="text-sky-300">will {seat.preAction.toLowerCase()}</b></>
+            <>Queued: <b className="text-sky-300">will {seat.preAction === "CHECK" ? "check/fold" : "fold"}</b></>
           ) : (
             "Waiting for other players…"
           )}
         </span>
         <div className="flex gap-2">
           <button
-            className="rounded-xl bg-sky-500/15 px-4 py-2.5 text-sm font-bold text-sky-200 ring-1 ring-sky-400/30 hover:bg-sky-500/25"
+            className={`rounded-xl px-4 py-2.5 text-sm font-bold ring-1 transition-colors ${
+              seat.preAction === "CHECK"
+                ? "bg-sky-500/25 text-sky-200 ring-sky-400/50"
+                : "bg-sky-500/10 text-sky-200/80 ring-sky-400/20 hover:bg-sky-500/20"
+            }`}
             onClick={() => setPreaction(seat.preAction === "CHECK" ? null : "CHECK")}
           >
             Check/Fold ahead
           </button>
           <button
-            className="rounded-xl bg-white/5 px-4 py-2.5 text-sm font-bold text-white/70 ring-1 ring-white/10"
-            onClick={() => setPreaction(null)}
+            className={`rounded-xl px-4 py-2.5 text-sm font-bold ring-1 transition-colors ${
+              seat.preAction === "FOLD"
+                ? "bg-crimson/25 text-red-200 ring-crimson/50"
+                : "bg-crimson/10 text-red-200/80 ring-crimson/20 hover:bg-crimson/20"
+            }`}
+            onClick={() => setPreaction(seat.preAction === "FOLD" ? null : "FOLD")}
           >
-            Clear
+            Auto Fold
           </button>
+          {seat.preAction && (
+            <button
+              className="rounded-xl bg-white/5 px-3 py-2.5 text-sm font-bold text-white/60 ring-1 ring-white/10 hover:bg-white/10"
+              onClick={() => setPreaction(null)}
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
     );
@@ -149,17 +190,17 @@ export function ActionBar({
 
   // ---------- My turn ----------
   const canRaise = legal.actions.includes("BET") || legal.actions.includes("RAISE");
-  const clampedRaise = Math.min(Math.max(raiseTo, legal.minRaiseTo), legal.maxRaiseTo);
+  const isBetting = state.currentBet === 0;
 
   const stepperBtn =
-    "grid h-9 w-9 place-items-center rounded-lg bg-white/8 text-lg font-bold text-gold hover:bg-gold/20 active:scale-90 transition-transform";
+    "grid h-9 w-9 place-items-center rounded-lg bg-white/8 text-lg font-bold text-gold hover:bg-gold/20 active:scale-90 transition-transform select-none";
 
   return (
-    <div className="rounded-2xl bg-panel ring-1 line p-4">
+    <div className="rounded-2xl bg-panel ring-1 line p-4 shadow-panel">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
         {/* TIME LEFT ring */}
         <div className="mx-auto flex w-[110px] shrink-0 flex-col items-center justify-center gap-1.5 sm:mx-0">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/65">
             Time Left
           </span>
           <TimerRing remainingMs={remaining} totalMs={turnTimeMs}>
@@ -167,12 +208,17 @@ export function ActionBar({
               <span
                 className={`text-xl font-black tabnum ${
                   remaining > 0 && remaining < 5000
-                    ? "text-crimson"
+                    ? "text-crimson animate-pulse"
                     : remaining > 0 && remaining < 10000
                     ? "text-amber-400"
                     : "text-gold"
                 }`}
               >
+                {remaining > 0 && remaining < 5000 ? (
+                  <span className="text-base font-black">!</span>
+                ) : remaining > 0 && remaining < 10000 ? (
+                  <span className="text-base font-black">⚠</span>
+                ) : null}
                 {Math.ceil(remaining / 1000)}s
               </span>
             </div>
@@ -185,19 +231,18 @@ export function ActionBar({
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 text-xs">
             <span className="font-semibold text-white/70">
               <span className="mr-1 text-gold">♥</span> Call Amount:{" "}
-              <b className="text-gold tabnum">{Math.min(legal.callAmount, seat.coins)}</b>
+              <b className="text-gold tabnum">{Math.min(legal.callAmount, seat.coins).toLocaleString()}</b>
             </span>
             {canRaise && (
-              <span className="text-white/45">
-                Min Raise: <b className="text-white/80 tabnum">{legal.minRaiseTo.toLocaleString()}</b>
+              <span className="text-white/65">
+                Min {isBetting ? "Bet" : "Raise"}: <b className="text-white/80 tabnum">{legal.minRaiseTo.toLocaleString()}</b>
                 <span className="mx-2">|</span>
-                Max Raise:{" "}
-                <b className="text-white/80 tabnum">{legal.maxRaiseTo.toLocaleString()}</b>
+                Max: <b className="text-white/80 tabnum">{legal.maxRaiseTo.toLocaleString()}</b>
               </span>
             )}
           </div>
 
-          {/* Primary buttons */}
+          {/* Primary action buttons */}
           <div className="flex flex-wrap gap-2">
             <button
               className={`${btnBase} bg-crimson text-white shadow-[0_4px_0_#7f1d1d] hover:brightness-110`}
@@ -205,6 +250,7 @@ export function ActionBar({
             >
               <span className="mr-1">✕</span> Fold
             </button>
+
             {legal.actions.includes("CHECK") && (
               <button
                 className={`${btnBase} bg-emerald-600 text-white shadow-[0_4px_0_#14532d] hover:brightness-110`}
@@ -213,6 +259,7 @@ export function ActionBar({
                 <span className="mr-1">✓</span> Check
               </button>
             )}
+
             {legal.actions.includes("CALL") && (
               <button
                 className={`${btnBase} bg-blue-600 text-white shadow-[0_4px_0_#1e3a8a] hover:brightness-110`}
@@ -224,44 +271,40 @@ export function ActionBar({
                 </div>
               </button>
             )}
-            {legal.actions.includes("BET") && (
-              <button
-                className={`${btnBase} bg-violet-600 text-white shadow-[0_4px_0_#4c1d95] hover:brightness-110`}
-                onClick={() => doAct("BET", clampedRaise)}
-              >
-                Bet
-              </button>
-            )}
+
             {canRaise && (
               <div className="flex min-w-[150px] flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-panel2 px-3 py-1.5 ring-1 line">
                 <span className="text-[9px] font-black uppercase tracking-[0.18em] text-gold">
-                  Raise To
+                  {isBetting ? "Bet Amount" : "Raise To"}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     className={stepperBtn}
-                    onClick={() => setRaiseTo((v) => Math.max(legal.minRaiseTo, v - state.bigBlind))}
+                    onClick={() =>
+                      setRaiseInput(String(Math.max(legal.minRaiseTo, clampedRaise - state.bigBlind)))
+                    }
                   >
                     −
                   </button>
                   <input
                     type="number"
                     className="w-20 bg-transparent text-right text-lg font-black text-white tabnum focus:outline-none"
-                    value={clampedRaise}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (!Number.isNaN(v)) setRaiseTo(v);
-                    }}
+                    value={raiseInput}
+                    onBlur={() => setRaiseInput(String(clampedRaise))}
+                    onChange={(e) => setRaiseInput(e.target.value)}
                   />
                   <button
                     className={stepperBtn}
-                    onClick={() => setRaiseTo((v) => Math.min(legal.maxRaiseTo, v + state.bigBlind))}
+                    onClick={() =>
+                      setRaiseInput(String(Math.min(legal.maxRaiseTo, clampedRaise + state.bigBlind)))
+                    }
                   >
                     +
                   </button>
                 </div>
               </div>
             )}
+
             <button
               className={`${btnBase} bg-amber-500 text-ink shadow-[0_4px_0_#92400e] hover:brightness-110`}
               onClick={() => doAct("ALL_IN")}
@@ -273,7 +316,7 @@ export function ActionBar({
             </button>
           </div>
 
-          {/* Slider */}
+          {/* Slider & Presets */}
           {canRaise && (
             <>
               <input
@@ -282,18 +325,19 @@ export function ActionBar({
                 max={legal.maxRaiseTo}
                 step={Math.max(1, Math.floor(state.bigBlind / 2))}
                 value={clampedRaise}
-                onChange={(e) => setRaiseTo(Number(e.target.value))}
+                onChange={(e) => setRaiseInput(e.target.value)}
                 className="w-full accent-violet-500"
               />
-              {/* Presets right-aligned */}
+
+              {/* Presets */}
               <div className="flex flex-wrap justify-end gap-1.5">
                 {presets.map((p) => (
                   <button
                     key={p.label}
-                    onClick={() => setRaiseTo(p.value)}
+                    onClick={() => setRaiseInput(String(p.value))}
                     className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ring-1 transition-colors ${
                       clampedRaise === p.value
-                        ? "bg-violet-600/30 text-violet-200 ring-violet-400/40"
+                        ? "bg-violet-600/35 text-violet-200 ring-violet-400/50"
                         : "bg-white/5 text-white/60 ring-white/10 hover:bg-white/10"
                     }`}
                   >
@@ -301,21 +345,23 @@ export function ActionBar({
                   </button>
                 ))}
               </div>
+
+              {/* Confirm Bet / Raise Button */}
               <button
-                className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] transition-all active:scale-[0.99] disabled:opacity-40"
+                className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] transition-all active:scale-[0.99] hover:brightness-110 disabled:opacity-40"
                 disabled={
-                  raiseTo < legal.minRaiseTo ||
-                  raiseTo > legal.maxRaiseTo ||
-                  (raiseTo <= state.currentBet && raiseTo !== legal.maxRaiseTo)
+                  clampedRaise < legal.minRaiseTo ||
+                  clampedRaise > legal.maxRaiseTo ||
+                  (clampedRaise <= state.currentBet && clampedRaise !== legal.maxRaiseTo)
                 }
                 onClick={() =>
                   doAct(
-                    state.currentBet === 0 ? "BET" : "RAISE",
+                    isBetting ? "BET" : "RAISE",
                     clampedRaise
                   )
                 }
               >
-                {state.currentBet === 0 ? "Bet" : "Raise"} to{" "}
+                {isBetting ? "Bet" : "Raise to"}{" "}
                 <span className="tabnum">{clampedRaise.toLocaleString()}</span>
               </button>
             </>
@@ -336,14 +382,14 @@ export function BustedPanel({ seat }: { seat: Seat }) {
   const { requestLoan, state, me } = useGame();
   const [amount, setAmount] = useState(state?.bigBlind ?? 20);
   const [creditor, setCreditor] = useState<number | null>(null);
-  const creditors = state!.seats.filter(
+  const creditors = (state?.seats ?? []).filter(
     (s) => s.username && s.seatIndex !== seat.seatIndex && s.coins > 0
   );
   const cap = me?.config?.startingCoins ?? 1000;
-  const maxFor = (i: number) => Math.min(cap, state!.seats[i]?.coins ?? 0);
+  const maxFor = (i: number) => Math.min(cap, state?.seats[i]?.coins ?? 0);
 
   return (
-    <div className="rounded-2xl bg-panel p-5 ring-1 line space-y-3">
+    <div className="rounded-2xl bg-panel p-5 ring-1 line space-y-3 shadow-panel">
       <div className="text-center">
         <div className="font-black uppercase tracking-wide text-crimson">You&apos;re busted</div>
         <div className="text-xs text-white/50">
@@ -358,7 +404,7 @@ export function BustedPanel({ seat }: { seat: Seat }) {
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${
               creditor === c.seatIndex
                 ? "bg-accent/25 text-violet-200 ring-accent/50"
-                : "bg-white/5 text-white/60 ring-white/10"
+                : "bg-white/5 text-white/60 ring-white/10 hover:bg-white/10"
             }`}
           >
             {c.username} · {c.coins.toLocaleString()}
@@ -369,14 +415,14 @@ export function BustedPanel({ seat }: { seat: Seat }) {
         <div className="flex items-center justify-center gap-2">
           <input
             type="number"
-            className="w-28 rounded-lg bg-black/40 px-2 py-1.5 text-right text-sm font-bold text-gold tabnum ring-1 ring-white/10"
+            className="w-28 rounded-lg bg-black/40 px-2 py-1.5 text-right text-sm font-bold text-gold tabnum ring-1 ring-white/10 focus:outline-none"
             value={amount}
             min={state?.bigBlind ?? 20}
             max={maxFor(creditor)}
             onChange={(e) => setAmount(Number(e.target.value))}
           />
           <button
-            className="rounded-xl bg-accent px-5 py-2 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] active:scale-95"
+            className="rounded-xl bg-accent px-5 py-2 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] active:scale-95 hover:brightness-110"
             onClick={() => creditor !== null && requestLoan(creditor, amount)}
           >
             Request loan
@@ -387,5 +433,4 @@ export function BustedPanel({ seat }: { seat: Seat }) {
   );
 }
 
-// Keep ChipStack referenced for potential bet-chip rendering reuse.
 void ChipStack;

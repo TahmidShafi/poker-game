@@ -6,7 +6,8 @@ import { TableState, toPublicGameState } from "@poker/engine";
  * Produces the broadcast-safe view of the table for ONE seat:
  *  - that seat keeps its own hole cards;
  *  - every other seat's hole cards are stripped UNLESS the hand is over
- *    (SHOWDOWN/PAYOUT), when all cards are public information anyway.
+ *    (SHOWDOWN/PAYOUT), when all cards are public information anyway;
+ *  - disconnected seats are tagged as DISCONNECTED for client presentation.
  *
  * This is the ONLY place hole-card visibility is decided - the browser never
  * receives hidden data to "hide with CSS".
@@ -16,7 +17,8 @@ export function serializeForSeat(
   roomCode: string,
   viewerSeatIndex: number | null,
   turnDeadline: number,
-  nextHandDeadline = 0
+  nextHandDeadline = 0,
+  disconnectedSeats?: Set<number>
 ): PublicGameState {
   const state = toPublicGameState(table, { roomCode, turnDeadline, nextHandDeadline });
 
@@ -26,6 +28,14 @@ export function serializeForSeat(
   for (const seat of state.seats) {
     if (seat.seatIndex !== viewerSeatIndex && !revealAll) {
       seat.holeCards = null;
+    }
+    if (
+      disconnectedSeats?.has(seat.seatIndex) &&
+      seat.status !== "BUSTED" &&
+      seat.status !== "FOLDED" &&
+      seat.status !== "EMPTY"
+    ) {
+      seat.status = "DISCONNECTED";
     }
   }
   return state;

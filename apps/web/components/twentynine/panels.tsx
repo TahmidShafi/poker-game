@@ -492,11 +492,14 @@ export function LiveRoundProgress({ state }: { state: PublicTwentyNineState }) {
     ? "OPPONENT (THEM)"
     : "DEFENDING (YOU)";
 
-  // Bid requirement shifts if there is a valid marriage declared
+  // Bid requirement shifts if there is a valid marriage declared (minimum 16)
   let bidRequirement = bid;
   if (state.marriageDeclaredBy) {
-    if (state.marriageDeclaredBy === biddingTeam) bidRequirement -= 4;
-    else bidRequirement += 4;
+    if (state.marriageDeclaredBy === biddingTeam) {
+      bidRequirement = Math.max(16, bidRequirement - 4);
+    } else {
+      bidRequirement += 4;
+    }
   }
 
   const bidderPoints = state.capturedPoints[biddingTeam];

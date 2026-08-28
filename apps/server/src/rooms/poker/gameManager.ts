@@ -87,6 +87,8 @@ export class GameManager {
   private autoStartTimer: NodeJS.Timeout | null = null;
   private pendingLoans = new Map<string, PendingLoan>();
   private pendingSeatRemovals = new Set<number>();
+  private disconnectedSeats = new Set<number>();
+  private disconnectTimers = new Map<number, NodeJS.Timeout>();
   private destroyed = false;
   private autoStartEnabled = true;
   private readonly createdAt = Date.now();
@@ -94,6 +96,18 @@ export class GameManager {
   /** Millis since epoch when the room was created. */
   creationTime(): number {
     return this.createdAt;
+  }
+
+  getTurnDeadline(): number {
+    return this.turnDeadline;
+  }
+
+  getNextHandDeadline(): number {
+    return this.nextHandDeadline;
+  }
+
+  getDisconnectedSeats(): Set<number> {
+    return this.disconnectedSeats;
   }
 
   constructor(
@@ -119,6 +133,8 @@ export class GameManager {
     if (this.autoStartTimer) clearTimeout(this.autoStartTimer);
     for (const loan of this.pendingLoans.values()) clearTimeout(loan.timer);
     this.pendingLoans.clear();
+    for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
+    this.disconnectTimers.clear();
     this.hooks.onRoomClosed?.(this.roomCode);
   }
 
@@ -166,12 +182,21 @@ export class GameManager {
       if (!rec) return { ok: false, error: "session not found in this room" };
       rec.socketIds.add(opts.socketId);
       rec.lastSeen = Date.now();
+      this.disconnectedSeats.delete(rec.seatIndex);
+      const timer = this.disconnectTimers.get(rec.seatIndex);
+      if (timer) {
+        clearTimeout(timer);
+        this.disconnectTimers.delete(rec.seatIndex);
+      }
       const seat = this.table.seats[rec.seatIndex]!;
       if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
       // Busted player rejoining with their token = rebuy at stored config.
       if (seat.status === "BUSTED") {
         seat.coins = this.config.startingCoins;
         seat.status = "SITTING_OUT";
+      }
+      if (seat.holeCards && seat.holeCards.length === 2) {
+        this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
       }
       this.broadcastState();
       this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
@@ -226,9 +251,22 @@ export class GameManager {
     if (!rec) return;
     rec.socketIds.add(socketId);
     rec.lastSeen = Date.now();
+    this.disconnectedSeats.delete(rec.seatIndex);
+    const timer = this.disconnectTimers.get(rec.seatIndex);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectTimers.delete(rec.seatIndex);
+    }
     const seat = this.table.seats[rec.seatIndex]!;
     if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
+    if (seat.holeCards && seat.holeCards.length === 2) {
+      this.io.to(socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
+    }
     this.broadcastState();
+    this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+      seatIndex: rec.seatIndex,
+      username: rec.username,
+    });
   }
 
   findByToken(token: string): PlayerRecord | undefined {
@@ -252,16 +290,32 @@ export class GameManager {
     rec.lastSeen = Date.now();
     if (rec.socketIds.size > 0) return; // other tabs still connected
 
+    this.disconnectedSeats.add(rec.seatIndex);
     const seat = this.table.seats[rec.seatIndex]!;
-    // Seats dealt into the live hand MUST keep their engine status (ACTIVE or
-    // ALL_IN): pot eligibility, showdown evaluation and countInHand() all key
-    // off isInHand(), and onTurnTimeout() can only fold seats where canAct()
-    // is true. Downgrading an in-hand player to DISCONNECTED used to corrupt
-    // side pots and soft-lock the table when their turn arrived.
-    if (seat.status === "ACTIVE" && !(this.isHandRunning() && isInHand(seat))) {
-      seat.status = "DISCONNECTED"; // between hands only - display-only state
+    if (seat.status === "ACTIVE" && !this.isHandRunning()) {
+      seat.status = "DISCONNECTED"; // between hands
     }
+
+    // Start 20-second disconnect grace period
+    const existing = this.disconnectTimers.get(rec.seatIndex);
+    if (existing) clearTimeout(existing);
+
+    const graceMs = 20000;
+    const timer = setTimeout(() => {
+      this.disconnectTimers.delete(rec.seatIndex);
+      this.onDisconnectGraceExpired(rec.seatIndex);
+    }, graceMs);
+    this.disconnectTimers.set(rec.seatIndex, timer);
+
     this.broadcastState();
+  }
+
+  private onDisconnectGraceExpired(seatIndex: number): void {
+    if (this.destroyed) return;
+    const { table } = this;
+    if (table.actingSeatIndex === seatIndex && this.isHandRunning()) {
+      this.onTurnTimeout();
+    }
   }
 
   leave(socketId: string): void {
@@ -858,7 +912,8 @@ export class GameManager {
         this.roomCode,
         rec.seatIndex,
         this.turnDeadline,
-        this.nextHandDeadline
+        this.nextHandDeadline,
+        this.disconnectedSeats
       );
       sio.emit("GAME_STATE", state);
     }

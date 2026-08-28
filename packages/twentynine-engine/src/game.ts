@@ -835,7 +835,12 @@ function finishHand(
     const opponentTeam = otherTeam(singleHandTeam);
     const roundWinner = endReason === "SINGLE_HAND_WIN" ? singleHandTeam : opponentTeam;
 
-    state.matchScore[roundWinner] += scorePoints;
+    if (endReason === "SINGLE_HAND_WIN") {
+      state.matchScore[singleHandTeam] += scorePoints;
+    } else {
+      state.matchScore[singleHandTeam] -= scorePoints;
+    }
+
     state.roundHistory.push(roundWinner);
     state.dealerAdvancePending = true;
     state.ledSeatIndex = null;
@@ -852,14 +857,20 @@ function finishHand(
       marriageTeam: null,
       matchScoreAfter: { A: state.matchScore.A, B: state.matchScore.B },
       trumpStyle: null,
-      scoreAwarded: scorePoints,
+      scoreAwarded: endReason === "SINGLE_HAND_WIN" ? scorePoints : -scorePoints,
       endReason,
       isSingleHand: true,
       singleHandSeatIndex: state.singleHandSeatIndex,
     };
 
-    if (state.matchScore[roundWinner] >= state.roundsToWin) {
-      state.winnerTeam = roundWinner;
+    if (
+      state.matchScore[roundWinner] >= state.roundsToWin ||
+      state.matchScore[singleHandTeam] <= -state.roundsToWin
+    ) {
+      state.winnerTeam =
+        state.matchScore[roundWinner] >= state.roundsToWin
+          ? roundWinner
+          : opponentTeam;
       state.phase = TnPhase.MATCH_OVER;
     } else {
       state.phase = TnPhase.ROUND_SCORED;

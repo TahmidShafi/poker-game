@@ -1,20 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import type { PlayerAction, PublicGameState, Seat } from "@poker/shared-types";
+import type { PlayerAction, PublicGameState } from "@poker/shared-types";
 import { useGame } from "../../lib/store";
 import { computeLegal, BustedPanel } from "./ActionBar";
 import { TimerRing, useCountdown } from "./TimerRing";
-
-/**
- * Mobile action dock — two-state progressive disclosure.
- *
- * Collapsed (default): "YOUR TURN + seconds" line and one row of
- * [FOLD] [CHECK/CALL] [RAISE]. ≈96px tall.
- * Raise: tapping RAISE swaps the bar content for an on-demand raise sheet
- * (stepper / slider / presets incl. ALL-IN / confirm). It overlays the felt
- * bottom edge only while open, then collapses back.
- */
 
 export function MobileActionBar({
   state,
@@ -34,46 +24,68 @@ export function MobileActionBar({
   const remaining = useCountdown(isMyTurn ? turnDeadline : null, isMyTurn);
 
   const canRaise = legal.actions.includes("BET") || legal.actions.includes("RAISE");
+  const isBetting = state.currentBet === 0;
   const callAmount = Math.min(legal.callAmount, seat.coins);
 
   const [raiseOpen, setRaiseOpen] = useState(false);
-  const [raiseTo, setRaiseTo] = useState(legal.minRaiseTo);
+  const [raiseInput, setRaiseInput] = useState<string>(String(legal.minRaiseTo));
 
   useEffect(() => {
-    setRaiseTo(Math.min(legal.minRaiseTo, legal.maxRaiseTo));
+    setRaiseInput(String(Math.min(legal.minRaiseTo, legal.maxRaiseTo)));
   }, [legal.minRaiseTo, legal.maxRaiseTo, isMyTurn]);
 
   useEffect(() => {
     if (!isMyTurn) setRaiseOpen(false);
   }, [isMyTurn]);
 
-  const clamped = Math.min(Math.max(raiseTo, legal.minRaiseTo), legal.maxRaiseTo);
+  const parsedRaise = Number(raiseInput) || legal.minRaiseTo;
+  const clamped = Math.min(Math.max(parsedRaise, legal.minRaiseTo), legal.maxRaiseTo);
   const validRaise =
     clamped >= legal.minRaiseTo &&
     clamped <= legal.maxRaiseTo &&
     (clamped > state.currentBet || clamped === legal.maxRaiseTo);
 
   const presets = useMemo(() => {
-    const pot = state.seats.reduce((s, x) => s + x.totalInvestedThisHand, 0);
+    const potTotal =
+      state.pots.reduce((s, p) => s + p.amount, 0) ||
+      state.seats.reduce((s, x) => s + x.totalInvestedThisHand, 0);
+
+    const isBet = state.currentBet === 0;
     const mk = (label: string, v: number) => ({
       label,
-      value: Math.min(Math.max(legal.minRaiseTo, Math.floor(v)), legal.maxRaiseTo),
+      value: Math.min(Math.max(legal.minRaiseTo, Math.round(v)), legal.maxRaiseTo),
     });
+
+    if (isBet) {
+      return [
+        mk("25%", potTotal * 0.25),
+        mk("50%", potTotal * 0.5),
+        mk("75%", potTotal * 0.75),
+        mk("POT", potTotal),
+        mk("ALL-IN", legal.maxRaiseTo),
+      ];
+    }
+
+    const callAmt = legal.callAmount;
+    const potAfterCall = potTotal + callAmt;
     return [
-      mk("25%", legal.minRaiseTo + (pot - state.currentBet) * 0.25),
-      mk("50%", legal.minRaiseTo + (pot - state.currentBet) * 0.5),
-      mk("75%", legal.minRaiseTo + (pot - state.currentBet) * 0.75),
-      mk("POT", state.currentBet + pot),
+      mk("50%", state.currentBet + potAfterCall * 0.5),
+      mk("75%", state.currentBet + potAfterCall * 0.75),
+      mk("POT", state.currentBet + potAfterCall),
       mk("ALL-IN", legal.maxRaiseTo),
     ];
   }, [state, legal]);
 
   const doAct = (a: PlayerAction, amount?: number) => {
     if (a === "BET" || a === "RAISE") {
-      if (amount === undefined || amount < legal.minRaiseTo || amount > legal.maxRaiseTo) {
-        pushToast(`raise must be ${legal.minRaiseTo}-${legal.maxRaiseTo}`);
+      const target = amount ?? clamped;
+      if (target < legal.minRaiseTo || target > legal.maxRaiseTo) {
+        pushToast(`amount must be ${legal.minRaiseTo}-${legal.maxRaiseTo}`);
         return;
       }
+      setRaiseOpen(false);
+      act(a, target);
+      return;
     }
     setRaiseOpen(false);
     act(a, amount);
@@ -85,7 +97,7 @@ export function MobileActionBar({
   // ---------- Not in hand ----------
   if (!inHand) {
     return (
-      <div className="rounded-2xl bg-panel px-4 py-2.5 text-center text-xs text-white/50 ring-1 line">
+      <div className="rounded-2xl bg-panel px-4 py-2.5 text-center text-xs text-white/50 ring-1 line shadow-panel">
         {seat.status === "SITTING_OUT"
           ? "You'll be dealt in next hand"
           : seat.status === "FOLDED"
@@ -98,11 +110,11 @@ export function MobileActionBar({
   // ---------- In hand, not my turn ----------
   if (!isMyTurn) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-2xl bg-panel px-3 py-2 ring-1 line">
+      <div className="flex items-center justify-between gap-2 rounded-2xl bg-panel px-3 py-2 ring-1 line shadow-panel">
         <span className="min-w-0 truncate text-xs text-white/55">
           {seat.preAction ? (
             <>
-              Queued: <b className="text-sky-300">will {seat.preAction.toLowerCase()}</b>
+              Queued: <b className="text-sky-300">will {seat.preAction === "CHECK" ? "check/fold" : "fold"}</b>
             </>
           ) : (
             "Waiting for other players…"
@@ -111,20 +123,30 @@ export function MobileActionBar({
         <div className="flex shrink-0 gap-1.5">
           <button
             className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold ring-1 transition-colors ${
-              seat.preAction
+              seat.preAction === "CHECK"
                 ? "bg-sky-500/25 text-sky-200 ring-sky-400/40"
-                : "bg-sky-500/10 text-white/60 ring-white/10"
+                : "bg-sky-500/10 text-sky-200/80 ring-sky-400/20"
             }`}
-            onClick={() => setPreaction(seat.preAction ? null : "CHECK")}
+            onClick={() => setPreaction(seat.preAction === "CHECK" ? null : "CHECK")}
           >
-            Check/Fold ahead
+            Check/Fold
+          </button>
+          <button
+            className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold ring-1 transition-colors ${
+              seat.preAction === "FOLD"
+                ? "bg-crimson/25 text-red-200 ring-crimson/40"
+                : "bg-crimson/10 text-red-200/80 ring-crimson/20"
+            }`}
+            onClick={() => setPreaction(seat.preAction === "FOLD" ? null : "FOLD")}
+          >
+            Fold
           </button>
           {seat.preAction && (
             <button
-              className="rounded-lg bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-white/60 ring-1 ring-white/10"
+              className="rounded-lg bg-white/5 px-2 py-1.5 text-[11px] font-bold text-white/60 ring-1 ring-white/10"
               onClick={() => setPreaction(null)}
             >
-              Clear
+              ✕
             </button>
           )}
         </div>
@@ -145,7 +167,7 @@ export function MobileActionBar({
         <div className="rounded-2xl bg-panel p-3 shadow-panel ring-1 line animate-riseFade">
           <div className="flex items-center justify-between pb-1">
             <span className="text-[11px] font-black uppercase tracking-[0.22em] text-gold">
-              {state.currentBet === 0 ? "Bet" : "Raise"} To
+              {isBetting ? "Bet" : "Raise To"}
             </span>
             <div className="flex items-center gap-2 text-[10px] text-white/40 tabnum">
               <span>min {legal.minRaiseTo.toLocaleString()}</span>
@@ -157,8 +179,8 @@ export function MobileActionBar({
           {/* Stepper */}
           <div className="flex items-center justify-center gap-3">
             <button
-              className="grid h-11 w-14 place-items-center rounded-xl bg-white/8 text-2xl font-bold text-gold active:scale-90"
-              onClick={() => setRaiseTo((v) => Math.max(legal.minRaiseTo, v - state.bigBlind))}
+              className="grid h-11 w-14 place-items-center rounded-xl bg-white/8 text-2xl font-bold text-gold active:scale-90 select-none"
+              onClick={() => setRaiseInput(String(Math.max(legal.minRaiseTo, clamped - state.bigBlind)))}
             >
               −
             </button>
@@ -166,15 +188,13 @@ export function MobileActionBar({
               type="number"
               inputMode="numeric"
               className="w-28 bg-transparent text-center text-base font-black text-white tabnum focus:outline-none"
-              value={clamped}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (!Number.isNaN(v)) setRaiseTo(v);
-              }}
+              value={raiseInput}
+              onBlur={() => setRaiseInput(String(clamped))}
+              onChange={(e) => setRaiseInput(e.target.value)}
             />
             <button
-              className="grid h-11 w-14 place-items-center rounded-xl bg-white/8 text-2xl font-bold text-gold active:scale-90"
-              onClick={() => setRaiseTo((v) => Math.min(legal.maxRaiseTo, v + state.bigBlind))}
+              className="grid h-11 w-14 place-items-center rounded-xl bg-white/8 text-2xl font-bold text-gold active:scale-90 select-none"
+              onClick={() => setRaiseInput(String(Math.min(legal.maxRaiseTo, clamped + state.bigBlind)))}
             >
               +
             </button>
@@ -188,7 +208,7 @@ export function MobileActionBar({
             max={legal.maxRaiseTo}
             step={Math.max(1, Math.floor(state.bigBlind / 2))}
             value={clamped}
-            onChange={(e) => setRaiseTo(Number(e.target.value))}
+            onChange={(e) => setRaiseInput(e.target.value)}
           />
 
           {/* Presets */}
@@ -196,7 +216,7 @@ export function MobileActionBar({
             {presets.map((p) => (
               <button
                 key={p.label}
-                onClick={() => setRaiseTo(p.value)}
+                onClick={() => setRaiseInput(String(p.value))}
                 className={`rounded-lg px-1 py-1.5 text-[10px] font-black uppercase ring-1 transition-colors ${
                   clamped === p.value
                     ? "bg-violet-600/35 text-violet-100 ring-violet-400/50"
@@ -213,7 +233,7 @@ export function MobileActionBar({
             <button
               className="w-full rounded-xl bg-violet-600 py-3 text-sm font-black uppercase tracking-wide text-white shadow-[0_4px_0_#4c1d95] transition-all active:scale-[0.98] disabled:opacity-40"
               disabled={!validRaise}
-              onClick={() => doAct(state.currentBet === 0 ? "BET" : "RAISE", clamped)}
+              onClick={() => doAct(isBetting ? "BET" : "RAISE", clamped)}
             >
               Confirm · {clamped.toLocaleString()}
             </button>
@@ -238,12 +258,17 @@ export function MobileActionBar({
                   <span
                     className={`text-[11px] font-black tabnum ${
                       remaining > 0 && remaining < 5000
-                        ? "text-crimson"
+                        ? "text-crimson animate-pulse"
                         : remaining > 0 && remaining < 10000
                         ? "text-amber-400"
                         : "text-gold"
                     }`}
                   >
+                    {remaining > 0 && remaining < 5000 ? (
+                      <span className="text-[9px] font-black">!</span>
+                    ) : remaining > 0 && remaining < 10000 ? (
+                      <span className="text-[9px] font-black">⚠</span>
+                    ) : null}
                     {secs}s
                   </span>
                 </div>
@@ -253,7 +278,7 @@ export function MobileActionBar({
 
           <div className={`grid gap-2 ${canRaise ? "grid-cols-3" : "grid-cols-2"}`}>
             <button
-              className={`${primaryBtn} bg-crimson text-white shadow-[0_4px_0_#7f1d1d]`}
+              className={`${primaryBtn} bg-crimson text-white shadow-[0_4px_0_#7f1d1d] hover:brightness-110`}
               onClick={() => doAct("FOLD")}
             >
               Fold
@@ -261,14 +286,14 @@ export function MobileActionBar({
 
             {legal.actions.includes("CHECK") ? (
               <button
-                className={`${primaryBtn} bg-emerald-600 text-white shadow-[0_4px_0_#14532d]`}
+                className={`${primaryBtn} bg-emerald-600 text-white shadow-[0_4px_0_#14532d] hover:brightness-110`}
                 onClick={() => doAct("CHECK")}
               >
                 Check
               </button>
             ) : (
               <button
-                className={`${primaryBtn} bg-blue-600 text-white shadow-[0_4px_0_#1e3a8a]`}
+                className={`${primaryBtn} bg-blue-600 text-white shadow-[0_4px_0_#1e3a8a] hover:brightness-110`}
                 onClick={() => doAct("CALL")}
               >
                 Call
@@ -280,15 +305,15 @@ export function MobileActionBar({
 
             {canRaise ? (
               <button
-                className={`${primaryBtn} bg-violet-600 text-white shadow-[0_4px_0_#4c1d95]`}
+                className={`${primaryBtn} bg-violet-600 text-white shadow-[0_4px_0_#4c1d95] hover:brightness-110`}
                 onClick={() => setRaiseOpen(true)}
               >
-                {state.currentBet === 0 ? "Bet" : "Raise"}
+                {isBetting ? "Bet" : "Raise"}
               </button>
             ) : (
               legal.actions.includes("ALL_IN") && (
                 <button
-                  className={`${primaryBtn} bg-amber-500 text-ink shadow-[0_4px_0_#92400e]`}
+                  className={`${primaryBtn} bg-amber-500 text-ink shadow-[0_4px_0_#92400e] hover:brightness-110`}
                   onClick={() => doAct("ALL_IN")}
                 >
                   All-In

@@ -6,41 +6,77 @@
  *  - OS notification (Notification API, tag-collapsed, auto-close)
  *  - mobile vibration (navigator.vibrate)
  *
- * Sound is handled separately by lib/sound.ts (always plays).
- * Alerts arm at turn start; if the tab becomes hidden mid-turn they fire
- * then too. Everything is torn down by endTurnAlerts().
+ * Sound is handled separately by lib/sound.ts (safe no-throw audio).
+ * Gracefully degrades to title-flash and audio/visual cues if Notification
+ * permission is denied, unsupported (e.g. iOS Safari pre-16.4), or blocked.
  */
 
 const ALERTS_KEY = "poker.turnAlerts";
+const PROMPTED_KEY = "poker.notificationPrompted";
+
+export type NotificationStatus = "granted" | "denied" | "default" | "unsupported";
+
+export function getNotificationStatus(): NotificationStatus {
+  if (typeof Notification !== "undefined") {
+    return Notification.permission;
+  }
+  if (typeof window !== "undefined" && "Notification" in window) {
+    return (window as any).Notification.permission;
+  }
+  return "unsupported";
+}
 
 export function turnAlertsEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(ALERTS_KEY) === "1";
+  if (typeof localStorage === "undefined") return true;
+  try {
+    const val = localStorage.getItem(ALERTS_KEY);
+    return val === null || val === "1";
+  } catch {
+    return true;
+  }
 }
 
 export function setTurnAlertsEnabled(on: boolean): void {
-  localStorage.setItem(ALERTS_KEY, on ? "1" : "0");
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(ALERTS_KEY, on ? "1" : "0");
+  } catch {
+    /* storage unavailable */
+  }
 }
 
-/** Must be called from a user gesture (gear-menu toggle). */
+/** Must be called from a user gesture (e.g. join/create room or settings toggle). */
 export async function requestTurnAlertPermission(): Promise<boolean> {
-  if (typeof window === "undefined" || !("Notification" in window)) return false;
-  if (Notification.permission === "granted") return true;
-  if (Notification.permission === "denied") return false;
+  const status = getNotificationStatus();
+  if (status === "unsupported") return false;
+  if (status === "granted") return true;
+  if (status === "denied") return false;
   try {
-    const res = await Notification.requestPermission();
+    const NotificationApi = typeof Notification !== "undefined" ? Notification : (window as any).Notification;
+    const res = await NotificationApi.requestPermission();
     return res === "granted";
   } catch {
     return false;
   }
 }
 
+/** One-time prompt tied to user joining or creating a table. */
+export async function requestTurnAlertPermissionOnce(): Promise<boolean> {
+  if (typeof localStorage === "undefined") return false;
+  const status = getNotificationStatus();
+  if (status !== "default") return status === "granted";
+  try {
+    if (localStorage.getItem(PROMPTED_KEY) === "1") return false;
+    localStorage.setItem(PROMPTED_KEY, "1");
+    return await requestTurnAlertPermission();
+  } catch {
+    return false;
+  }
+}
+
 export function turnAlertsBlocked(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    "Notification" in window &&
-    Notification.permission === "denied"
-  );
+  const status = getNotificationStatus();
+  return status === "denied" || status === "unsupported";
 }
 
 let flashTimer: ReturnType<typeof setInterval> | null = null;
@@ -64,61 +100,84 @@ function stopTitleFlash(): void {
     clearInterval(flashTimer);
     flashTimer = null;
   }
-  if (originalTitle && document.title !== originalTitle) {
+  if (originalTitle && typeof document !== "undefined" && document.title !== originalTitle) {
     document.title = originalTitle;
   }
 }
 
 function arm(info: { roomCode: string; seconds: number }): void {
-  // Title flash
-  if (flashTimer === null && originalTitle) {
-    const prefix = "\u2705 YOUR TURN";
+  if (typeof document === "undefined") return;
+
+  // Title flash — ALWAYS runs when tab is hidden, regardless of Notification support
+  if (flashTimer === null) {
+    const titleBase = originalTitle || document.title || "Texas Hold'em";
+    const prefix = "✔ YOUR TURN";
     let flip = false;
     flashTimer = setInterval(() => {
-      document.title = flip ? originalTitle : `${prefix} \u00b7 ${originalTitle}`;
+      document.title = flip ? titleBase : `${prefix} · ${titleBase}`;
       flip = !flip;
     }, 900);
   }
-  // OS notification
-  if (!activeNotification && "Notification" in window && Notification.permission === "granted") {
+
+  // OS notification (ONLY when explicitly granted and supported)
+  const status = getNotificationStatus();
+  if (status === "granted" && !activeNotification) {
     try {
-      activeNotification = new Notification("Your turn!", {
-        body: `Room ${info.roomCode} \u00b7 act within ~${info.seconds}s`,
+      const NotificationApi = typeof Notification !== "undefined" ? Notification : (window as any).Notification;
+      const notif = new NotificationApi("Your turn!", {
+        body: `Room ${info.roomCode} · act within ~${info.seconds}s`,
         tag: "poker-turn",
         silent: true,
       });
-      activeNotification.onclose = () => {
-        activeNotification = null;
+      notif.onclose = () => {
+        if (activeNotification === notif) {
+          activeNotification = null;
+        }
       };
+      activeNotification = notif;
       setTimeout(closeNotification, 8000);
     } catch {
-      /* some browsers throw without a service worker */
+      /* some browsers / contexts throw without service worker */
     }
   }
-  // Vibration
+
+  // Vibration (mobile devices supporting navigator.vibrate)
   if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-    navigator.vibrate([120, 60, 120]);
+    try {
+      navigator.vibrate([120, 60, 120]);
+    } catch {
+      /* ignore vibration failure */
+    }
   }
 }
 
-/** Arm alerts for the current turn (no-op unless enabled). */
+/** Arm alerts for the current turn (no-op unless enabled or active). */
 export function beginTurnAlerts(info: { roomCode: string; seconds: number }): void {
   endTurnAlerts();
-  if (!turnAlertsEnabled() || typeof document === "undefined") return;
-  originalTitle = document.title;
+  if (typeof document === "undefined") return;
+  if (!turnAlertsEnabled()) return;
+
+  originalTitle = document.title || "Texas Hold'em";
 
   visibilityHandler = () => {
-    if (document.hidden) arm(info);
+    if (document.hidden) {
+      arm(info);
+    } else {
+      stopTitleFlash();
+      closeNotification();
+    }
   };
   document.addEventListener("visibilitychange", visibilityHandler);
-  if (document.hidden) arm(info);
+  if (document.hidden) {
+    arm(info);
+  }
 }
 
 /** Tear down every alert artifact. Safe to call repeatedly. */
 export function endTurnAlerts(): void {
   stopTitleFlash();
   closeNotification();
-  if (visibilityHandler) {
+  if (typeof document !== "undefined" && visibilityHandler) {
     document.removeEventListener("visibilitychange", visibilityHandler);
     visibilityHandler = null;
   }

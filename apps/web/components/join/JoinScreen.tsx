@@ -7,6 +7,7 @@ import { AvatarStrip } from "./AvatarStrip";
 import { CodeBoxes } from "./CodeBoxes";
 import { CreateForm } from "./CreateForm";
 import { PlayingCard } from "../common/PlayingCard";
+import { requestTurnAlertPermissionOnce } from "../../lib/notify";
 
 const DEFAULTS: RoomConfig = {
   startingCoins: 1000,
@@ -50,6 +51,7 @@ export function JoinScreen() {
       pushToast("username must be 1-16 characters");
       return;
     }
+    void requestTurnAlertPermissionOnce();
     if (tab === "join") {
       if (code.length !== 6) {
         setCodeInvalid(true);

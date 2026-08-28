@@ -220,7 +220,8 @@ describe("chip-conservation soak test", () => {
       let guard = 0;
       while (guard++ < 4000) {
         // Betting round loop.
-        while (guard++ < 4000) {
+        let roundGuard = 0;
+        while (roundGuard++ < 200) {
           if (st.actingSeatIndex === null) break;
           const actors = st.seats.filter((s) => s.status === "ACTIVE");
           if (actors.length === 0) break;

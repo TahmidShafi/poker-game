@@ -35,7 +35,7 @@ interface PlayingCardProps {
 }
 
 /**
- * Premium card: off-white gradient face, corner indices both corners,
+ * Premium card: off-white gradient face, corner indices,
  * oversized center pip; patterned back. Pure DOM/CSS - crisp at any DPI.
  */
 export function PlayingCard({
@@ -47,10 +47,7 @@ export function PlayingCard({
   className = "",
 }: PlayingCardProps) {
   const base = `${SIZES[size]} relative select-none shadow-card transition-transform duration-150 ${className}`;
-  const style: React.CSSProperties =
-    animate === "deal"
-      ? { animationDelay: `${delay}ms` }
-      : { animationDelay: `${delay}ms` };
+  const style: React.CSSProperties = { animationDelay: `${delay}ms` };
 
   if (faceDown || !card) {
     return (
@@ -75,21 +72,30 @@ export function PlayingCard({
 
   const red = isRed(card.suit);
   const glyph = SUIT_GLYPH[card.suit];
+  const isXs = size === "xs";
+
   return (
     <div
       style={style}
       className={`${base} bg-gradient-to-br from-white via-white to-stone-200 ${red ? "text-crimson" : "text-ink"} ${animate === "flip" ? "animate-flipY" : animate === "deal" ? "animate-dealIn" : ""}`}
     >
-      <div className="absolute top-0.5 left-1 leading-none font-bold">
+      {/* Top-left index */}
+      <div className={`absolute top-0.5 left-1 leading-none font-black ${isXs ? "text-[8.5px]" : "text-[0.75em]"}`}>
         {RANK_LABELS[card.rank as Rank]}
-        <div className="text-[0.85em]">{glyph}</div>
+        <div className={isXs ? "text-[7.5px] -mt-0.5" : "text-[0.85em]"}>{glyph}</div>
       </div>
-      <div className="absolute bottom-0.5 right-1 leading-none font-bold rotate-180">
-        {RANK_LABELS[card.rank as Rank]}
-        <div className="text-[0.85em]">{glyph}</div>
-      </div>
-      <div className="absolute inset-0 grid place-items-center">
-        <span className="opacity-90" style={{ fontSize: "1.7em" }}>
+
+      {/* Bottom-right index (omitted on xs to prevent clutter) */}
+      {!isXs && (
+        <div className="absolute bottom-0.5 right-1 leading-none font-black rotate-180 text-[0.75em]">
+          {RANK_LABELS[card.rank as Rank]}
+          <div className="text-[0.85em]">{glyph}</div>
+        </div>
+      )}
+
+      {/* Center oversized suit glyph */}
+      <div className="absolute inset-0 grid place-items-center pointer-events-none">
+        <span className="opacity-90 leading-none" style={{ fontSize: isXs ? "1.25em" : "1.7em" }}>
           {glyph}
         </span>
       </div>

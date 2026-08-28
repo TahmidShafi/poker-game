@@ -17,7 +17,7 @@ function Panel({
   return (
     <div className="rounded-2xl bg-panel p-4 ring-1 line shadow-panel">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-[0.22em] text-white/40">
+        <span className="text-[10px] font-black uppercase tracking-[0.22em] text-white/60">
           {title}
         </span>
         {action}
@@ -57,7 +57,7 @@ export function StreetTimelinePanel({ state }: { state: PublicGameState }) {
               }`}
             >
               <span>{label}</span>
-              <span className={`tabnum ${active ? "" : "text-white/35"}`}>
+              <span className={`tabnum ${active ? "" : "text-white/60"}`}>
                 {t === null ? "—" : `${t}s`}
               </span>
             </li>
@@ -89,7 +89,7 @@ export function RecentHandsPanel() {
         }
       >
         {recentHands.length === 0 ? (
-          <div className="text-xs text-white/35">No hands finished yet this sitting.</div>
+          <div className="text-xs text-white/60">No hands finished yet this sitting.</div>
         ) : (
           <ul className="space-y-2">
             {recentHands.slice(0, 5).map((h) => (
@@ -129,7 +129,7 @@ export function RecentHandsPanel() {
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-black uppercase tracking-widest text-gold">All Hands</h3>
-              <button className="text-white/50 hover:text-white" onClick={() => setShowAll(false)}>
+              <button className="text-white/70 hover:text-white" onClick={() => setShowAll(false)}>
                 ✕
               </button>
             </div>
@@ -139,7 +139,7 @@ export function RecentHandsPanel() {
                   key={h.handNumber}
                   className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.04] p-2.5"
                 >
-                  <span className="text-[10px] font-bold text-white/40">#{h.handNumber}</span>
+                  <span className="text-[10px] font-bold text-white/60">#{h.handNumber}</span>
                   <div className="flex flex-1 -space-x-2">
                     {h.communityCards.map((c, i) => (
                       <PlayingCard key={i} card={c} size="xs" />
@@ -179,7 +179,7 @@ export function PlayersListPanel({ state }: { state: PublicGameState }) {
               s.seatIndex === me?.seatIndex ? "bg-gold/10 ring-1 ring-gold/25" : ""
             }`}
           >
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-panel2 text-[9px] font-bold text-white/50 ring-1 line">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-panel2 text-[9px] font-bold text-white/70 ring-1 line">
               {s.seatIndex + 1}
             </span>
             <span className="min-w-0 flex-1 truncate font-semibold">
@@ -206,7 +206,7 @@ export function PlayersListPanel({ state }: { state: PublicGameState }) {
           </li>
         ))}
       </ul>
-      <div className="mt-2 flex items-center gap-3 border-t border-white/5 pt-2 text-[9px] text-white/35">
+      <div className="mt-2 flex items-center gap-3 border-t border-white/5 pt-2 text-[9px] text-white/60">
         <span className="flex items-center gap-1">
           <span className="grid h-3.5 w-3.5 place-items-center rounded-full bg-violet-600 text-[7px] font-black text-white">
             D

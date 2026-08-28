@@ -448,7 +448,7 @@ describe("marriage (K+Q of the active suit)", () => {
     expect(() => declareMarriage(state, 1, "HEARTS")).toThrow(/already declared/);
 
     autoPlayHand(state);
-    expect(state.lastRoundSummary?.requirement).toBe(14); // 18 - 4
+    expect(state.lastRoundSummary?.requirement).toBe(16); // max(16, 18 - 4)
     expect(state.lastRoundSummary?.marriageTeam).toBe("A");
     expect(state.lastRoundSummary?.endReason).toBe("NORMAL");
   });
@@ -603,9 +603,9 @@ describe("Single Hand mode", () => {
     expect(state.phase).toBe(TnPhase.ROUND_SCORED);
     expect(state.lastRoundSummary?.endReason).toBe("SINGLE_HAND_FAIL");
     expect(state.lastRoundSummary?.winnerTeam).toBe("A"); // opposing team won
-    expect(state.lastRoundSummary?.scoreAwarded).toBe(3); // opponent +3 points
-    expect(state.matchScore.A).toBe(3);
-    expect(state.matchScore.B).toBe(0);
+    expect(state.lastRoundSummary?.scoreAwarded).toBe(-3); // caller -3 points
+    expect(state.matchScore.A).toBe(0);
+    expect(state.matchScore.B).toBe(-3);
   });
 
   it("awards +3 to Single Hand player's team on winning all 8 tricks (SINGLE_HAND_WIN)", () => {

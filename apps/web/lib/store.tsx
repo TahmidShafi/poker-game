@@ -27,7 +27,15 @@ import type {
 import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
 import { accumulateTnHand, type AccumulatedHand } from "./tnHand";
-import { isMuted, playChips, playTurn, playWin, setMuted } from "./sound";
+import {
+  isMuted,
+  playChips,
+  playTurn,
+  playWin,
+  setMuted,
+  unlockAudio,
+  subscribeAudioState,
+} from "./sound";
 import { beginTurnAlerts, endTurnAlerts } from "./notify";
 import { fireConfetti, prefersReducedMotion } from "./celebrations";
 
@@ -89,6 +97,9 @@ const EMPTY_STATS: SessionStats = {
 export interface GameContextValue {
   serverUrl: string;
   status: ConnStatus;
+  isReconnecting?: boolean;
+  audioUnlocked?: boolean;
+  unlockAudio?: () => Promise<boolean>;
   me: Me | null;
   state: PublicGameState | null;
   /** Which game the current room plays ("POKER" until seated in a 29 room). */
@@ -146,6 +157,15 @@ const ROOM_KEY = "poker.roomCode";
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<PokerSocket | null>(null);
   const [status, setStatus] = useState<ConnStatus>("connecting");
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+  const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false);
+
+  useEffect(() => {
+    return subscribeAudioState((unlocked) => {
+      setAudioUnlocked(unlocked);
+    });
+  }, []);
+
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<PublicGameState | null>(null);
   const [tnState, setTnState] = useState<PublicTwentyNineState | null>(null);
@@ -449,12 +469,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   // Auto-reconnect via stored token whenever the socket comes online.
   useEffect(() => {
-    if (status !== "online") return;
+    if (status !== "online") {
+      if (status === "offline") setIsReconnecting(false);
+      return;
+    }
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
-    if (!token || me) return;
+    if (!token || me) {
+      setIsReconnecting(false);
+      return;
+    }
+    setIsReconnecting(true);
     const s = socketRef.current;
     if (!s) return;
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
+      setIsReconnecting(false);
       if (ack.ok && ack.roomCode) {
         setMe({
           roomCode: ack.roomCode,
@@ -503,6 +531,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const createRoom = useCallback(
     (username: string, cfg: RoomConfig, avatar?: number, extra?: { vsBots?: boolean }) => {
+      void unlockAudio();
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
         s.emit(
@@ -517,6 +546,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const joinRoom = useCallback(
     (roomCode: string, username: string, avatar?: number) => {
+      void unlockAudio();
       const s = socketRef.current!;
       return new Promise<RoomAck>((resolve) => {
         s.emit("JOIN_ROOM", { username, roomCode, avatar }, (ack) => resolve(bindAck(s, ack)));
@@ -526,9 +556,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 
   const tryReconnect = useCallback((token: string) => {
+    void unlockAudio();
     const s = socketRef.current;
     if (!s) return;
+    setIsReconnecting(true);
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
+      setIsReconnecting(false);
       if (ack.ok && ack.roomCode) {
         setMe({
           roomCode: ack.roomCode,
@@ -563,46 +596,58 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const act = useCallback((action: PlayerAction, amount?: number) => {
+    void unlockAudio();
     socketRef.current?.emit("PLAYER_ACTION", amount === undefined ? { action } : { action, amount });
   }, []);
 
   const setPreactionFn = useCallback((action: "CHECK" | "FOLD" | null) => {
+    void unlockAudio();
     socketRef.current?.emit("SET_PREACTION", { action });
   }, []);
 
   const requestLoanFn = useCallback((creditorSeatIndex: number, amount: number) => {
+    void unlockAudio();
     socketRef.current?.emit("REQUEST_LOAN", { creditorSeatIndex, amount });
   }, []);
 
   const respondLoanFn = useCallback((requestId: string, approve: boolean) => {
+    void unlockAudio();
     socketRef.current?.emit("RESPOND_LOAN", { requestId, approve });
   }, []);
 
   const repayLoanFn = useCallback((creditorSeatIndex: number, amount: number) => {
+    void unlockAudio();
     socketRef.current?.emit("REPAY_LOAN", { creditorSeatIndex, amount });
   }, []);
 
   // ---- Twenty-Nine actions ----
   const tnBidFn = useCallback((bid?: number) => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_BID", bid === undefined ? {} : { bid });
   }, []);
   const tnDeclareTrumpFn = useCallback((choice: TnSuit | "SEVENTH_CARD" | "JOKER") => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_DECLARE_TRUMP", { choice });
   }, []);
   const tnCallTrumpFn = useCallback(() => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_CALL_TRUMP", {});
   }, []);
   const tnDeclareMarriageFn = useCallback((suit: TnSuit) => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_DECLARE_MARRIAGE", { suit });
   }, []);
   const tnPlayCardFn = useCallback((card: TnCard) => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_PLAY_CARD", { card });
   }, []);
   const tnSingleHandDecisionFn = useCallback((declare: boolean) => {
+    void unlockAudio();
     socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
   }, []);
 
   const toggleSound = useCallback(() => {
+    void unlockAudio();
     setSoundOn((on) => {
       setMuted(on); // flipping ON→off means muted=true
       return !on;
@@ -611,10 +656,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const gameType: GameType = me?.config?.gameType ?? "POKER";
 
-  const value = useMemo<GameContextValue>(
+  const value: GameContextValue = useMemo(
     () => ({
       serverUrl: SERVER_URL,
       status,
+      isReconnecting,
+      audioUnlocked,
+      unlockAudio,
       me,
       state,
       gameType,
@@ -654,7 +702,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnSingleHandDecision: tnSingleHandDecisionFn,
     }),
     [
-      status, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
+      status, isReconnecting, audioUnlocked, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
       myCards, showdown, toast, incomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,

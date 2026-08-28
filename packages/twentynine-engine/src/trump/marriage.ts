@@ -16,7 +16,7 @@ export function holdsMarriage(hand: TnCard[], suit: TnSuit): boolean {
 /**
  * Marriage adjusts the REQUIRED points only (never the captured card
  * points, which always total 29):
- * - bidding team declared  => requirement = bid - 4
+ * - bidding team declared  => requirement = Math.max(16, bid - 4)
  * - defending team declared => requirement = bid + 4
  */
 export function marriageAdjustedRequirement(
@@ -25,5 +25,7 @@ export function marriageAdjustedRequirement(
   biddingTeam: "A" | "B"
 ): number {
   if (declaringTeam === null) return bid;
-  return declaringTeam === biddingTeam ? bid - MARRIAGE_BONUS : bid + MARRIAGE_BONUS;
+  return declaringTeam === biddingTeam
+    ? Math.max(16, bid - MARRIAGE_BONUS)
+    : bid + MARRIAGE_BONUS;
 }

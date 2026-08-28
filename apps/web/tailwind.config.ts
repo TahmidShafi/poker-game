@@ -23,8 +23,8 @@ const config: Config = {
         rail: "#241A12",
         railLight: "#4A3623",
         gold: "#F0C75E",
-        goldDim: "#B08D3C",
-        crimson: "#DC2626",
+        goldDim: "#D8B36A",
+        crimson: "#EF4444",
         ink: "#16181D",
         accent: "#8B5CF6",
       },
@@ -53,8 +53,8 @@ const config: Config = {
           "100%": { transform: "translateY(0) scale(1)", opacity: "1" },
         },
         pulseRed: {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(220,38,38,0.55)" },
-          "50%": { boxShadow: "0 0 0 10px rgba(220,38,38,0)" },
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(239,68,68,0.55)" },
+          "50%": { boxShadow: "0 0 0 10px rgba(239,68,68,0)" },
         },
         riseFade: {
           "0%": { transform: "translateY(14px)", opacity: "0" },

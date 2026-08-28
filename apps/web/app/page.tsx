@@ -47,6 +47,7 @@ function Drawer({
 export default function HomePage() {
   const {
     status,
+    isReconnecting,
     me,
     state,
     gameType,
@@ -60,6 +61,11 @@ export default function HomePage() {
     leaveRoom,
     serverUrl,
   } = useGame();
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [showHelp, setShowHelp] = useState(false);
   const [showRepay, setShowRepay] = useState(false);
@@ -76,6 +82,23 @@ export default function HomePage() {
       window.history.replaceState({}, "", url.pathname);
     }
   }, [me]);
+
+  if (!mounted) {
+    return <JoinScreen />;
+  }
+
+  if (isReconnecting && !me) {
+    return (
+      <div className="grid h-screen place-items-center bg-room text-white select-none">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent shadow-glowGold" />
+          <div className="text-sm font-semibold tracking-wide text-white/80">
+            Reconnecting to table...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!me) return <JoinScreen />;
 

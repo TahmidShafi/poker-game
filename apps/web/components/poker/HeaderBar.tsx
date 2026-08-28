@@ -9,6 +9,7 @@ import {
   setTurnAlertsEnabled,
   turnAlertsBlocked,
   turnAlertsEnabled,
+  getNotificationStatus,
 } from "../../lib/notify";
 
 function Logo() {
@@ -21,7 +22,7 @@ function Logo() {
       </span>
       <div className="leading-none">
         <div className="text-sm font-black tracking-tight dt:text-lg">POKER</div>
-        <div className="hidden text-[8px] font-bold uppercase tracking-[0.3em] text-white/45 dt:block">
+        <div className="hidden text-[8px] font-bold uppercase tracking-[0.3em] text-white/60 dt:block">
           Texas Hold&apos;em
         </div>
       </div>
@@ -47,6 +48,7 @@ export function HeaderBar({
   const [gearOpen, setGearOpen] = useState(false);
   const [alertsOn, setAlertsOn] = useState(false);
   const [alertsBlocked, setAlertsBlocked] = useState(false);
+  const [notifStatus, setNotifStatus] = useState<string>("default");
   const [now, setNow] = useState(Date.now());
   const gearRefM = useRef<HTMLDivElement>(null);
   const gearRefD = useRef<HTMLDivElement>(null);
@@ -54,6 +56,7 @@ export function HeaderBar({
   useEffect(() => {
     setAlertsOn(turnAlertsEnabled());
     setAlertsBlocked(turnAlertsBlocked());
+    setNotifStatus(getNotificationStatus());
   }, []);
 
   useEffect(() => {
@@ -107,16 +110,14 @@ export function HeaderBar({
       return;
     }
     const granted = await requestTurnAlertPermission();
-    if (!granted) {
-      // Still allow title-flash/vibrate-only mode; surface blocked state.
-      setAlertsBlocked(turnAlertsBlocked());
-    }
+    setAlertsBlocked(turnAlertsBlocked());
+    setNotifStatus(getNotificationStatus());
     setTurnAlertsEnabled(true);
     setAlertsOn(true);
   };
 
   const gearMenu = (
-    <div className="absolute right-0 top-11 z-50 w-52 rounded-2xl bg-panel p-2 text-sm shadow-panel ring-1 line animate-riseFade">
+    <div className="absolute right-0 top-11 z-50 w-56 rounded-2xl bg-panel p-2 text-sm shadow-panel ring-1 line animate-riseFade">
       <label className="flex cursor-pointer items-center justify-between rounded-xl px-3 py-2 hover:bg-white/5">
         <span>Sound effects</span>
         <input
@@ -127,23 +128,21 @@ export function HeaderBar({
         />
       </label>
       <label
-        className={`flex items-center justify-between rounded-xl px-3 py-2 hover:bg-white/5 ${
-          alertsOn ? "cursor-pointer" : "cursor-pointer"
-        }`}
+        className="flex cursor-pointer items-center justify-between rounded-xl px-3 py-2 hover:bg-white/5"
         title={
           alertsBlocked
-            ? "Browser notifications are blocked — title flash & vibration still work"
+            ? "Browser notifications are blocked/unsupported — title flash & vibration still work"
             : "Flash the tab title, notify and vibrate when it's your turn"
         }
       >
-        <span>
-          Turn alerts
+        <div>
+          <span>Turn alerts</span>
           {alertsBlocked && (
-            <span className="block text-[9px] uppercase tracking-wider text-amber-300/80">
-              notifications blocked
+            <span className="block text-[8.5px] uppercase tracking-wider text-amber-300/80">
+              fallback: title-flash only
             </span>
           )}
-        </span>
+        </div>
         <input
           type="checkbox"
           checked={alertsOn}
@@ -151,6 +150,15 @@ export function HeaderBar({
           className="h-4 w-4 accent-violet-500"
         />
       </label>
+
+      {/* One-time inline UI hint if notifications are blocked or default */}
+      {alertsBlocked && (
+        <div className="mx-1 my-1 rounded-xl bg-amber-500/10 p-2 text-[10px] leading-snug text-amber-200 ring-1 ring-amber-400/20">
+          <div className="font-bold">Notifications unavailable</div>
+          <div className="text-white/60">Tab title-flash and audio will signal your turn when in background.</div>
+        </div>
+      )}
+
       <button
         className="w-full rounded-xl px-3 py-2 text-left hover:bg-white/5"
         onClick={() => {
@@ -220,7 +228,7 @@ export function HeaderBar({
           title="Copy room code"
         >
           <span className={`h-2 w-2 rounded-full ${statusColor}`} />
-          <span className="text-[9px] font-bold uppercase tracking-widest text-white/45">Room Code</span>
+          <span className="text-[9px] font-bold uppercase tracking-widest text-white/60">Room Code</span>
           <span className="font-mono text-sm font-black tracking-[0.2em] text-gold">{me.roomCode}</span>
           <span className="text-xs text-white/35">{copied ? "✓" : "⧉"}</span>
         </button>
@@ -284,7 +292,7 @@ export function HeaderBar({
 function Stat({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
   return (
     <div className="px-3 first:pl-0 last:pr-0">
-      <div className="text-[9px] font-bold uppercase tracking-widest text-white/40">{label}</div>
+      <div className="text-[9px] font-bold uppercase tracking-widest text-white/60">{label}</div>
       <div className={`text-sm font-black tabnum ${gold ? "text-gold" : "text-white/85"}`}>{value}</div>
     </div>
   );
