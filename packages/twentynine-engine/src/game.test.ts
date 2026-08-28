@@ -227,8 +227,29 @@ describe("trump reveal rules during play", () => {
 
 describe("SEVENTH_CARD choice", () => {
   it("resolves trump automatically from the bidder's 3rd second-batch card, locks it initially (7 cards in hand), and returns it upon trump reveal", () => {
+    const base = orderedDeck();
+    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
+    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
+      const card = byKey.get(`${suit}${rank}`);
+      if (!card) throw new Error(`missing ${suit}${rank}`);
+      return card;
+    };
+    const deck: TnCard[] = new Array(32);
+    // P2 gets point cards in clubs (J of clubs + A of clubs)
+    deck[1] = pick("CLUBS", 11); // P2: J of Clubs (3 pts)
+    deck[5] = pick("SPADES", 8);  // P2
+    deck[9] = pick("HEARTS", 8);  // P2
+    deck[13] = pick("DIAMONDS", 8); // P2
+    deck[17] = pick("SPADES", 10); // P2
+    deck[21] = pick("HEARTS", 10); // P2
+    deck[25] = pick("CLUBS", 14);  // P2: indicator (7th card = A of Clubs)
+    deck[29] = pick("DIAMONDS", 10); // P2
+    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
+    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
+    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
+
     const state = makeMatch();
-    startHand(state, { deck: orderedDeck() });
+    startHand(state, { deck });
     driveBidding(state, 2, 18);
     expect(state.phase).toBe(TnPhase.TRUMP_SETUP);
     declareTrumpPlan(state, 2, "SEVENTH_CARD");
@@ -236,9 +257,9 @@ describe("SEVENTH_CARD choice", () => {
     passSingleHandForAll(state);
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.trumpStyle).toBe("SEVENTH_CARD");
-    const indicator = cardAt(orderedDeck(), slotIndices(0, 2).indicator);
+    const indicator = pick("CLUBS", 14);
     expect(state.indicatorCard).toEqual(indicator);
-    expect(state.trumpSuit).toBe(indicator.suit);
+    expect(state.trumpSuit).toBe("CLUBS");
     expect(state.trumpRevealed).toBe(false);
     // Bidder holds 7 cards in hand (7th card locked on the table)
     expect(state.seats[2]!.hand.length).toBe(7);
@@ -257,6 +278,37 @@ describe("SEVENTH_CARD choice", () => {
     expect(pub.trump.state).toBe("HIDDEN");
     expect(JSON.stringify(pub)).not.toContain(indicator.suit);
     expect(pub.seats[2]!.cardsRemaining).toBe(7);
+  });
+
+  it("cancels and redeals when bidder only holds a pointless card (e.g. 7th card is A of Clubs, other card is 8 of Clubs)", () => {
+    const base = orderedDeck();
+    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
+    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
+      const card = byKey.get(`${suit}${rank}`);
+      if (!card) throw new Error(`missing ${suit}${rank}`);
+      return card;
+    };
+    const deck: TnCard[] = new Array(32);
+    // P2 holds only 8 of clubs (pointless, 0 pts) in clubs beside the 7th card (A of clubs)
+    deck[1] = pick("CLUBS", 8);   // P2: 8 of Clubs (0 pts)
+    deck[5] = pick("SPADES", 8);  // P2
+    deck[9] = pick("HEARTS", 8);  // P2
+    deck[13] = pick("DIAMONDS", 8); // P2
+    deck[17] = pick("SPADES", 10); // P2
+    deck[21] = pick("HEARTS", 10); // P2
+    deck[25] = pick("CLUBS", 14);  // P2: indicator (7th card = A of Clubs)
+    deck[29] = pick("DIAMONDS", 10); // P2
+    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
+    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
+    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
+
+    const state = makeMatch();
+    startHand(state, { deck });
+    driveBidding(state, 2, 18);
+    declareTrumpPlan(state, 2, "SEVENTH_CARD");
+    expect(state.phase).toBe(TnPhase.REDEALING);
+    expect(state.dealerSeatIndex).toBe(0);
+    expect(state.dealerAdvancePending).toBe(false);
   });
 
   it("cancels and redeals with the SAME dealer when the indicator is a dead single-suit trump", () => {

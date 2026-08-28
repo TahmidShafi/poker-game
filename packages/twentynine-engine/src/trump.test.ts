@@ -16,12 +16,28 @@ describe("seventh-card trump", () => {
     expect(() => seventhCardIndicator([c(7, "SPADES")])).toThrow(/second batch/);
   });
 
-  it("valid when at least one OTHER card shares the indicator suit", () => {
-    const batch1 = [c(14, "SPADES"), c(13, "HEARTS"), c(12, "DIAMONDS"), c(11, "CLUBS")];
+  it("valid when at least one OTHER card of that suit has points (J, 9, A, 10)", () => {
+    const batch1 = [c(14, "SPADES"), c(13, "HEARTS"), c(10, "DIAMONDS"), c(11, "CLUBS")];
     const batch2 = [c(8, "HEARTS"), c(7, "CLUBS"), c(9, "DIAMONDS"), c(7, "SPADES")];
     const indicator = seventhCardIndicator(batch2); // 9 diamonds
     expect(isSeventhTrumpValid(batch1, batch2, indicator)).toBe(true);
-    expect(countOtherCardsOfSuit([...batch1, ...batch2], indicator)).toBe(1); // Q diamonds
+    expect(countOtherCardsOfSuit([...batch1, ...batch2], indicator)).toBe(1); // 10 diamonds (1 pt)
+  });
+
+  it("invalid when the other card of that suit is pointless (e.g. 7th card is A of Clubs, other card is 8 of Clubs)", () => {
+    const batch1 = [c(14, "SPADES"), c(13, "HEARTS"), c(8, "CLUBS"), c(12, "DIAMONDS")];
+    const batch2 = [c(8, "HEARTS"), c(7, "SPADES"), c(14, "CLUBS"), c(7, "HEARTS")];
+    const indicator = seventhCardIndicator(batch2); // 14 clubs (Ace of clubs)
+    expect(countOtherCardsOfSuit([...batch1, ...batch2], indicator)).toBe(1); // 8 clubs (0 pts)
+    expect(isSeventhTrumpValid(batch1, batch2, indicator)).toBe(false);
+  });
+
+  it("invalid when other cards of that suit are 0-point cards (e.g. 7, 8, K, Q)", () => {
+    const batch1 = [c(14, "SPADES"), c(7, "CLUBS"), c(8, "CLUBS"), c(12, "DIAMONDS")];
+    const batch2 = [c(8, "HEARTS"), c(7, "SPADES"), c(14, "CLUBS"), c(7, "HEARTS")];
+    const indicator = seventhCardIndicator(batch2); // 14 clubs
+    expect(countOtherCardsOfSuit([...batch1, ...batch2], indicator)).toBe(2); // 7 & 8 clubs
+    expect(isSeventhTrumpValid(batch1, batch2, indicator)).toBe(false);
   });
 
   it("invalid when the indicator is the bidder's ONLY card of that suit (dead trump)", () => {
@@ -36,6 +52,7 @@ describe("seventh-card trump", () => {
     const batch1 = [c(9, "SPADES"), c(13, "HEARTS"), c(12, "CLUBS"), c(11, "SPADES")];
     const batch2 = [c(8, "HEARTS"), c(7, "CLUBS"), c(9, "DIAMONDS"), c(7, "SPADES")];
     expect(countOtherCardsOfSuit([...batch1, ...batch2], c(9, "DIAMONDS"))).toBe(0);
+    expect(isSeventhTrumpValid(batch1, batch2, c(9, "DIAMONDS"))).toBe(false);
   });
 });
 

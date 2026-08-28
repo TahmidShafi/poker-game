@@ -542,9 +542,7 @@ function resolveSeventhTrump(state: TwentyNineState): void {
   if (!seat) throw new Error("engine bug: missing bidder seat");
   const indicator = seventhCardIndicator(seat.batch2);
   state.indicatorCard = indicator;
-  const valid =
-    isSeventhTrumpValid(seat.batch1, seat.batch2, indicator) &&
-    countOtherOfSuit([...seat.batch1, ...seat.batch2], indicator) > 0;
+  const valid = isSeventhTrumpValid(seat.batch1, seat.batch2, indicator);
   if (!valid) {
     cancelForRedeal(state);
     return;
