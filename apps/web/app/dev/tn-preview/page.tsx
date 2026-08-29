@@ -108,6 +108,16 @@ function biddingState(): PublicTwentyNineState {
   };
 }
 
+function trumpSetupState(): PublicTwentyNineState {
+  return {
+    ...biddingState(),
+    phase: TnPhase.TRUMP_SETUP,
+    bid: 18,
+    bidderSeatIndex: 0,
+    actingSeatIndex: 0,
+  };
+}
+
 export default function TnPreviewPage() {
   // Mounted-only state selection: reading the query string during render
   // would diverge between SSR and hydration and trip the dev overlay.
@@ -115,7 +125,13 @@ export default function TnPreviewPage() {
   React.useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     const which = new URLSearchParams(window.location.search).get("state");
-    setState(which === "bidding" ? biddingState() : playingState());
+    if (which === "trump_setup") {
+      setState(trumpSetupState());
+    } else if (which === "bidding") {
+      setState(biddingState());
+    } else {
+      setState(playingState());
+    }
   }, []);
 
   const value = useMemo<GameContextValue | null>(() => {
@@ -129,7 +145,7 @@ export default function TnPreviewPage() {
       gameType: "TWENTY_NINE",
       tnState: state,
       tnResolvedTrick: null,
-      myTnCards: state.phase === "BIDDING" ? HAND_8.slice(0, 4) : HAND_8,
+      myTnCards: (state.phase === "BIDDING" || state.phase === "TRUMP_SETUP") ? HAND_8.slice(0, 4) : HAND_8,
       tnBidderPrivate: null,
       lastTnRound: null,
       myCards: null,

@@ -333,32 +333,22 @@ function TrumpBannerComponent({ state }: { state: PublicTwentyNineState }) {
       </div>
     );
   } else if (state.trump.state === "HIDDEN") {
-    if (isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR") {
-      cardContent = (
-        <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden bg-slate-950 ring-2 ring-gold/70 shadow-card">
-          <PlayingCard card={tnBidderPrivate.indicatorCard} size="sm" />
-        </div>
-      );
-    } else if (isBidder && tnBidderPrivate?.kind === "SUIT_DECLARED") {
-      const suit = tnBidderPrivate.suit;
-      const color = suit === "HEARTS" || suit === "DIAMONDS" ? "text-crimson" : "text-ink";
-      cardContent = (
-        <div className="relative flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card ring-2 ring-gold/70">
-          <span className={`text-3xl leading-none ${color}`}>
-            {TN_SUIT_SYMBOLS[suit]}
-          </span>
-        </div>
-      );
-    } else {
-      cardContent = (
-        <div className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden">
-          <PlayingCard faceDown size="sm" className="absolute inset-0" />
-          <div className="absolute inset-0 bg-black/40 grid place-items-center">
+    cardContent = (
+      <div
+        className="relative flex h-full w-full items-center justify-center rounded-lg overflow-hidden bg-slate-950 shadow-card"
+        title={isBidder ? "Trump is secret & locked until revealed" : "Trump is secret & locked"}
+      >
+        <PlayingCard faceDown size="sm" className="absolute inset-0" />
+        <div className="absolute inset-0 bg-black/45 backdrop-blur-[0.5px] grid place-items-center">
+          <div className="flex flex-col items-center">
             <span className="text-base shadow-black drop-shadow-md">🔒</span>
+            <span className="text-[6.5px] font-black uppercase tracking-wider text-amber-300/90 mt-0.5">
+              Locked
+            </span>
           </div>
         </div>
-      );
-    }
+      </div>
+    );
   } else if (state.trump.state === "JOKER_MODE") {
     cardContent = (
       <div className="flex h-full w-full flex-col items-center justify-center bg-[#f0ebd8] rounded-lg shadow-card">

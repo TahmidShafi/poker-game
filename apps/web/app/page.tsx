@@ -84,7 +84,13 @@ export default function HomePage() {
   }, [me]);
 
   if (!mounted) {
-    return <JoinScreen />;
+    return (
+      <div className="grid h-screen place-items-center bg-room text-white select-none">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent shadow-glowGold" />
+        </div>
+      </div>
+    );
   }
 
   if (isReconnecting && !me) {

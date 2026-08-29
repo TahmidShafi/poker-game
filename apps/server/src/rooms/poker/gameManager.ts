@@ -3,6 +3,7 @@ import type {
   ClientToServerEvents,
   HandFinishedSummary,
   Pot,
+  PublicGameState,
   RoomConfig,
   ServerToClientEvents,
   ShowdownResult,
@@ -176,39 +177,79 @@ export class GameManager {
       return { ok: false, error: "username must be 1-16 characters" };
     }
 
-    // Reconnect / rejoin path.
+    // 1. Reconnect / rejoin path by session token.
     if (opts.sessionToken) {
       const rec = this.findByToken(opts.sessionToken);
-      if (!rec) return { ok: false, error: "session not found in this room" };
-      rec.socketIds.add(opts.socketId);
-      rec.lastSeen = Date.now();
-      this.disconnectedSeats.delete(rec.seatIndex);
-      const timer = this.disconnectTimers.get(rec.seatIndex);
-      if (timer) {
-        clearTimeout(timer);
-        this.disconnectTimers.delete(rec.seatIndex);
+      if (rec) {
+        rec.socketIds.add(opts.socketId);
+        rec.lastSeen = Date.now();
+        this.disconnectedSeats.delete(rec.seatIndex);
+        const timer = this.disconnectTimers.get(rec.seatIndex);
+        if (timer) {
+          clearTimeout(timer);
+          this.disconnectTimers.delete(rec.seatIndex);
+        }
+        const seat = this.table.seats[rec.seatIndex]!;
+        if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
+        // Busted player rejoining with their token = rebuy at stored config.
+        if (seat.status === "BUSTED") {
+          seat.coins = this.config.startingCoins;
+          seat.status = "SITTING_OUT";
+        }
+        if (opts.avatar !== undefined) {
+          rec.avatar = opts.avatar;
+          seat.avatar = opts.avatar;
+        }
+        if (seat.holeCards && seat.holeCards.length === 2) {
+          this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
+        }
+        this.broadcastState();
+        this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+          seatIndex: rec.seatIndex,
+          username: rec.username,
+        });
+        return { ok: true, seatIndex: rec.seatIndex, playerId: rec.playerId, sessionToken: rec.sessionToken };
       }
-      const seat = this.table.seats[rec.seatIndex]!;
-      if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
-      // Busted player rejoining with their token = rebuy at stored config.
-      if (seat.status === "BUSTED") {
-        seat.coins = this.config.startingCoins;
-        seat.status = "SITTING_OUT";
-      }
-      if (seat.holeCards && seat.holeCards.length === 2) {
-        this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
-      }
-      this.broadcastState();
-      this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
-        seatIndex: rec.seatIndex,
-        username: rec.username,
-      });
-      return { ok: true, seatIndex: rec.seatIndex, playerId: rec.playerId, sessionToken: rec.sessionToken };
+      // If token not found in this room, fall through to match by username or assign seat.
     }
 
-    // Fresh join: username must be free inside this room.
+    // 2. Fresh join or re-attaching to existing seat by username.
     for (const rec of this.players.values()) {
       if (rec.username.toLowerCase() === name.toLowerCase()) {
+        const seat = this.table.seats[rec.seatIndex]!;
+        const isDisconnected =
+          seat.status === "DISCONNECTED" ||
+          this.disconnectedSeats.has(rec.seatIndex) ||
+          rec.socketIds.size === 0;
+
+        if (isDisconnected || opts.sessionToken === rec.sessionToken) {
+          rec.socketIds.add(opts.socketId);
+          rec.lastSeen = Date.now();
+          this.disconnectedSeats.delete(rec.seatIndex);
+          const timer = this.disconnectTimers.get(rec.seatIndex);
+          if (timer) {
+            clearTimeout(timer);
+            this.disconnectTimers.delete(rec.seatIndex);
+          }
+          if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
+          if (seat.status === "BUSTED") {
+            seat.coins = this.config.startingCoins;
+            seat.status = "SITTING_OUT";
+          }
+          if (opts.avatar !== undefined) {
+            rec.avatar = opts.avatar;
+            seat.avatar = opts.avatar;
+          }
+          if (seat.holeCards && seat.holeCards.length === 2) {
+            this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
+          }
+          this.broadcastState();
+          this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+            seatIndex: rec.seatIndex,
+            username: rec.username,
+          });
+          return { ok: true, seatIndex: rec.seatIndex, playerId: rec.playerId, sessionToken: rec.sessionToken };
+        }
         return { ok: false, error: `username "${rec.username}" is already taken in this room` };
       }
     }
@@ -917,6 +958,17 @@ export class GameManager {
       );
       sio.emit("GAME_STATE", state);
     }
+  }
+
+  publicStateForSeat(seatIndex: number): PublicGameState {
+    return serializeForSeat(
+      this.table,
+      this.roomCode,
+      seatIndex,
+      this.turnDeadline,
+      this.nextHandDeadline,
+      this.disconnectedSeats
+    );
   }
 
   reject(socketId: string, reason: string): void {

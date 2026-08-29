@@ -86,7 +86,16 @@ export function createPokerServer(overrides?: Partial<ServerConfig>, hooks: Game
 
   const httpServer = http.createServer(app);
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-    cors: { origin: config.clientOrigins.length > 0 ? config.clientOrigins : true },
+    cors: {
+      origin: (origin, callback) => callback(null, true),
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+    transports: ["polling", "websocket"],
+    allowUpgrades: true,
+    pingInterval: 25000,
+    pingTimeout: 60000,
+    connectTimeout: 45000,
   });
 
   const persistenceHooks: GameManagerHooks = {

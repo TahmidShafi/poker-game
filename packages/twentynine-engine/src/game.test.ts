@@ -502,7 +502,7 @@ describe("marriage (K+Q of the active suit)", () => {
     autoPlayHand(state);
     expect(state.lastRoundSummary?.requirement).toBe(16); // max(16, 18 - 4)
     expect(state.lastRoundSummary?.marriageTeam).toBe("A");
-    expect(state.lastRoundSummary?.endReason).toBe("NORMAL");
+    expect(["NORMAL", "EARLY_DEFEAT", "EARLY_BID_REACHED"]).toContain(state.lastRoundSummary?.endReason);
   });
 
   it("defending-team marriage raises the requirement by 4", () => {
@@ -700,5 +700,221 @@ describe("Single Hand mode", () => {
     expect(state.lastRoundSummary?.scoreAwarded).toBe(3); // team +3 points
     expect(state.matchScore.B).toBe(3);
     expect(state.matchScore.A).toBe(0);
+  });
+});
+
+describe("early round completion & full board requirements", () => {
+  it("ends early with EARLY_BID_REACHED once bidder reaches required points when full board is no longer possible", () => {
+    const base = orderedDeck();
+    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
+    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
+      const card = byKey.get(`${suit}${rank}`);
+      if (!card) throw new Error(`missing ${suit}${rank}`);
+      return card;
+    };
+
+    // Dealer is 0. Anti-clockwise dealing order: 3, 2, 1, 0.
+    // P3 & P1 are Team B (bidding team). P2 & P0 are Team A (defending team).
+    const deck: TnCard[] = new Array(32);
+    // Trick 1: Defenders (P2) win a trick (Full board becomes impossible!)
+    deck[0] = pick("SPADES", 7);  // P3
+    deck[1] = pick("SPADES", 11); // P2 (SJ wins trick 1) -> Team A gets 3 pts, tricksWon A=1, B=0
+    deck[2] = pick("SPADES", 8);  // P1
+    deck[3] = pick("SPADES", 9);  // P0
+
+    // Tricks 2, 3, 4: Team B wins big points to cross bid 18
+    deck[4] = pick("HEARTS", 11); // P3 (HJ=3)
+    deck[5] = pick("HEARTS", 7);  // P2
+    deck[6] = pick("HEARTS", 9);  // P1 (H9=2)
+    deck[7] = pick("HEARTS", 14); // P0 (HA=1) -> Trick 2 (6 pts)
+
+    deck[8] = pick("DIAMONDS", 11); // P3 (DJ=3)
+    deck[9] = pick("DIAMONDS", 7);  // P2
+    deck[10] = pick("DIAMONDS", 9); // P1 (D9=2)
+    deck[11] = pick("DIAMONDS", 14); // P0 (DA=1) -> Trick 3 (6 pts)
+
+    deck[12] = pick("CLUBS", 11); // P3 (CJ=3)
+    deck[13] = pick("CLUBS", 7);  // P2
+    deck[14] = pick("CLUBS", 9);  // P1 (C9=2)
+    deck[15] = pick("CLUBS", 14); // P0 (CA=1) -> Trick 4 (6 pts) => Total Team B = 18 pts!
+
+    // Fill the remaining deck slots
+    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
+    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
+    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
+
+    const state = makeMatch();
+    startHand(state, { deck });
+    driveBidding(state, 3, 18); // Team B bids 18
+    declareTrumpPlan(state, 3, "CLUBS");
+    passSingleHandForAll(state);
+
+    // Trick 1:
+    playCard(state, 3, pick("SPADES", 7));
+    playCard(state, 2, pick("SPADES", 11));
+    playCard(state, 1, pick("SPADES", 8));
+    playCard(state, 0, pick("SPADES", 9));
+    expect(state.phase).toBe(TnPhase.PLAYING);
+    expect(state.tricksWon.A).toBe(1);
+    expect(state.tricksWon.B).toBe(0);
+
+    // Trick 2:
+    playCard(state, 2, pick("HEARTS", 7));
+    playCard(state, 1, pick("HEARTS", 9));
+    playCard(state, 0, pick("HEARTS", 14));
+    playCard(state, 3, pick("HEARTS", 11));
+    expect(state.phase).toBe(TnPhase.PLAYING);
+    expect(state.tricksWon.B).toBe(1);
+
+    // Trick 3:
+    playCard(state, 3, pick("DIAMONDS", 11));
+    playCard(state, 2, pick("DIAMONDS", 7));
+    playCard(state, 1, pick("DIAMONDS", 9));
+    playCard(state, 0, pick("DIAMONDS", 14));
+    expect(state.phase).toBe(TnPhase.PLAYING);
+    expect(state.tricksWon.B).toBe(2);
+
+    // Trick 4: Team B reaches 18 points. Since Team A won Trick 1, Full Board is exited -> ends immediately!
+    playCard(state, 3, pick("CLUBS", 11));
+    playCard(state, 2, pick("CLUBS", 7));
+    playCard(state, 1, pick("CLUBS", 9));
+    playCard(state, 0, pick("CLUBS", 14));
+
+    expect(state.phase).toBe(TnPhase.ROUND_SCORED);
+    expect(state.lastRoundSummary?.endReason).toBe("EARLY_BID_REACHED");
+    expect(state.lastRoundSummary?.winnerTeam).toBe("B");
+    expect(state.lastRoundSummary?.scoreAwarded).toBe(1);
+    expect(state.trickNumber).toBe(4); // Finished early after trick 4!
+  });
+
+  it("keeps playing towards Full Board if bidder reaches points while defenders have 0 tricks", () => {
+    const base = orderedDeck();
+    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
+    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
+      const card = byKey.get(`${suit}${rank}`);
+      if (!card) throw new Error(`missing ${suit}${rank}`);
+      return card;
+    };
+
+    // P3 (Team B) wins all tricks
+    const deck: TnCard[] = new Array(32);
+    deck[0] = pick("SPADES", 11); // P3 SJ (3)
+    deck[1] = pick("SPADES", 7);  // P2
+    deck[2] = pick("SPADES", 9);  // P1 S9 (2)
+    deck[3] = pick("SPADES", 14); // P0 SA (1) -> Trick 1 (6 pts for B)
+
+    deck[4] = pick("HEARTS", 11); // P3 HJ (3)
+    deck[5] = pick("HEARTS", 7);  // P2
+    deck[6] = pick("HEARTS", 9);  // P1 H9 (2)
+    deck[7] = pick("HEARTS", 14); // P0 HA (1) -> Trick 2 (6 pts for B)
+
+    deck[8] = pick("DIAMONDS", 11); // P3 DJ (3)
+    deck[9] = pick("DIAMONDS", 7);  // P2
+    deck[10] = pick("DIAMONDS", 9); // P1 D9 (2)
+    deck[11] = pick("DIAMONDS", 14); // P0 DA (1) -> Trick 3 (6 pts for B) => 18 pts!
+
+    deck[12] = pick("CLUBS", 7);  // P3 C7
+    deck[13] = pick("CLUBS", 11); // P2 CJ (Team A wins trick 4!)
+    deck[14] = pick("CLUBS", 8);  // P1 C8
+    deck[15] = pick("CLUBS", 14); // P0 CA
+
+    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
+    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
+    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
+
+    const state = makeMatch();
+    startHand(state, { deck });
+    driveBidding(state, 3, 18);
+    declareTrumpPlan(state, 3, "SPADES");
+    passSingleHandForAll(state);
+
+    // Tricks 1, 2, 3: Team B wins all tricks and reaches 18 points.
+    // But since defenders have 0 tricks, full board is still possible! Hand continues in PLAYING.
+    playCard(state, 3, pick("SPADES", 11));
+    playCard(state, 2, pick("SPADES", 7));
+    playCard(state, 1, pick("SPADES", 9));
+    playCard(state, 0, pick("SPADES", 14));
+
+    playCard(state, 3, pick("HEARTS", 11));
+    playCard(state, 2, pick("HEARTS", 7));
+    playCard(state, 1, pick("HEARTS", 9));
+    playCard(state, 0, pick("HEARTS", 14));
+
+    playCard(state, 3, pick("DIAMONDS", 11));
+    playCard(state, 2, pick("DIAMONDS", 7));
+    playCard(state, 1, pick("DIAMONDS", 9));
+    playCard(state, 0, pick("DIAMONDS", 14));
+
+    expect(state.capturedPoints.B).toBe(18);
+    expect(state.tricksWon.A).toBe(0);
+    expect(state.phase).toBe(TnPhase.PLAYING); // Kept alive for Full Board attempt!
+
+    // Trick 4: Team A (defenders) wins Trick 4.
+    // Full Board is now exited, and Team B already has 18 pts -> Ends immediately!
+    playCard(state, 3, pick("CLUBS", 7));
+    playCard(state, 2, pick("CLUBS", 11));
+    playCard(state, 1, pick("CLUBS", 8));
+    playCard(state, 0, pick("CLUBS", 14));
+
+    expect(state.phase).toBe(TnPhase.ROUND_SCORED);
+    expect(state.lastRoundSummary?.endReason).toBe("EARLY_BID_REACHED");
+    expect(state.lastRoundSummary?.winnerTeam).toBe("B");
+    expect(state.lastRoundSummary?.scoreAwarded).toBe(1);
+    expect(state.trickNumber).toBe(4);
+  });
+
+  it("ends early with EARLY_DEFEAT when defenders capture enough points to mathematically defeat the bid", () => {
+    const base = orderedDeck();
+    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
+    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
+      const card = byKey.get(`${suit}${rank}`);
+      if (!card) throw new Error(`missing ${suit}${rank}`);
+      return card;
+    };
+
+    // Bidder P3 (Team B) bids 20. Target for B = 20.
+    // Max allowed points for Defenders (Team A) = 29 - 20 = 9.
+    // If Defenders capture >= 10 points, Bidder cannot make 20 points!
+    const deck: TnCard[] = new Array(32);
+    // Trick 1: P2 (Defenders) wins 6 pts
+    deck[0] = pick("SPADES", 7);  // P3 S7
+    deck[1] = pick("SPADES", 11); // P2 (SJ=3)
+    deck[2] = pick("SPADES", 8);  // P1 (S8=0)
+    deck[3] = pick("SPADES", 9);  // P0 (S9=2) -> 5 pts for A
+
+    // Trick 2: P2 (Defenders) wins 6 pts -> Total for A = 11 pts (> 9 pts) -> Defeat!
+    deck[4] = pick("HEARTS", 7);  // P3
+    deck[5] = pick("HEARTS", 11); // P2 (HJ=3)
+    deck[6] = pick("HEARTS", 9);  // P1 (H9=2)
+    deck[7] = pick("HEARTS", 14); // P0 (HA=1) -> 6 pts for A
+
+    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
+    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
+    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
+
+    const state = makeMatch();
+    startHand(state, { deck });
+    driveBidding(state, 3, 20); // Bid 20
+    declareTrumpPlan(state, 3, "CLUBS");
+    passSingleHandForAll(state);
+
+    // Trick 1:
+    playCard(state, 3, pick("SPADES", 7));
+    playCard(state, 2, pick("SPADES", 11));
+    playCard(state, 1, pick("SPADES", 8));
+    playCard(state, 0, pick("SPADES", 9));
+    expect(state.phase).toBe(TnPhase.PLAYING);
+
+    // Trick 2:
+    playCard(state, 2, pick("HEARTS", 11));
+    playCard(state, 1, pick("HEARTS", 9));
+    playCard(state, 0, pick("HEARTS", 14));
+    playCard(state, 3, pick("HEARTS", 7));
+
+    expect(state.phase).toBe(TnPhase.ROUND_SCORED);
+    expect(state.lastRoundSummary?.endReason).toBe("EARLY_DEFEAT");
+    expect(state.lastRoundSummary?.winnerTeam).toBe("A"); // Defenders win
+    expect(state.lastRoundSummary?.scoreAwarded).toBe(1);
+    expect(state.trickNumber).toBe(2); // Ended early after Trick 2!
   });
 });

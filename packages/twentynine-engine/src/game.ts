@@ -792,13 +792,41 @@ function completeTrick(state: TwentyNineState): void {
     return;
   }
 
+  const bidder = state.bidderSeatIndex;
+  if (bidder === null || state.bid === null) {
+    throw new Error("engine bug: finishing without a bid");
+  }
+  const biddingTeam = tnTeamOfSeat(bidder);
+  const defendingTeam = otherTeam(biddingTeam);
+  const requirement = marriageAdjustedRequirement(state.bid, state.marriageDeclaredBy, biddingTeam);
+
+  // 1. If all 8 tricks have been completed:
   if (state.trickNumber === TN_TRICKS_PER_HAND) {
-    const bidder = state.bidderSeatIndex;
-    if (bidder !== null && state.tricksWon[tnTeamOfSeat(bidder)] === 8) {
+    if (state.tricksWon[biddingTeam] === 8) {
       finishHand(state, { scorePoints: 2, endReason: "FULL_BOARD" });
     } else {
       finishHand(state, { scorePoints: 1, endReason: "NORMAL" });
     }
+    return;
+  }
+
+  // 2. Early round completion (tricks 1..7):
+  // Check A: Bidder reached the required points:
+  // If the bidding team already captured >= requirement, they win the round.
+  // However, if defenders have won 0 tricks, the bidding team can still achieve Full Board (8 tricks = 2 pts).
+  // Therefore, the round ends early only when Full Board is no longer possible (defenders won >= 1 trick).
+  if (state.capturedPoints[biddingTeam] >= requirement) {
+    const fullBoardPossible = state.tricksWon[defendingTeam] === 0;
+    if (!fullBoardPossible) {
+      finishHand(state, { scorePoints: 1, endReason: "EARLY_BID_REACHED" });
+      return;
+    }
+  }
+
+  // Check B: Defenders defeated the bidder:
+  // If defenders have captured > (29 - requirement), bidder cannot reach the requirement.
+  if (state.capturedPoints[defendingTeam] > 29 - requirement) {
+    finishHand(state, { scorePoints: 1, endReason: "EARLY_DEFEAT" });
     return;
   }
   

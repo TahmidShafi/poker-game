@@ -201,32 +201,63 @@ export class TwentyNineGameManager implements RoomLike {
       return { ok: false, error: "username must be 1-16 characters" };
     }
 
-    // Reconnect / rejoin by session token.
+    // 1. Reconnect / rejoin by session token if valid for this room.
     if (opts.sessionToken) {
       const rec = this.findByToken(opts.sessionToken);
-      if (!rec) return { ok: false, error: "session not found in this room" };
-      rec.socketIds.add(opts.socketId);
-      rec.lastSeen = Date.now();
-      const seat = this.match.seats[rec.seatIndex];
-      if (seat) seat.connected = true;
-      this.deliveredBatches.delete(this.match.roundNumber); // force re-delivery below
-      this.sendPrivateSnapshot(rec);
-      this.broadcastState();
-      this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
-        seatIndex: rec.seatIndex,
-        username: rec.username,
-      });
-      return {
-        ok: true,
-        seatIndex: rec.seatIndex,
-        playerId: rec.playerId,
-        sessionToken: rec.sessionToken,
-      };
+      if (rec) {
+        rec.socketIds.add(opts.socketId);
+        rec.lastSeen = Date.now();
+        const seat = this.match.seats[rec.seatIndex];
+        if (seat) seat.connected = true;
+        if (opts.avatar !== undefined) {
+          rec.avatar = opts.avatar;
+          if (seat) seat.avatar = opts.avatar;
+        }
+        this.deliveredBatches.delete(this.match.roundNumber); // force re-delivery below
+        this.sendPrivateSnapshot(rec);
+        this.broadcastState();
+        this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+          seatIndex: rec.seatIndex,
+          username: rec.username,
+        });
+        return {
+          ok: true,
+          seatIndex: rec.seatIndex,
+          playerId: rec.playerId,
+          sessionToken: rec.sessionToken,
+        };
+      }
+      // If token not found in this room, fall through to match by username or allocate new seat.
     }
 
-    // Fresh join.
+    // 2. Fresh join or re-attaching to existing seat by username.
     for (const rec of this.players.values()) {
       if (rec.username.toLowerCase() === name.toLowerCase()) {
+        const seat = this.match.seats[rec.seatIndex];
+        const isDisconnected = !seat || !seat.connected || rec.socketIds.size === 0;
+
+        if (isDisconnected || opts.sessionToken === rec.sessionToken) {
+          rec.socketIds.add(opts.socketId);
+          rec.lastSeen = Date.now();
+          if (seat) seat.connected = true;
+          if (opts.avatar !== undefined) {
+            rec.avatar = opts.avatar;
+            if (seat) seat.avatar = opts.avatar;
+          }
+          this.deliveredBatches.delete(this.match.roundNumber);
+          this.sendPrivateSnapshot(rec);
+          this.broadcastState();
+          this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+            seatIndex: rec.seatIndex,
+            username: rec.username,
+          });
+          return {
+            ok: true,
+            seatIndex: rec.seatIndex,
+            playerId: rec.playerId,
+            sessionToken: rec.sessionToken,
+          };
+        }
         return { ok: false, error: `username "${rec.username}" is already taken in this room` };
       }
     }

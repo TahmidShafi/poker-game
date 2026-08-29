@@ -142,7 +142,8 @@ export function registerSocketHandlers(
       ) {
         return ack?.({ ok: false, error: "invalid JOIN_ROOM payload" });
       }
-      const room = registry.get(payload.roomCode.toUpperCase());
+      const code = payload.roomCode.trim().toUpperCase();
+      const room = registry.get(code);
       if (!room) return ack?.({ ok: false, error: "room not found" });
       const joined = room.join(payload.username, {
         sessionToken: typeof payload.sessionToken === "string" ? payload.sessionToken : undefined,
@@ -161,6 +162,7 @@ export function registerSocketHandlers(
         sessionToken: joined.sessionToken,
         config: room.config,
         gameType: room.gameType,
+        state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(joined.seatIndex) : undefined,
       });
     });
 
@@ -182,6 +184,7 @@ export function registerSocketHandlers(
         sessionToken: rec.sessionToken,
         config: room.config,
         gameType: room.gameType,
+        state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(rec.seatIndex) : undefined,
       });
     });
 

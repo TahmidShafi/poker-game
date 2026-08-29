@@ -6,61 +6,247 @@ import { TN_SUIT_SYMBOLS } from "@poker/shared-types";
 import { useGame } from "../../lib/store";
 import { PlayingCard } from "../common/PlayingCard";
 
-const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
+const SUIT_DATA: {
+  suit: TnSuit;
+  name: string;
+  bengali: string;
+  symbol: string;
+  theme: {
+    border: string;
+    bg: string;
+    hoverBg: string;
+    hoverBorder: string;
+    symbolColor: string;
+    glow: string;
+  };
+}[] = [
+  {
+    suit: "SPADES",
+    name: "Spades",
+    bengali: "Shon / Kala",
+    symbol: "♠",
+    theme: {
+      border: "border-slate-700/60",
+      bg: "bg-slate-900/60",
+      hoverBg: "hover:bg-slate-800/80",
+      hoverBorder: "hover:border-gold/70",
+      symbolColor: "text-slate-100",
+      glow: "hover:shadow-[0_0_20px_rgba(234,179,8,0.2)]",
+    },
+  },
+  {
+    suit: "HEARTS",
+    name: "Hearts (Love)",
+    bengali: "Love / Pan",
+    symbol: "♥",
+    theme: {
+      border: "border-rose-900/50",
+      bg: "bg-rose-950/40",
+      hoverBg: "hover:bg-rose-900/60",
+      hoverBorder: "hover:border-rose-500/80",
+      symbolColor: "text-rose-500",
+      glow: "hover:shadow-[0_0_20px_rgba(244,63,94,0.3)]",
+    },
+  },
+  {
+    suit: "DIAMONDS",
+    name: "Diamonds",
+    bengali: "Ruiton / It",
+    symbol: "♦",
+    theme: {
+      border: "border-amber-900/50",
+      bg: "bg-amber-950/40",
+      hoverBg: "hover:bg-amber-900/60",
+      hoverBorder: "hover:border-amber-500/80",
+      symbolColor: "text-amber-500",
+      glow: "hover:shadow-[0_0_20px_rgba(245,158,11,0.3)]",
+    },
+  },
+  {
+    suit: "CLUBS",
+    name: "Clubs",
+    bengali: "Chiri / Harin",
+    symbol: "♣",
+    theme: {
+      border: "border-emerald-900/50",
+      bg: "bg-emerald-950/40",
+      hoverBg: "hover:bg-emerald-900/60",
+      hoverBorder: "hover:border-emerald-500/80",
+      symbolColor: "text-emerald-400",
+      glow: "hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]",
+    },
+  },
+];
+
+function getCardPoints(rank: number): number {
+  if (rank === 11) return 3; // Jack
+  if (rank === 9) return 2;  // 9
+  if (rank === 14) return 1; // Ace
+  if (rank === 10) return 1; // 10
+  return 0;
+}
 
 function TrumpPickerModalComponent() {
-  const { tnState, tnBidderPrivate, tnDeclareTrump, me } = useGame();
+  const { tnState, tnDeclareTrump, me, myTnCards } = useGame();
   if (!tnState) return null;
 
   const myTurn = tnState.actingSeatIndex === me?.seatIndex;
+  if (tnState.phase !== "TRUMP_SETUP" || !myTurn) return null;
 
-  // Show if phase is TRUMP_SETUP and it's our turn. (tnBidderPrivate is just extra validation/payload).
-  if (tnState.phase !== "TRUMP_SETUP") return null;
-  if (!myTurn) return null;
+  const initialCards = myTnCards ?? [];
+  const totalHandPoints = initialCards.reduce((sum, c) => sum + getCardPoints(c.rank), 0);
+
+  // Per-suit counts and points in the player's initial 4 cards
+  const suitSummary = {
+    SPADES: { count: 0, points: 0 },
+    HEARTS: { count: 0, points: 0 },
+    DIAMONDS: { count: 0, points: 0 },
+    CLUBS: { count: 0, points: 0 },
+  };
+
+  for (const c of initialCards) {
+    if (c.suit in suitSummary) {
+      suitSummary[c.suit].count += 1;
+      suitSummary[c.suit].points += getCardPoints(c.rank);
+    }
+  }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-sm">
-      <div className="glass mx-4 w-full max-w-md rounded-3xl p-6 shadow-panel animate-riseFade">
-        <h2 className="text-lg font-black tracking-tight">
-          Set trump <span className="text-crimson">(secret)</span>
-        </h2>
-        <p className="mt-1 text-[11px] text-white/50">
-          Pick a suit to hide it, take your 7th card, or go Joker — no suit at
-          all, J&nbsp;9&nbsp;A&nbsp;10 rule the tricks.
-        </p>
-
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          {SUITS.map((s) => (
-            <button
-              key={s}
-              onClick={() => tnDeclareTrump(s)}
-              className="rounded-2xl bg-black/40 py-4 ring-1 ring-white/12 transition-all hover:ring-gold/60 hover:bg-gold/10 active:scale-[0.96]"
-            >
-              <span className="block text-2xl">{TN_SUIT_SYMBOLS[s]}</span>
-              <span className="mt-1 block text-[9px] font-bold uppercase tracking-widest text-white/45">
-                hidden
-              </span>
-            </button>
-          ))}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+      <div className="glass w-full max-w-xl rounded-3xl p-4 sm:p-6 shadow-2xl animate-riseFade border border-gold/35 text-white my-auto max-h-[92dvh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-gold/15 border border-gold/40 text-gold text-[10px] sm:text-[11px] font-black uppercase tracking-wider mb-1">
+              <span>👑</span> Bid Winner ({tnState.bid ?? tnState.bids?.highestBid ?? 16} Pts)
+            </div>
+            <h2 className="text-lg sm:text-xl font-black tracking-tight text-white flex items-center gap-2">
+              Select Secret Trump <span className="text-xs sm:text-sm font-bold text-white/50">(তুরুপ)</span>
+            </h2>
+          </div>
+          <div className="flex items-center gap-1 bg-black/50 px-2.5 py-1 rounded-xl border border-white/10 text-[10px] sm:text-xs font-bold text-amber-300">
+            <span>🔒</span> Secret until called
+          </div>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+
+        {/* Initial 4 Cards Hand Preview */}
+        <div className="mt-3.5 rounded-2xl bg-black/50 border border-white/10 p-3 sm:p-4 backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-white/60 flex items-center gap-1.5">
+              <span>🃏</span> Your Initial 4 Cards
+            </span>
+            <span className="text-[10px] sm:text-[11px] font-black text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-400/40">
+              ⚡ {totalHandPoints} Points in hand
+            </span>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 sm:gap-3 py-1">
+            {initialCards.map((card, idx) => {
+              const pts = getCardPoints(card.rank);
+              return (
+                <div key={`${card.suit}:${card.rank}:${idx}`} className="flex flex-col items-center gap-1">
+                  <div className="transform hover:-translate-y-1 transition-transform">
+                    <PlayingCard card={card} size="sm" className="sm:hidden shadow-lg ring-1 ring-white/20" />
+                    <PlayingCard card={card} size="md" className="hidden sm:block shadow-lg ring-1 ring-white/20" />
+                  </div>
+                  <span
+                    className={`text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-full border ${
+                      pts > 0
+                        ? "bg-gold/20 text-gold border-gold/40"
+                        : "bg-white/5 text-white/40 border-white/10"
+                    }`}
+                  >
+                    {pts > 0 ? `${pts} pt${pts > 1 ? "s" : ""}` : "0 pts"}
+                  </span>
+                </div>
+              );
+            })}
+            {initialCards.length === 0 && (
+              <p className="text-xs text-white/40 italic py-2">Dealing cards…</p>
+            )}
+          </div>
+        </div>
+
+        {/* Suit Options Grid */}
+        <div className="mt-3.5">
+          <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-white/60 mb-2">
+            Choose Trump Suit:
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+            {SUIT_DATA.map(({ suit, name, bengali, symbol, theme }) => {
+              const count = suitSummary[suit].count;
+              const points = suitSummary[suit].points;
+              const hasCards = count > 0;
+
+              return (
+                <button
+                  key={suit}
+                  onClick={() => tnDeclareTrump(suit)}
+                  className={`relative flex flex-col items-center justify-between p-2.5 sm:p-3.5 rounded-2xl border ${theme.border} ${theme.bg} ${theme.hoverBg} ${theme.hoverBorder} ${theme.glow} transition-all duration-200 cursor-pointer active:scale-95 text-center group`}
+                >
+                  {/* Top suit icon */}
+                  <span className={`text-3xl sm:text-4xl leading-none ${theme.symbolColor} group-hover:scale-110 transition-transform`}>
+                    {symbol}
+                  </span>
+
+                  {/* Name and Bengali label */}
+                  <div className="mt-1.5">
+                    <span className="block text-xs sm:text-sm font-black tracking-tight text-white">
+                      {name}
+                    </span>
+                    <span className="block text-[8.5px] sm:text-[9.5px] font-bold text-white/50">
+                      {bengali}
+                    </span>
+                  </div>
+
+                  {/* Count badge */}
+                  <div className="mt-2 w-full">
+                    {hasCards ? (
+                      <span className="inline-block w-full py-0.5 px-1 rounded-full bg-gold/15 border border-gold/40 text-[8.5px] sm:text-[9.5px] font-black text-amber-200 truncate">
+                        {count} card{count > 1 ? "s" : ""} ({points} pt{points !== 1 ? "s" : ""})
+                      </span>
+                    ) : (
+                      <span className="inline-block w-full py-0.5 px-1 rounded-full bg-white/5 text-[8.5px] sm:text-[9.5px] font-bold text-white/30 truncate">
+                        0 in hand
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Alternative Special Trump Modes */}
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
           <button
             onClick={() => tnDeclareTrump("SEVENTH_CARD")}
-            className="rounded-2xl bg-black/40 px-3 py-3 ring-1 ring-white/12 transition-all hover:ring-violet-300/60 hover:bg-violet-400/10 active:scale-[0.97]"
+            className="flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-violet-950/40 to-slate-900/60 border border-violet-700/40 hover:border-violet-400 hover:from-violet-900/60 transition-all text-left cursor-pointer active:scale-98 group"
           >
-            <span className="block text-sm font-black">7th Card ♢</span>
-            <span className="block text-[9px] leading-tight text-white/45">
-              auto trump from your 7th card (redeal if dead)
-            </span>
+            <span className="text-2xl sm:text-3xl">♢</span>
+            <div className="flex-1 min-w-0">
+              <span className="block text-xs sm:text-sm font-black text-violet-200 group-hover:text-white">
+                Mystery 7th Card
+              </span>
+              <span className="block text-[9px] sm:text-[10px] text-white/50 leading-tight">
+                Trump established automatically from your 7th dealt card
+              </span>
+            </div>
           </button>
+
           <button
             onClick={() => tnDeclareTrump("JOKER")}
-            className="rounded-2xl bg-black/40 px-3 py-3 ring-1 ring-white/12 transition-all hover:ring-violet-300/60 hover:bg-violet-400/10 active:scale-[0.97]"
+            className="flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-indigo-950/40 to-slate-900/60 border border-indigo-700/40 hover:border-indigo-400 hover:from-indigo-900/60 transition-all text-left cursor-pointer active:scale-98 group"
           >
-            <span className="block text-sm font-black">Joker 🃏</span>
-            <span className="block text-[9px] leading-tight text-white/45">
-              no suit — J 9 A 10 are power cards
-            </span>
+            <span className="text-2xl sm:text-3xl">🃏</span>
+            <div className="flex-1 min-w-0">
+              <span className="block text-xs sm:text-sm font-black text-indigo-200 group-hover:text-white">
+                No-Trump Joker Mode
+              </span>
+              <span className="block text-[9px] sm:text-[10px] text-white/50 leading-tight">
+                No suit trump · Power cards (J &gt; 9 &gt; A &gt; 10) dominate
+              </span>
+            </div>
           </button>
         </div>
       </div>
@@ -158,6 +344,14 @@ function RoundBannerComponent() {
     title = "🌟 FULL BOARD!";
     subtitle = "All 8 tricks won by bidding team!";
     pointsAwardedText = "+2 Match Points";
+  } else if (summary.endReason === "EARLY_BID_REACHED") {
+    title = iWon ? "🎯 TARGET REACHED!" : "Round Lost";
+    subtitle = `Bidding team reached the requirement of ${summary.requirement} points!`;
+    pointsAwardedText = "+1 Match Point";
+  } else if (summary.endReason === "EARLY_DEFEAT") {
+    title = iWon ? "🛡️ BID DEFEATED!" : "❌ BID FAILED";
+    subtitle = `Defenders prevented the requirement of ${summary.requirement} points.`;
+    pointsAwardedText = "+1 Match Point";
   }
 
   return (
