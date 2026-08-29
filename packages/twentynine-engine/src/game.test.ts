@@ -959,7 +959,9 @@ describe("early round completion & full board requirements", () => {
     expect(state.phase).toBe(TnPhase.ROUND_SCORED);
     expect(state.lastRoundSummary?.endReason).toBe("EARLY_DEFEAT");
     expect(state.lastRoundSummary?.winnerTeam).toBe("A"); // Defenders win
-    expect(state.lastRoundSummary?.scoreAwarded).toBe(1);
+    expect(state.lastRoundSummary?.scoreAwarded).toBe(-1); // Bidder loses 1 point
+    expect(state.matchScore.B).toBe(-1); // Bidder team deducted
+    expect(state.matchScore.A).toBe(0); // Opponents do NOT get +1
     expect(state.trickNumber).toBe(2); // Ended early after Trick 2!
   });
 });

@@ -943,17 +943,25 @@ function finishHand(
   const bidder = state.bidderSeatIndex;
   if (bidder === null || state.bid === null) throw new Error("engine bug: finishing without a bid");
   const biddingTeam = tnTeamOfSeat(bidder);
+  const defendingTeam = otherTeam(biddingTeam);
   const requirement = marriageAdjustedRequirement(state.bid, state.marriageDeclaredBy, biddingTeam);
   
   let roundWinner: TnTeam;
+  let bidderWon: boolean;
   if (endReason === "EARLY_DEFEAT") {
-    roundWinner = otherTeam(biddingTeam);
+    roundWinner = defendingTeam;
+    bidderWon = false;
   } else {
-    const made = totals[biddingTeam] >= requirement;
-    roundWinner = made ? biddingTeam : otherTeam(biddingTeam);
+    bidderWon = totals[biddingTeam] >= requirement;
+    roundWinner = bidderWon ? biddingTeam : defendingTeam;
   }
   
-  state.matchScore[roundWinner] += scorePoints;
+  if (bidderWon) {
+    state.matchScore[biddingTeam] += scorePoints;
+  } else {
+    state.matchScore[biddingTeam] -= scorePoints;
+  }
+
   state.roundHistory.push(roundWinner);
   state.dealerAdvancePending = true;
   state.ledSeatIndex = null;
@@ -970,14 +978,23 @@ function finishHand(
     marriageTeam: state.marriageDeclaredBy,
     matchScoreAfter: { A: state.matchScore.A, B: state.matchScore.B },
     trumpStyle: state.trumpStyle ?? "SUIT",
-    scoreAwarded: scorePoints,
+    scoreAwarded: bidderWon ? scorePoints : -scorePoints,
     endReason,
     isSingleHand: false,
     singleHandSeatIndex: null,
   };
 
-  if (state.matchScore[roundWinner] >= state.roundsToWin) {
-    state.winnerTeam = roundWinner;
+  if (
+    state.matchScore.A >= state.roundsToWin ||
+    state.matchScore.B <= -state.roundsToWin
+  ) {
+    state.winnerTeam = "A";
+    state.phase = TnPhase.MATCH_OVER;
+  } else if (
+    state.matchScore.B >= state.roundsToWin ||
+    state.matchScore.A <= -state.roundsToWin
+  ) {
+    state.winnerTeam = "B";
     state.phase = TnPhase.MATCH_OVER;
   } else {
     state.phase = TnPhase.ROUND_SCORED;

@@ -330,7 +330,13 @@ function RoundBannerComponent() {
 
   let title = iWon ? "Round Won!" : "Round Lost";
   let subtitle = `${summary.captured[summary.winnerTeam]} points captured`;
-  let pointsAwardedText = `+${summary.scoreAwarded ?? 1} Match Points`;
+  const isBidderTeam = myTeam !== null && summary.biddingTeam === myTeam;
+  const isBidWon = summary.winnerTeam === summary.biddingTeam;
+  let pointsAwardedText = isBidWon
+    ? `+${Math.abs(summary.scoreAwarded ?? 1)} Match Point${Math.abs(summary.scoreAwarded ?? 1) > 1 ? "s" : ""}`
+    : isBidderTeam
+    ? `${summary.scoreAwarded ?? -1} Match Point${Math.abs(summary.scoreAwarded ?? 1) > 1 ? "s" : ""}`
+    : `Opponent ${summary.scoreAwarded ?? -1} Match Points`;
 
   if (summary.endReason === "SINGLE_HAND_WIN") {
     title = iWon ? "👑 SINGLE HAND SUCCESS!" : "👑 OPPONENT SINGLE HAND SUCCESS";
@@ -351,7 +357,7 @@ function RoundBannerComponent() {
   } else if (summary.endReason === "EARLY_DEFEAT") {
     title = iWon ? "🛡️ BID DEFEATED!" : "❌ BID FAILED";
     subtitle = `Defenders prevented the requirement of ${summary.requirement} points.`;
-    pointsAwardedText = "+1 Match Point";
+    pointsAwardedText = isBidderTeam ? "-1 Match Point" : "Opponent -1 Match Point";
   }
 
   return (
@@ -408,22 +414,20 @@ function RulesModalComponent({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 backdrop-blur-md px-4" onClick={onClose}>
       <div
-        className="glass max-h-[82dvh] w-full max-w-lg overflow-y-auto rounded-3xl p-6 shadow-panel animate-riseFade"
+        className="relative max-h-[85vh] w-full max-w-md overflow-y-auto rounded-3xl bg-slate-950/95 p-6 text-white shadow-2xl ring-1 ring-white/10"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-black tracking-tight">
-          Twenty-Nine <span className="text-gold">rules</span>
-        </h2>
-        <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-white/65">
-          <li>• Two teams of two: seats 0&2 vs 1&3. Turns run anti-clockwise 0→3→2→1→0.</li>
+        <h2 className="text-base font-black uppercase tracking-wider text-gold">Rules &amp; Rankings</h2>
+        <ul className="mt-3 space-y-2 text-xs text-white/80">
+          <li>• Two teams of two: seats 0 &amp; 2 vs 1 &amp; 3. Turns run anti-clockwise 0→3→2→1→0.</li>
           <li>• 32-card deck (7–A). Eight cards each, dealt in two batches of four.</li>
           <li>• Bid 16–28. Raise the other team by any amount, or MATCH their value once; your own side must always go strictly higher.</li>
           <li>• Single Hand (Solo): After 8 cards are dealt, any player can declare Single Hand in turn order. The player plays alone without trump and must win all 8 tricks (+3 match points). Losing even one trick loses 3 match points (-3) immediately.</li>
           <li>• Trick ranking J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7. Follow suit if you can.</li>
           <li>• Points: J=3, 9=2, A=1, 10=1. Last trick +1 → always 29 total.</li>
           <li>• Trump stays 🔒 HIDDEN until someone void in the led suit calls it — reveal and playing are separate actions.</li>
-          <li>• Marriage: whoever really holds K+Q of the hand&apos;s suit may declare it — bidding team lowers requirement by 4 (min 16), defending team pushes it to bid+4.</li>
-          <li>• Bidding team scores at captured &ge; requirement; otherwise defenders do. First team to {tnState?.roundsToWin ?? 6} round-wins takes the match.</li>
+          <li>• Marriage: automatically activates on trump reveal if K+Q of trump suit is held — bidding team lowers requirement by 4 (min 16), defending team pushes it to bid+4.</li>
+          <li>• Bidding team scores +1 at captured &ge; requirement; if defeated, bidding team loses points (-1). First team to reach +{tnState?.roundsToWin ?? 6} (or if opponent drops to -{tnState?.roundsToWin ?? 6}) wins the match.</li>
         </ul>
         <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
           this hand: {(tnState?.trumpStyle ?? "bidder chooses").replace("_", " ").toLowerCase()}
