@@ -86,11 +86,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function emitAck(
   socket: ClientSocket,
-  event: "CREATE_ROOM" | "JOIN_ROOM",
+  event: "CREATE_ROOM" | "JOIN_ROOM" | "RECONNECT",
   payload: Record<string, unknown>
 ): Promise<RoomAck> {
   return new Promise((resolve) => {
-    socket.emit(event, payload, (r: RoomAck) => resolve(r));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (socket as any).emit(event, payload, (r: RoomAck) => resolve(r));
   });
 }
 
