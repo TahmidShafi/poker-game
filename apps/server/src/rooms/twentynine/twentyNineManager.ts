@@ -655,31 +655,31 @@ export class TwentyNineGameManager implements RoomLike {
   sendPrivateSnapshot(rec: TnPlayerRecord): void {
     const seat = this.match.seats[rec.seatIndex];
     if (!seat) return;
-    if (seat.hand.length > 0) {
-      const isBidderSeventhLocked =
-        rec.seatIndex === this.match.bidderSeatIndex &&
-        this.match.trumpStyle === "SEVENTH_CARD" &&
-        !this.match.trumpRevealed &&
-        this.match.indicatorCard;
 
-      const cardsToSend = isBidderSeventhLocked
-        ? seat.hand.filter(
-            (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
-          )
-        : seat.hand;
+    const isBidderSeventhLocked =
+      rec.seatIndex === this.match.bidderSeatIndex &&
+      this.match.trumpStyle === "SEVENTH_CARD" &&
+      !this.match.trumpRevealed &&
+      this.match.indicatorCard;
 
-      if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
-        console.log(
-          `[TN_SYNC ${this.roomCode}] sending authoritative hand snapshot to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards (batch FULL_RECONNECT) across ${rec.socketIds.size} sockets`
-        );
-      }
-      this.emitToPlayer(rec, "YOUR_TN_HAND", {
-        handNumber: this.match.roundNumber,
-        batch: "FULL_RECONNECT",
-        cards: cardsToSend.map((c) => ({ ...c })),
-      });
+    const cardsToSend = isBidderSeventhLocked
+      ? seat.hand.filter(
+          (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
+        )
+      : seat.hand;
+
+    if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+      console.log(
+        `[TN_SYNC ${this.roomCode}] sending authoritative hand snapshot to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards (batch FULL_RECONNECT) across ${rec.socketIds.size} sockets`
+      );
     }
-    // Re-evaluate the bidder channel for THIS reconnecting player only.
+    this.emitToPlayer(rec, "YOUR_TN_HAND", {
+      handNumber: this.match.roundNumber,
+      batch: "FULL_RECONNECT",
+      cards: cardsToSend.map((c) => ({ ...c })),
+    });
+
+    // Re-evaluate the bidder channel for THIS reconnecting/syncing player only.
     const bidder = this.match.bidderSeatIndex;
     if (bidder === rec.seatIndex) {
       const payload = getBidderPrivatePayload(this.match);

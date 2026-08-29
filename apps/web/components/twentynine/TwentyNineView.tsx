@@ -13,19 +13,33 @@ import { PhysicalScoreBoard } from "./ScoreCard";
  * on the left. rel = (seatIndex - mySeat + 4) % 4.
  */
 const REL_POS: Record<number, string> = {
-  0: "left-1/2 -bottom-6 sm:-bottom-9 -translate-x-1/2 z-30", // You (South) - Outside Bottom Rail
-  1: "-left-5 sm:-left-9 top-1/2 -translate-y-1/2 z-30",       // Left Player (West) - Outside Left Rail
-  2: "left-1/2 -top-6 sm:-top-9 -translate-x-1/2 z-30",       // Partner (North) - Outside Top Rail
-  3: "-right-5 sm:-right-9 top-1/2 -translate-y-1/2 z-30",     // Right Player (East) - Outside Right Rail
+  0: "left-1/2 -bottom-5 sm:-bottom-9 -translate-x-1/2 z-30", // You (South) - Outside Bottom Rail
+  1: "-left-2.5 sm:-left-9 top-1/2 -translate-y-1/2 z-30",     // Left Player (West) - Outside Left Rail
+  2: "left-1/2 -top-5 sm:-top-9 -translate-x-1/2 z-30",       // Partner (North) - Outside Top Rail
+  3: "-right-2.5 sm:-right-9 top-1/2 -translate-y-1/2 z-30",   // Right Player (East) - Outside Right Rail
 };
 
 /** Dev-only diagnostics (formula string, raw counters). Off in shipped UI. */
 const TN_DEBUG_UI = process.env.NEXT_PUBLIC_TN_DEBUG === "1";
 
-export function TwentyNineView() {
+function TwentyNineViewComponent() {
   const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots } = useGame();
   const [showRules, setShowRules] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const mySeat = me?.seatIndex ?? null;
+  const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
+
+  const copyCode = React.useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(me?.roomCode ?? "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard unavailable */ }
+  }, [me?.roomCode]);
+
+  const handleOpenRules = React.useCallback(() => setShowRules(true), []);
+  const handleCloseRules = React.useCallback(() => setShowRules(false), []);
 
   if (!tnState) {
     return (
@@ -35,21 +49,11 @@ export function TwentyNineView() {
     );
   }
 
-  const mySeat = me?.seatIndex ?? null;
-  const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
   const seatedCount = tnState.seats.filter((s) => s.username !== null).length;
   const neededCount = 4 - seatedCount;
 
-  const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(me?.roomCode ?? "");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch { /* clipboard unavailable */ }
-  };
-
   return (
-    <div className="flex min-h-dvh flex-col bg-room pb-28">
+    <div className="flex min-h-dvh flex-col bg-room pb-28 w-full max-w-full overflow-x-hidden">
       {/* Header */}
       <header className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 sm:px-4 pt-3 sm:pt-4">
         <div className="flex items-center gap-2">
@@ -73,7 +77,7 @@ export function TwentyNineView() {
             </button>
           )}
           <button
-            onClick={() => setShowRules(true)}
+            onClick={handleOpenRules}
             className="rounded-xl bg-black/30 px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/55 ring-1 ring-white/10 hover:text-white"
           >
             rules
@@ -94,13 +98,13 @@ export function TwentyNineView() {
       </header>
 
       {/* Mobile Live Round Progress HUD */}
-      <div className="sm:hidden px-3 pt-2">
+      <div className="sm:hidden px-3 pt-2 w-full max-w-full">
         <LiveRoundProgress state={tnState} />
       </div>
 
       {/* Table Area */}
       <main
-        className={`relative flex flex-1 items-center justify-center px-6 sm:px-12 py-8 sm:py-12 transition-[padding] ${
+        className={`relative flex flex-1 items-center justify-center px-4 sm:px-12 py-6 sm:py-12 transition-[padding] w-full max-w-full min-w-0 ${
           tnState.phase === "BIDDING" ? "pb-32 sm:pb-28" : ""
         }`}
       >
@@ -114,7 +118,7 @@ export function TwentyNineView() {
           <LiveRoundProgress state={tnState} />
         </div>
 
-        <section className="relative aspect-[1.15/1] sm:aspect-[16/9] w-full max-w-[68rem] rounded-[2.2rem] sm:rounded-[50%] p-2 sm:p-4 rail-surface">
+        <section className="relative aspect-[1.15/1] sm:aspect-[16/9] w-full max-w-[68rem] rounded-[2.2rem] sm:rounded-[50%] p-2 sm:p-4 rail-surface min-w-0">
           {/* Inner Felt */}
           <div className="relative h-full w-full overflow-hidden rounded-[1.8rem] sm:rounded-[50%] felt-surface gold-ring">
             <TrickArea state={tnState} mySeat={mySeat} flashSeat={null} />
@@ -183,7 +187,7 @@ export function TwentyNineView() {
       </main>
 
       {/* Bid + hand live in the fixed dock */}
-      <footer className="fixed inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3">
+      <footer className="fixed inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3 w-full max-w-full">
         {TN_DEBUG_UI && (
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 text-[9.5px] uppercase tracking-widest text-white/25">
             <span>J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7 · points J3 9·2 A·1 10·1 · last trick +1</span>
@@ -195,7 +199,7 @@ export function TwentyNineView() {
           </div>
         )}
         {tnState.phase === "BIDDING" && (
-          <div className="mx-auto w-full max-w-xl">
+          <div className="mx-auto w-full max-w-xl px-2 sm:px-0">
             <BiddingPanel state={tnState} />
           </div>
         )}
@@ -209,7 +213,9 @@ export function TwentyNineView() {
       <SeventhCardModal />
       <RoundBanner />
       <MatchOverBanner />
-      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {showRules && <RulesModal onClose={handleCloseRules} />}
     </div>
   );
 }
+
+export const TwentyNineView = React.memo(TwentyNineViewComponent);

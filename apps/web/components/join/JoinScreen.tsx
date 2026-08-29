@@ -20,7 +20,7 @@ const USERNAME_KEY = "poker.username";
 const AVATAR_KEY = "poker.avatar";
 
 /** Entry screen — split hero with drifting cards (desktop) + the action card. */
-export function JoinScreen() {
+function JoinScreenComponent() {
   const { joinRoom, createRoom, pushToast, status } = useGame();
   const [tab, setTab] = useState<"join" | "create">("join");
   const [game, setGame] = useState<"POKER" | "TWENTY_NINE">("POKER");
@@ -262,7 +262,7 @@ export function JoinScreen() {
             <button
               disabled={!canSubmit}
               onClick={submit}
-              className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none min-w-0"
+              className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none min-w-0 cursor-pointer"
             >
               {busy
                 ? "Connecting…"
@@ -297,6 +297,8 @@ export function JoinScreen() {
   );
 }
 
+export const JoinScreen = React.memo(JoinScreenComponent);
+
 function rememberIdentity(name: string, avatar: number | null): void {
   try {
     localStorage.setItem(USERNAME_KEY, name);
@@ -306,7 +308,7 @@ function rememberIdentity(name: string, avatar: number | null): void {
   }
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
+const Brand = React.memo(function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 sm:gap-3">
       <span className={`grid place-items-center rounded-2xl bg-gradient-to-br from-gold to-goldDim text-ink shadow-glowGold ${
@@ -328,4 +330,4 @@ function Brand({ compact = false }: { compact?: boolean }) {
       </div>
     </div>
   );
-}
+});

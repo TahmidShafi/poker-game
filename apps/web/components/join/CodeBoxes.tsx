@@ -10,7 +10,7 @@ const ALLOWED = /[^A-Z0-9]/g;
  * navigation, arrow keys and paste-distribution. `invalid` briefly shakes
  * the group (parent owns resetting the flag).
  */
-export function CodeBoxes({
+function CodeBoxesComponent({
   value,
   onChange,
   onComplete,
@@ -92,7 +92,7 @@ export function CodeBoxes({
             }
           }}
           onFocus={(e) => e.currentTarget.select()}
-          className={`h-11 sm:h-12 w-full min-w-0 px-0 rounded-xl bg-black/35 text-center text-base sm:text-lg font-black tabnum ring-1 transition-colors focus:outline-none focus:ring-gold/60 ${
+          className={`h-10 sm:h-12 w-full min-w-0 px-0 rounded-xl bg-black/35 text-center text-sm sm:text-lg font-black tabnum ring-1 transition-colors focus:outline-none focus:ring-gold/60 ${
             invalid ? "text-crimson ring-crimson/60" : "ring-white/12"
           }`}
         />
@@ -100,3 +100,5 @@ export function CodeBoxes({
     </div>
   );
 }
+
+export const CodeBoxes = React.memo(CodeBoxesComponent);

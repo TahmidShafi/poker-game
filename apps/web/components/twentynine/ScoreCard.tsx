@@ -44,7 +44,7 @@ const scoreCoverPositions: Record<number, string> = {
   6: "translate(130%, 10%) rotate(8deg)",
 };
 
-function SixScoreCard({
+const SixScoreCard = React.memo(function SixScoreCard({
   suit,
   score,
 }: {
@@ -80,9 +80,9 @@ function SixScoreCard({
       ))}
     </div>
   );
-}
+});
 
-export function PhysicalScoreBoard({
+function PhysicalScoreBoardComponent({
   team,
   score,
 }: {
@@ -143,7 +143,7 @@ export function PhysicalScoreBoard({
         {/* ONE moving cover card with luxury art */}
         <div
           className="absolute inset-0 z-10 rounded-md sm:rounded-xl
-            transition-transform duration-700 ease-out shadow-card overflow-hidden ring-1 ring-black/20"
+            transition-transform duration-700 ease-out shadow-card overflow-hidden ring-1 ring-black/20 transform-gpu will-change-transform"
           style={{
             transform: scoreCoverPositions[absoluteScore],
           }}
@@ -159,3 +159,5 @@ export function PhysicalScoreBoard({
     </div>
   );
 }
+
+export const PhysicalScoreBoard = React.memo(PhysicalScoreBoardComponent);

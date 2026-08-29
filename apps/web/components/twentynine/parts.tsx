@@ -15,7 +15,7 @@ export function tnTeamRing(team: "A" | "B"): string {
 }
 
 /** Letter disc / avatar image, shared style with the poker lobby. */
-function AvatarChip({ username, avatar }: { username: string | null; avatar?: number }) {
+const AvatarChip = React.memo(function AvatarChip({ username, avatar }: { username: string | null; avatar?: number }) {
   const sizeClass = "h-9 w-9 sm:h-12 sm:w-12";
   if (avatar && username) {
     return (
@@ -32,7 +32,7 @@ function AvatarChip({ username, avatar }: { username: string | null; avatar?: nu
       {(username ?? "?").slice(0, 1).toUpperCase()}
     </span>
   );
-}
+});
 
 /**
  * Anti-clockwise seat -> viewer-relative screen position.
@@ -46,7 +46,7 @@ export function seatRel(mySeat: number | null, seatIndex: number): number {
   return (seatIndex - mySeat + 4) % 4;
 }
 
-export function SeatCard({
+function SeatCardComponent({
   seat,
   isDealer,
   isActing,
@@ -122,7 +122,7 @@ export function SeatCard({
       {!empty && (
         <div className="mt-1 flex flex-col items-center">
           <div
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.6rem] sm:max-w-[7.2rem] truncate ${
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.2rem] sm:max-w-[7.2rem] truncate ${
               seat.isInactive
                 ? "bg-black/60 border-white/10 text-white/40"
                 : isActing
@@ -171,6 +171,8 @@ export function SeatCard({
   );
 }
 
+export const SeatCard = React.memo(SeatCardComponent);
+
 /** Where a played card flies in FROM, per viewer-relative seat (CSS vars consumed by the dealIn keyframe). */
 const DEAL_FROM: Record<number, { x: string; y: string }> = {
   0: { x: "0px", y: "130px" }, // you (bottom)
@@ -187,8 +189,7 @@ const TRICK_REST_ROT: Record<number, string> = {
   3: "rotate-[-6deg]",
 };
 
-/** Center of the felt: current trick plays positioned by viewer-relative seat. */
-export function TrickArea({
+function TrickAreaComponent({
   state,
   mySeat,
   flashSeat,
@@ -254,7 +255,7 @@ export function TrickArea({
 
       {/* Sweep container: wraps all cards and sweeps them together if resolved */}
       <div
-        className={`absolute inset-0 ${isResolved && winnerRel !== null ? "animate-sweepOut" : ""}`}
+        className={`absolute inset-0 ${isResolved && winnerRel !== null ? "animate-sweepOut transform-gpu will-change-transform" : ""}`}
         style={
           isResolved && winnerRel !== null
             ? ({
@@ -278,7 +279,7 @@ export function TrickArea({
                 <div className={`${isResolved ? "rotate-0" : TRICK_REST_ROT[rel]} transition-transform duration-300`}>
                   <div
                     key={`${play.seatIndex}:${play.card.suit}:${play.card.rank}`}
-                    className="animate-dealIn drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)]"
+                    className="animate-dealIn drop-shadow-[0_10px_18px_rgba(0,0,0,0.45)] transform-gpu will-change-transform"
                     style={
                       {
                         "--deal-from-x": DEAL_FROM[rel].x,
@@ -306,7 +307,9 @@ export function TrickArea({
   );
 }
 
-export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
+export const TrickArea = React.memo(TrickAreaComponent);
+
+function TrumpBannerComponent({ state }: { state: PublicTwentyNineState }) {
   const mySeat = useMySeat();
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
   const { tnBidderPrivate } = useGame();
@@ -399,6 +402,8 @@ export function TrumpBanner({ state }: { state: PublicTwentyNineState }) {
     </div>
   );
 }
+
+export const TrumpBanner = React.memo(TrumpBannerComponent);
 
 export function RankHint() {
   return (

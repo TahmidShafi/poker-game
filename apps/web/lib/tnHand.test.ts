@@ -98,4 +98,26 @@ describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
     hand = acc(hand, batch(1, 2, [B2[2]!, B2[0]!, B2[3]!, B2[1]!]));
     expect(hand.cards.map((x) => x.rank)).toEqual([10, 9, 8, 7, 13, 11, 14, 12]);
   });
+
+  it("FULL_RECONNECT mid-hand sets exact remaining cards (e.g. 7, 5, 0 remaining)", () => {
+    let hand = acc(null, batch(1, 1, B1));
+    hand = acc(hand, batch(1, 2, B2));
+    expect(hand.cards).toHaveLength(8);
+
+    // Mid-hand resync with 7 remaining cards
+    const resync7 = acc(hand, {
+      handNumber: 1,
+      batch: "FULL_RECONNECT",
+      cards: [B1[0]!, B1[1]!, B1[2]!, B2[0]!, B2[1]!, B2[2]!, B2[3]!],
+    });
+    expect(resync7.cards).toHaveLength(7);
+
+    // Resync with 0 remaining cards at trick 8 end
+    const resync0 = acc(resync7, {
+      handNumber: 1,
+      batch: "FULL_RECONNECT",
+      cards: [],
+    });
+    expect(resync0.cards).toHaveLength(0);
+  });
 });

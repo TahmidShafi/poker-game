@@ -8,7 +8,7 @@ import { PlayingCard } from "../common/PlayingCard";
 
 const SUITS: TnSuit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
 
-export function TrumpPickerModal() {
+function TrumpPickerModalComponent() {
   const { tnState, tnBidderPrivate, tnDeclareTrump, me } = useGame();
   if (!tnState) return null;
 
@@ -68,7 +68,9 @@ export function TrumpPickerModal() {
   );
 }
 
-export function SeventhCardModal() {
+export const TrumpPickerModal = React.memo(TrumpPickerModalComponent);
+
+function SeventhCardModalComponent() {
   const { tnState, tnBidderPrivate, me } = useGame();
   const [dismissedRound, setDismissedRound] = React.useState<number | null>(null);
 
@@ -130,7 +132,9 @@ export function SeventhCardModal() {
   );
 }
 
-export function RoundBanner() {
+export const SeventhCardModal = React.memo(SeventhCardModalComponent);
+
+function RoundBannerComponent() {
   const { tnState, me } = useGame();
   if (!tnState || tnState.phase !== "ROUND_SCORED" || !tnState.lastRoundSummary) return null;
   const summary = tnState.lastRoundSummary;
@@ -171,7 +175,9 @@ export function RoundBanner() {
   );
 }
 
-export function MatchOverBanner() {
+export const RoundBanner = React.memo(RoundBannerComponent);
+
+function MatchOverBannerComponent() {
   const { tnState, leaveRoom, me } = useGame();
   if (!tnState || tnState.phase !== "MATCH_OVER" || !tnState.winnerTeam) return null;
   const mySeat = me?.seatIndex ?? -1;
@@ -201,7 +207,9 @@ export function MatchOverBanner() {
   );
 }
 
-export function RulesModal({ onClose }: { onClose: () => void }) {
+export const MatchOverBanner = React.memo(MatchOverBannerComponent);
+
+function RulesModalComponent({ onClose }: { onClose: () => void }) {
   const { tnState } = useGame();
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 backdrop-blur-md px-4" onClick={onClose}>
@@ -229,7 +237,7 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
           Every hand the bid winner integrates the classic mechanics themselves:
           declare a hidden suit, take the automatic 7th card (redeal if that card
-          is their only one of its suit), or play Joker � no suit, where
+          is their only one of its suit), or play Joker — no suit, where
           J&nbsp;&gt;&nbsp;9&nbsp;&gt;&nbsp;A&nbsp;&gt;&nbsp;10 act as universal power cards.
         </p>
         <button
@@ -242,3 +250,5 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+export const RulesModal = React.memo(RulesModalComponent);

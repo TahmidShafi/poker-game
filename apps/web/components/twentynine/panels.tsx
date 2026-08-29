@@ -14,7 +14,7 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
   return followers.length > 0 ? followers : hand;
 }
 
-export function HandFan({ state }: { state: PublicTwentyNineState }) {
+function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
   const { me, myTnCards, tnPlayCard, tnBidderPrivate } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
@@ -28,7 +28,10 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
     () => (playing ? legalMirror(myTnCards ?? [], state.trick) : []),
     [playing, myTnCards, state.trick]
   );
-  const legalKeys = new Set(legal.map((c) => `${c.rank}${c.suit}`));
+  const legalKeys = useMemo(
+    () => new Set(legal.map((c) => `${c.rank}${c.suit}`)),
+    [legal]
+  );
   const myTurn = playing && state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
 
   if (!myTnCards || myTnCards.length === 0) return null;
@@ -71,6 +74,8 @@ export function HandFan({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
+export const HandFan = React.memo(HandFanComponent);
+
 function StatusLine({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-center text-[10px] font-bold uppercase tracking-[0.22em] text-amber-200/80">
@@ -84,7 +89,7 @@ function StatusLine({ children }: { children: React.ReactNode }) {
  * transition is never a silent stall: bidding waits, trump-setup waits,
  * dealing, and trick-play waits all name who is being waited on.
  */
-export function TurnStatus({ state }: { state: PublicTwentyNineState }) {
+function TurnStatusComponent({ state }: { state: PublicTwentyNineState }) {
   const { me } = useGame();
   const mySeat = me?.seatIndex ?? null;
 
@@ -115,7 +120,9 @@ export function TurnStatus({ state }: { state: PublicTwentyNineState }) {
   return null;
 }
 
-export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
+export const TurnStatus = React.memo(TurnStatusComponent);
+
+function BiddingPanelComponent({ state }: { state: PublicTwentyNineState }) {
   const { me, tnBid } = useGame();
   const bids = state.bids;
   const mySeat = me?.seatIndex ?? null;
@@ -146,19 +153,19 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
     }
   }, [H, floor, state.roundNumber]);
 
-  if (state.phase !== "BIDDING") return null;
-
   const currentBid = Math.min(28, Math.max(bidValue, floor));
   const canBidHigher = floor <= 28;
 
   // Presets for quick jumping
-  const presets = [
+  const presets = useMemo(() => [
     { label: canStay && floor === H ? `Stay ${H}` : `Min ${floor}`, value: floor },
     ...(floor + 1 <= 28 && floor + 1 !== floor ? [{ label: `+1 (${floor + 1})`, value: floor + 1 }] : []),
     ...(20 >= floor && 20 <= 28 && floor !== 20 && floor + 1 !== 20 ? [{ label: "20", value: 20 }] : []),
     ...(24 >= floor && 24 <= 28 && floor !== 24 ? [{ label: "24", value: 24 }] : []),
     ...(28 >= floor && floor !== 28 ? [{ label: "28", value: 28 }] : []),
-  ];
+  ], [canStay, floor, H]);
+
+  if (state.phase !== "BIDDING") return null;
 
   // Active actor name
   const actingSeat = bids?.turnSeatIndex;
@@ -306,24 +313,23 @@ export function BiddingPanel({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
+export const BiddingPanel = React.memo(BiddingPanelComponent);
 
 /** Contextual action pills under the hand fan: CALL TRUMP / MARRIAGE. */
-export function ActionPills({ state }: { state: PublicTwentyNineState }) {
+function ActionPillsComponent({ state }: { state: PublicTwentyNineState }) {
   const { me, myTnCards, tnCallTrump, tnDeclareMarriage } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTurn = state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
-  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand) return null;
 
   const canCall =
     myTurn &&
     state.trump.state === "HIDDEN" &&
     state.trick.length > 0 &&
+    myTnCards !== null &&
     !myTnCards.some((c) => c.suit === state.trick[0]!.card.suit);
 
-  const marriageSuits = (() => {
-    // The active suit is SECRET — offer every K+Q pair the player actually
-    // holds; the server verifies it against the real trump on declare.
-    if (state.trumpStyle === "JOKER" || state.marriageDeclaredBy) return [] as string[];
+  const marriageSuits = useMemo(() => {
+    if (!myTnCards || state.trumpStyle === "JOKER" || state.marriageDeclaredBy) return [] as string[];
     const suits = [];
     for (const s of ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"] as const) {
       const hasK = myTnCards.some((c) => c.suit === s && c.rank === 13);
@@ -331,7 +337,9 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
       if (hasK && hasQ) suits.push(s);
     }
     return suits as string[];
-  })();
+  }, [myTnCards, state.trumpStyle, state.marriageDeclaredBy]);
+
+  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand) return null;
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -356,10 +364,12 @@ export function ActionPills({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
+export const ActionPills = React.memo(ActionPillsComponent);
+
 /**
  * Single Hand Decision Prompt: clean tray with Single Hand Call title and buttons.
  */
-export function SingleHandPrompt({ state }: { state: PublicTwentyNineState }) {
+function SingleHandPromptComponent({ state }: { state: PublicTwentyNineState }) {
   const { me, tnSingleHandDecision } = useGame();
   const mySeat = me?.seatIndex ?? null;
 
@@ -402,12 +412,14 @@ export function SingleHandPrompt({ state }: { state: PublicTwentyNineState }) {
   );
 }
 
+export const SingleHandPrompt = React.memo(SingleHandPromptComponent);
+
 /** 
  * Live Round Progress Table
  * Tracks tricks, points, and Full Board possibilities in real-time,
  * dynamically customized to the viewing player's perspective.
  */
-export function LiveRoundProgress({ state }: { state: PublicTwentyNineState }) {
+function LiveRoundProgressComponent({ state }: { state: PublicTwentyNineState }) {
   const { me } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
@@ -619,3 +631,5 @@ export function LiveRoundProgress({ state }: { state: PublicTwentyNineState }) {
     </>
   );
 }
+
+export const LiveRoundProgress = React.memo(LiveRoundProgressComponent);

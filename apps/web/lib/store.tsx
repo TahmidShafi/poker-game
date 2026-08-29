@@ -192,7 +192,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   // Mutable refs used inside socket handlers (avoid stale closures).
   const meRef = useRef<Me | null>(null);
-  useEffect(() => { meRef.current = me; }, [me]);
+  const tnStateRef = useRef<PublicTwentyNineState | null>(null);
+  const myTnCardsRef = useRef<TnCard[] | null>(null);
+  const syncPendingRef = useRef<{ handNumber: number; requestedAt: number } | null>(null);
+
   // YOUR_TN_HAND arrives in two batches per hand + reconnect re-deliveries;
   // the full 8-card view must be ACCUMULATED (see lib/tnHand.ts) — replacing
   // on every event silently drops batch 1 when batch 2 lands.
@@ -213,12 +216,91 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnPlayedRef.current && tnPlayedRef.current.handNumber === hand.handNumber
         ? tnPlayedRef.current.keys
         : null;
-    setMyTnCards(
-      played
-        ? hand.cards.filter((c) => !played.has(`${c.suit}:${c.rank}`))
-        : hand.cards
-    );
+    const remaining = played
+      ? hand.cards.filter((c) => !played.has(`${c.suit}:${c.rank}`))
+      : hand.cards;
+    setMyTnCards(remaining);
   }, []);
+
+  const requestTnHandSync = useCallback((reason: string) => {
+    const socket = socketRef.current;
+    const mine = meRef.current;
+    const state = tnStateRef.current;
+    if (!socket || !socket.connected || !mine || mine.seatIndex === undefined || !state) {
+      return;
+    }
+
+    const now = Date.now();
+    const pending = syncPendingRef.current;
+    // Throttle / debounce: if already pending for this round and requested within 1500ms, wait
+    if (pending && pending.handNumber === state.roundNumber && now - pending.requestedAt < 1500) {
+      return;
+    }
+
+    syncPendingRef.current = {
+      handNumber: state.roundNumber,
+      requestedAt: now,
+    };
+
+    if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
+      console.log(
+        `[TN_SYNC] Requesting hand sync (reason: ${reason}, round: ${state.roundNumber}, seat: ${mine.seatIndex})`
+      );
+    }
+    socket.emit("GAME29_SYNC_HAND");
+  }, []);
+
+  const evaluateHandSync = useCallback((reason: string) => {
+    const mine = meRef.current;
+    const state = tnStateRef.current;
+    const myCards = myTnCardsRef.current;
+    const accumulated = myTnHandRef.current;
+
+    if (!mine || mine.seatIndex === undefined || !state) return;
+
+    const isGameActive =
+      state.phase === "BIDDING" ||
+      state.phase === "TRUMP_SETUP" ||
+      state.phase === "SINGLE_HAND_DECISION" ||
+      state.phase === "PLAYING";
+
+    if (!isGameActive) return;
+
+    const mySeatView = state.seats.find((st) => st.seatIndex === mine.seatIndex);
+    if (!mySeatView || mySeatView.username === null || mySeatView.isInactive) return;
+
+    const serverCardsCount = mySeatView.cardsRemaining;
+    if (serverCardsCount <= 0) return;
+
+    // Criteria for out-of-sync / missing hand:
+    const missingCards = myCards === null || myCards.length === 0;
+    const missingAccumulated = accumulated === null || accumulated.handNumber !== state.roundNumber;
+    const countMismatch = myCards !== null && myCards.length !== serverCardsCount;
+    const isMyTurn = state.actingSeatIndex === mine.seatIndex;
+    const urgentTurnMissing = isMyTurn && (missingCards || countMismatch);
+
+    if (missingCards || missingAccumulated || countMismatch || urgentTurnMissing) {
+      requestTnHandSync(
+        `${reason} (missingCards=${missingCards}, countMismatch=${countMismatch}, local=${myCards?.length ?? 0}, server=${serverCardsCount}, turn=${isMyTurn})`
+      );
+    }
+  }, [requestTnHandSync]);
+
+  useEffect(() => {
+    meRef.current = me;
+    publishMyTnHand();
+    evaluateHandSync("ME_STATE_UPDATED");
+  }, [me, publishMyTnHand, evaluateHandSync]);
+
+  useEffect(() => {
+    tnStateRef.current = tnState;
+    evaluateHandSync("TN_STATE_UPDATED");
+  }, [tnState, evaluateHandSync]);
+
+  useEffect(() => {
+    myTnCardsRef.current = myTnCards;
+  }, [myTnCards]);
+
   const stateRef = useRef<PublicGameState | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
   const handStartAt = useRef(0);
@@ -257,13 +339,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("GAME_STATE", (s) => {
       setState(s);
       // Disarm turn alerts the moment it is no longer our action.
-      const mine = meRef.current;
-      if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
-    });
-
-    socket.on("TN_STATE", (s) => {
-      setTnState(s);
-
       const mine = meRef.current;
       if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
     });
@@ -367,6 +442,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           roomCode: mine.roomCode,
           seconds: Math.max(1, Math.round((deadline - Date.now()) / 1000)),
         });
+        evaluateHandSync("TURN_CHANGED_TO_ME");
       }
     });
 
@@ -376,6 +452,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     // ---- Twenty-Nine ----
     socket.on("TN_STATE", (s) => {
       setTnState(s);
+      tnStateRef.current = s;
 
       const mine = meRef.current;
       if (!mine || s.actingSeatIndex !== mine.seatIndex) endTurnAlerts();
@@ -395,29 +472,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         publishMyTnHand();
       }
 
-      // Proactive authoritative Hand-Sync:
-      // If the game has started (in bidding/trump/playing) and we are seated with
-      // cards remaining, but local hand is missing or from an old round, pull from server.
-      const isGameActive =
-        s.phase !== "WAITING_FOR_PLAYERS" &&
-        s.phase !== "REDEALING" &&
-        s.phase !== "ROUND_SCORED" &&
-        s.phase !== "MATCH_OVER";
-
-      if (isGameActive && mySeat !== undefined) {
-        const mySeatView = s.seats.find((st) => st.seatIndex === mySeat);
-        const hasServerCards = mySeatView && mySeatView.cardsRemaining > 0;
-        const missingLocalCards = !hand || hand.handNumber !== s.roundNumber || hand.cards.length === 0;
-
-        if (hasServerCards && missingLocalCards) {
-          if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
-            console.log(
-              `[TN_SYNC] missing hand detected for round ${s.roundNumber} (phase=${s.phase}, cardsRemaining=${mySeatView?.cardsRemaining}) -> requesting GAME29_SYNC_HAND`
-            );
-          }
-          socket.emit("GAME29_SYNC_HAND");
-        }
-      }
+      evaluateHandSync("TN_STATE_RECEIVED");
     });
     socket.on("YOUR_TN_HAND", (payload) => {
       if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
@@ -425,6 +480,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           `[TN_SYNC] YOUR_TN_HAND received: batch=${payload.batch} handNumber=${payload.handNumber} cards=${payload.cards.length}`
         );
       }
+      syncPendingRef.current = null;
       const prev = myTnHandRef.current;
       myTnHandRef.current = accumulateTnHand(prev, payload);
       // New hand or authoritative reconnect snapshot: the server hand is the
@@ -753,7 +809,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnSyncHand: tnSyncHandFn,
     }),
     [
-      status, isReconnecting, audioUnlocked, me, state, gameType, tnState, myTnCards, tnBidderPrivate, lastTnRound,
+      status, isReconnecting, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
       myCards, showdown, toast, incomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
@@ -769,6 +825,31 @@ export function useGame(): GameContextValue {
   const ctx = useContext(GameContext);
   if (!ctx) throw new Error("useGame must be used inside <GameProvider>");
   return ctx;
+}
+
+export function useMySeat(): number | null {
+  const { me } = useGame();
+  return me?.seatIndex ?? null;
+}
+
+export function useTnState(): PublicTwentyNineState | null {
+  const { tnState } = useGame();
+  return tnState;
+}
+
+export function useMyTnCards(): TnCard[] | null {
+  const { myTnCards } = useGame();
+  return myTnCards;
+}
+
+export function useTnBidderPrivate(): TnBidderPrivatePayload | null {
+  const { tnBidderPrivate } = useGame();
+  return tnBidderPrivate;
+}
+
+export function useTnResolvedTrick() {
+  const { tnResolvedTrick } = useGame();
+  return tnResolvedTrick;
 }
 
 /** Kept for potential future direct use of category ordering. */

@@ -38,7 +38,7 @@ interface PlayingCardProps {
  * Premium card: off-white gradient face, corner indices,
  * oversized center pip; patterned back. Pure DOM/CSS - crisp at any DPI.
  */
-export function PlayingCard({
+function PlayingCardComponent({
   card,
   faceDown = false,
   size = "md",
@@ -46,14 +46,16 @@ export function PlayingCard({
   animate = "none",
   className = "",
 }: PlayingCardProps) {
-  const base = `${SIZES[size]} relative select-none shadow-card transition-transform duration-150 ${className}`;
-  const style: React.CSSProperties = { animationDelay: `${delay}ms` };
+  const base = `${SIZES[size]} relative select-none shadow-card transition-transform duration-150 transform-gpu ${className}`;
+  const style = delay > 0 ? { animationDelay: `${delay}ms` } : undefined;
 
   if (faceDown || !card) {
     return (
       <div
         style={style}
-        className={`${base} border border-white/15 overflow-hidden ${animate === "flip" ? "animate-flipY" : animate === "deal" ? "animate-dealIn" : ""}`}
+        className={`${base} border border-white/15 overflow-hidden ${
+          animate === "flip" ? "animate-flipY" : animate === "deal" ? "animate-dealIn will-change-transform" : ""
+        }`}
       >
         <div
           className="absolute inset-0"
@@ -77,7 +79,9 @@ export function PlayingCard({
   return (
     <div
       style={style}
-      className={`${base} bg-gradient-to-br from-white via-white to-stone-200 ${red ? "text-crimson" : "text-ink"} ${animate === "flip" ? "animate-flipY" : animate === "deal" ? "animate-dealIn" : ""}`}
+      className={`${base} bg-gradient-to-br from-white via-white to-stone-200 ${
+        red ? "text-crimson" : "text-ink"
+      } ${animate === "flip" ? "animate-flipY" : animate === "deal" ? "animate-dealIn will-change-transform" : ""}`}
     >
       {/* Top-left index */}
       <div className={`absolute top-0.5 left-1 leading-none font-black ${isXs ? "text-[8.5px]" : "text-[0.75em]"}`}>
@@ -103,3 +107,5 @@ export function PlayingCard({
     </div>
   );
 }
+
+export const PlayingCard = React.memo(PlayingCardComponent);

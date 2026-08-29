@@ -8,7 +8,7 @@ import { SEAT_HUES } from "./seatHues";
  * or a colored letter-disc fallback when no picture is set or it fails to
  * load. Fills its parent — the parent owns sizing and the ring/glow classes.
  */
-export function SeatAvatar({
+function SeatAvatarComponent({
   username,
   avatar,
   dimmed = false,
@@ -24,9 +24,12 @@ export function SeatAvatar({
   useEffect(() => setBroken(false), [avatar]);
 
   const initial = (username ?? "?").charAt(0).toUpperCase();
-  const hue = SEAT_HUES[hashName(username) % SEAT_HUES.length];
-  const fallbackBg = `linear-gradient(160deg, hsl(${hue} 45% 38%), hsl(${hue} 55% 22%))`;
   const showImage = avatar !== undefined && !broken;
+
+  const fallbackBg = React.useMemo(() => {
+    const hue = SEAT_HUES[hashName(username) % SEAT_HUES.length];
+    return `linear-gradient(160deg, hsl(${hue} 45% 38%), hsl(${hue} 55% 22%))`;
+  }, [username]);
 
   return (
     <span className={`relative block h-full w-full overflow-hidden rounded-full ${dimmed ? "opacity-40" : ""}`}>
@@ -40,7 +43,7 @@ export function SeatAvatar({
         />
       ) : (
         <span
-          className="absolute inset-0 grid place-items-center font-bold text-lg"
+          className="absolute inset-0 grid place-items-center font-bold text-lg text-white"
           style={{ background: fallbackBg }}
         >
           {initial}
@@ -57,3 +60,5 @@ function hashName(name: string | null | undefined): number {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return h % 10;
 }
+
+export const SeatAvatar = React.memo(SeatAvatarComponent);

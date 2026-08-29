@@ -11,7 +11,7 @@ export const AVATAR_COUNT = 10;
  * the gold ring + glow. Unselected = no avatar (server letter-disc fallback
  * never happens here since we always render the picture when it loads).
  */
-export function AvatarStrip({
+function AvatarStripComponent({
   value,
   onChange,
 }: {
@@ -35,9 +35,11 @@ export function AvatarStrip({
     };
   }, []);
 
-  const available = Object.entries(loaded)
-    .filter(([, ok]) => ok)
-    .map(([k]) => Number(k));
+  const available = React.useMemo(() => {
+    return Object.entries(loaded)
+      .filter(([, ok]) => ok)
+      .map(([k]) => Number(k));
+  }, [loaded]);
 
   if (available.length === 0) return null;
 
@@ -67,3 +69,5 @@ export function AvatarStrip({
     </div>
   );
 }
+
+export const AvatarStrip = React.memo(AvatarStripComponent);
