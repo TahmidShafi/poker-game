@@ -315,9 +315,9 @@ function BiddingPanelComponent({ state }: { state: PublicTwentyNineState }) {
 
 export const BiddingPanel = React.memo(BiddingPanelComponent);
 
-/** Contextual action pills under the hand fan: CALL TRUMP / MARRIAGE. */
+/** Contextual action pills under the hand fan: CALL TRUMP. */
 function ActionPillsComponent({ state }: { state: PublicTwentyNineState }) {
-  const { me, myTnCards, tnCallTrump, tnDeclareMarriage } = useGame();
+  const { me, myTnCards, tnCallTrump } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTurn = state.actingSeatIndex !== null && state.actingSeatIndex === mySeat;
 
@@ -328,38 +328,16 @@ function ActionPillsComponent({ state }: { state: PublicTwentyNineState }) {
     myTnCards !== null &&
     !myTnCards.some((c) => c.suit === state.trick[0]!.card.suit);
 
-  const marriageSuits = useMemo(() => {
-    if (!myTnCards || state.trumpStyle === "JOKER" || state.marriageDeclaredBy) return [] as string[];
-    const suits = [];
-    for (const s of ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"] as const) {
-      const hasK = myTnCards.some((c) => c.suit === s && c.rank === 13);
-      const hasQ = myTnCards.some((c) => c.suit === s && c.rank === 12);
-      if (hasK && hasQ) suits.push(s);
-    }
-    return suits as string[];
-  }, [myTnCards, state.trumpStyle, state.marriageDeclaredBy]);
-
-  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand) return null;
+  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand || !canCall) return null;
 
   return (
     <div className="flex items-center justify-center gap-2">
-      {canCall && (
-        <button
-          onClick={tnCallTrump}
-          className="rounded-full bg-gold px-4 py-1.5 text-[11px] font-black uppercase tracking-wide text-ink shadow-glowGold hover:brightness-105 active:scale-[0.97]"
-        >
-          call trump
-        </button>
-      )}
-      {marriageSuits.map((s) => (
-        <button
-          key={s}
-          onClick={() => tnDeclareMarriage(s as never)}
-          className={`rounded-full px-4 py-1.5 text-[11px] font-black uppercase tracking-wide text-ink hover:brightness-105 active:scale-[0.97] bg-violet-300`}
-        >
-          marriage {TN_SUIT_SYMBOLS[s as keyof typeof TN_SUIT_SYMBOLS]}
-        </button>
-      ))}
+      <button
+        onClick={tnCallTrump}
+        className="rounded-full bg-gold px-4 py-1.5 text-[11px] font-black uppercase tracking-wide text-ink shadow-glowGold hover:brightness-105 active:scale-[0.97]"
+      >
+        call trump
+      </button>
     </div>
   );
 }

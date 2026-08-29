@@ -675,6 +675,32 @@ export function getBidderPrivatePayload(state: TwentyNineState): TnBidderPrivate
 // Play
 // ---------------------------------------------------------------------------
 
+/**
+ * Automatically activates marriage (K+Q of active trump suit) upon trump reveal
+ * if any player currently holds BOTH King and Queen in their remaining hand.
+ *
+ * Rules:
+ * - Only activates when trump is revealed.
+ * - If one of K or Q was already played before trump was revealed, it is no
+ *   longer in seat.hand, so holdsMarriage returns false and marriage cannot happen.
+ * - Adjusts requirement by ±4 points (bidding team: bid - 4, min 16; defending team: bid + 4).
+ */
+export function autoActivateMarriageIfHeld(state: TwentyNineState): boolean {
+  if (state.isSingleHand) return false;
+  if (state.marriageDeclaredBy !== null) return false;
+  if (state.trumpStyle === "JOKER") return false;
+  if (!state.trumpRevealed || !state.trumpSuit) return false;
+
+  for (let i = 0; i < 4; i++) {
+    const seat = state.seats[i];
+    if (seat && holdsMarriage(seat.hand, state.trumpSuit)) {
+      state.marriageDeclaredBy = tnTeamOfSeat(i);
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Reveal hidden trump. Only on your turn, only while void in the led suit; never consumes the turn. */
 export function callTrump(state: TwentyNineState, seatIndex: number): void {
   if (state.isSingleHand) throw new Error("trump cannot be used during single hand");
@@ -690,6 +716,7 @@ export function callTrump(state: TwentyNineState, seatIndex: number): void {
   }
   state.trumpRevealed = true;
   restoreSeventhCardIfLocked(state);
+  autoActivateMarriageIfHeld(state);
   state.lastMove = { seatIndex, kind: "CALL_TRUMP" };
 }
 
@@ -839,6 +866,7 @@ function completeTrick(state: TwentyNineState): void {
   if (state.trickNumber === TN_TRICKS_PER_HAND && !state.trumpRevealed && state.trumpStyle === "SEVENTH_CARD") {
     state.trumpRevealed = true;
     restoreSeventhCardIfLocked(state);
+    autoActivateMarriageIfHeld(state);
   }
 }
 
@@ -985,12 +1013,8 @@ export function moveOptionsForSeat(state: TwentyNineState, seatIndex: number): S
     !state.trumpRevealed &&
     state.currentTrick.length > 0 &&
     !hand.some((c) => c.suit === led);
-  const canDeclareMarriage =
-    !state.isSingleHand &&
-    state.marriageDeclaredBy === null &&
-    state.trumpStyle !== "JOKER" &&
-    !!state.trumpSuit &&
-    holdsMarriage(hand, state.trumpSuit);
+  // Marriage is automatically triggered on trump reveal rather than manually declared.
+  const canDeclareMarriage = false;
   return { legalCards: legalCards(hand, led), canCallTrump, canDeclareMarriage };
 }
 

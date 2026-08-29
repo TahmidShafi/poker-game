@@ -453,6 +453,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // ---- Twenty-Nine ----
     socket.on("TN_STATE", (s) => {
+      if (s.marriageDeclaredBy && !tnStateRef.current?.marriageDeclaredBy) {
+        const mySeat = meRef.current?.seatIndex ?? -1;
+        const myTeam = mySeat >= 0 ? (mySeat % 2 === 0 ? "A" : "B") : null;
+        const isUs = myTeam !== null && s.marriageDeclaredBy === myTeam;
+        pushToast(
+          isUs
+            ? "Marriage (K+Q) automatically activated for your team! (±4)"
+            : `Marriage (K+Q) automatically activated for Team ${s.marriageDeclaredBy}! (±4)`,
+          "info"
+        );
+      }
+
       setTnState(s);
       tnStateRef.current = s;
 

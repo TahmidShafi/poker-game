@@ -562,6 +562,51 @@ describe("marriage (K+Q of the active suit)", () => {
     autoPlayHand(state);
     expect(state.lastRoundSummary?.requirement).toBe(24); // 20 + 4
   });
+
+  it("automatically activates marriage for bidder team when trump is called if bidder holds K+Q of trump", () => {
+    const state = makeMatch();
+    startHand(state, { deck: marriageDeck() });
+    driveBidding(state, 2, 18);
+    declareTrumpPlan(state, 2, "HEARTS");
+    passSingleHandForAll(state);
+
+    expect(state.marriageDeclaredBy).toBeNull();
+    // P3 leads Clubs or Diamonds (P2 has only Hearts and Spades)
+    const p3Lead = state.seats[3]!.hand.find((c) => c.suit === "CLUBS" || c.suit === "DIAMONDS")!;
+    playCard(state, 3, p3Lead);
+
+    // P2 is void in the led suit and calls trump
+    expect(state.actingSeatIndex).toBe(2);
+    callTrump(state, 2);
+
+    // Trump is revealed and Marriage automatically activates!
+    expect(state.trumpRevealed).toBe(true);
+    expect(state.marriageDeclaredBy).toBe("A"); // P2 is team A
+  });
+
+  it("does NOT activate marriage if one of K or Q was played before trump was revealed", () => {
+    const state = makeMatch();
+    startHand(state, { deck: marriageDeck() });
+    driveBidding(state, 2, 18);
+    declareTrumpPlan(state, 2, "HEARTS");
+    passSingleHandForAll(state);
+
+    // Suppose P2 played HK before trump was revealed in an earlier trick:
+    const p2Hand = state.seats[2]!.hand;
+    const hkIndex = p2Hand.findIndex((c) => c.suit === "HEARTS" && c.rank === 13);
+    expect(hkIndex).toBeGreaterThanOrEqual(0);
+    p2Hand.splice(hkIndex, 1); // remove HK
+
+    // P3 leads Clubs or Diamonds
+    const p3Lead = state.seats[3]!.hand.find((c) => c.suit === "CLUBS" || c.suit === "DIAMONDS")!;
+    playCard(state, 3, p3Lead);
+
+    // P2 calls trump
+    callTrump(state, 2);
+    expect(state.trumpRevealed).toBe(true);
+    // Since HK was already played, marriage does NOT activate!
+    expect(state.marriageDeclaredBy).toBeNull();
+  });
 });
 
 describe("offline-fallback helper", () => {
