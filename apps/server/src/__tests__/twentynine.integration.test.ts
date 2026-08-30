@@ -1135,6 +1135,50 @@ describe("twenty-nine: race & reconnect stability", () => {
     // Played card is not present in remaining hand
     expect(cards.some((c) => c.suit === cardToPlay.suit && c.rank === cardToPlay.rank)).toBe(false);
   }, 20000);
+
+  it("join & create room returns tnState in ack and delivers initial 4 cards immediately", async () => {
+    // 1. Single player with bots creation
+    const s0 = connect();
+    const l0 = recorder(s0);
+    const ack0 = await emitAck(s0, "CREATE_ROOM", {
+      username: "Player0",
+      startingCoins: 1000,
+      gameType: "TWENTY_NINE",
+      vsBots: true,
+    });
+    expect(ack0.ok).toBe(true);
+    expect(ack0.tnState).toBeDefined();
+    expect(ack0.tnState!.seats).toHaveLength(4);
+
+    // Initial 4 cards should be delivered directly upon startHand
+    await pollUntil(() => l0.some((e) => e.ev === "YOUR_TN_HAND"), 6000, "hand received");
+    const hand0 = l0.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[]; batch: number | string };
+    expect(hand0.cards).toHaveLength(4);
+    s0.disconnect();
+
+    // 2. Joining an active room
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+    // Fresh joiner joining by username to reconnect / join table
+    const sJoin = connect();
+    const lJoin = recorder(sJoin);
+    const victim = seats[2]!;
+    const ackJoin = await emitAck(sJoin, "JOIN_ROOM", {
+      username: `Seat${victim.seatIndex}`,
+      roomCode: latestOf(victim.log)!.roomCode ?? "",
+      sessionToken: victim.token,
+    });
+    expect(ackJoin.ok).toBe(true);
+    expect(ackJoin.tnState).toBeDefined();
+    expect(ackJoin.tnState!.phase).toBe("BIDDING");
+
+    // Cards should arrive on the newly joined socket immediately
+    await pollUntil(() => lJoin.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "join hand received");
+    const joinHand = lJoin.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[] };
+    expect(joinHand.cards).toHaveLength(4);
+    sJoin.disconnect();
+  }, 20000);
 });
 
 describe("twenty-nine: room lifecycle & leaks", () => {

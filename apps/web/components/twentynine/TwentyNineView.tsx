@@ -23,9 +23,13 @@ const REL_POS: Record<number, string> = {
 const TN_DEBUG_UI = process.env.NEXT_PUBLIC_TN_DEBUG === "1";
 
 function TwentyNineViewComponent() {
-  const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots } = useGame();
+  const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots, tnSyncHand } = useGame();
   const [showRules, setShowRules] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  React.useEffect(() => {
+    tnSyncHand?.();
+  }, [tnSyncHand]);
 
   const mySeat = me?.seatIndex ?? null;
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;

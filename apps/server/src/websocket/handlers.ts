@@ -128,6 +128,7 @@ export function registerSocketHandlers(
           config: validated.config,
           gameType: room.gameType,
           state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(joined.seatIndex) : undefined,
+          tnState: room.gameType === "TWENTY_NINE" ? (room as TwentyNineGameManager).publicState() : undefined,
         });
       } catch (err) {
         return ack?.({ ok: false, error: (err as Error).message });
@@ -165,6 +166,7 @@ export function registerSocketHandlers(
         config: room.config,
         gameType: room.gameType,
         state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(joined.seatIndex) : undefined,
+        tnState: room.gameType === "TWENTY_NINE" ? (room as TwentyNineGameManager).publicState() : undefined,
       });
     });
 
@@ -187,6 +189,7 @@ export function registerSocketHandlers(
         config: room.config,
         gameType: room.gameType,
         state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(rec.seatIndex) : undefined,
+        tnState: room.gameType === "TWENTY_NINE" ? (room as TwentyNineGameManager).publicState() : undefined,
       });
     });
 

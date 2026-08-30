@@ -292,7 +292,7 @@ export class TwentyNineGameManager implements RoomLike {
       this.fillBots(); // single-player mode: complete the table instantly
     }
     if (seat.hand.length > 0) {
-      this.sendPrivateSnapshot(record);
+      this.sendPrivateSnapshot(record, opts.socketId);
     }
     this.broadcastState();
     this.maybeScheduleAutoStart();
@@ -312,7 +312,7 @@ export class TwentyNineGameManager implements RoomLike {
     // RECONNECT/multi-tab attach: re-deliver this seat's private state
     // (full current hand + bidder channel) — the public broadcast alone
     // carries no hands, so without this a reconnected client has no cards.
-    this.sendPrivateSnapshot(rec);
+    this.sendPrivateSnapshot(rec, socketId);
     this.broadcastState();
   }
 
@@ -450,7 +450,16 @@ export class TwentyNineGameManager implements RoomLike {
         `[TN_SYNC ${this.roomCode}] GAME29_SYNC_HAND requested by socket ${socketId} (seat ${rec.seatIndex}, ${rec.username})`
       );
     }
-    this.sendPrivateSnapshot(rec);
+    rec.socketIds.add(socketId);
+    this.sendPrivateSnapshot(rec, socketId);
+    const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
+    if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
+      pub.offlineFallback = {
+        seatIndex: this.match.actingSeatIndex,
+        deadline: this.fallbackDeadline,
+      };
+    }
+    this.io.to(socketId).emit("TN_STATE", pub);
   }
 
   game29PlayCard(socketId: string, card: TnCard): void {
@@ -710,7 +719,7 @@ export class TwentyNineGameManager implements RoomLike {
     }
   }
 
-  sendPrivateSnapshot(rec: TnPlayerRecord): void {
+  sendPrivateSnapshot(rec: TnPlayerRecord, targetSocketId?: string): void {
     const seat = this.match.seats[rec.seatIndex];
     if (!seat) return;
 
@@ -731,17 +740,28 @@ export class TwentyNineGameManager implements RoomLike {
         `[TN_SYNC ${this.roomCode}] sending authoritative hand snapshot to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards (batch FULL_RECONNECT) across ${rec.socketIds.size} sockets`
       );
     }
-    this.emitToPlayer(rec, "YOUR_TN_HAND", {
+    const payload = {
       handNumber: this.match.roundNumber,
-      batch: "FULL_RECONNECT",
+      batch: "FULL_RECONNECT" as const,
       cards: cardsToSend.map((c) => ({ ...c })),
-    });
+    };
+    if (targetSocketId) {
+      this.io.to(targetSocketId).emit("YOUR_TN_HAND", payload);
+    } else {
+      this.emitToPlayer(rec, "YOUR_TN_HAND", payload);
+    }
 
     // Re-evaluate the bidder channel for THIS reconnecting/syncing player only.
     const bidder = this.match.bidderSeatIndex;
     if (bidder === rec.seatIndex) {
-      const payload = getBidderPrivatePayload(this.match);
-      if (payload) this.emitToPlayer(rec, "TN_BIDDER_PRIVATE", payload);
+      const bidderPayload = getBidderPrivatePayload(this.match);
+      if (bidderPayload) {
+        if (targetSocketId) {
+          this.io.to(targetSocketId).emit("TN_BIDDER_PRIVATE", bidderPayload);
+        } else {
+          this.emitToPlayer(rec, "TN_BIDDER_PRIVATE", bidderPayload);
+        }
+      }
     }
   }
 
@@ -923,6 +943,7 @@ export class TwentyNineGameManager implements RoomLike {
         deadline: this.fallbackDeadline,
       };
     }
+    this.io.to(this.socketRoom()).emit("TN_STATE", pub);
     for (const [, sio] of this.io.of("/").sockets) {
       const rec = this.findPlayerBySocket(sio.id);
       if (!rec) continue;

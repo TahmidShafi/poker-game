@@ -9,6 +9,7 @@ import {
   ServerToClientEvents,
 } from "@poker/shared-types";
 import { createPokerServer, PokerServer } from "../index";
+import { GameManager } from "../rooms/poker/gameManager";
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -24,10 +25,17 @@ const BASE_LIMITS = {
   debtCeilingMultiple: 2,
   autoStartDelayMs: 4000,
   disconnectGraceMs: 60_000,
+  tnOfflineFallbackSeconds: 120,
 };
 
 let ps: PokerServer;
 let port: number;
+
+function getPokerRoom(code: string): GameManager {
+  const r = ps.registry.get(code);
+  if (!r || r.gameType !== "POKER") throw new Error(`expected poker room ${code}`);
+  return r as GameManager;
+}
 
 beforeEach(async () => {
   ps = createPokerServer({
@@ -374,9 +382,8 @@ describe("actions & authority", () => {
     const vw = watch(v);
     await joinRoom(v, res.roomCode!, "villain");
     // Snapshot BEFORE the deal: blinds have not left anyone's stack yet.
-    const preDealTotal = ps
-      .registry.get(res.roomCode!)!
-      .table.seats.reduce((x, s) => x + s.coins, 0);
+    const preDealTotal = getPokerRoom(res.roomCode!)
+      .table.seats.reduce((x: number, s: { coins: number }) => x + s.coins, 0);
     // Register fold-forwarders BEFORE the deal so the very first
     // TURN_CHANGED (emitted during startHand) is never missed.
     let firstTurn!: Promise<{ seatIndex: number; deadline: number }>;
@@ -392,7 +399,7 @@ describe("actions & authority", () => {
     }
     await once(h, "HAND_STARTED");
     // Freeze FUTURE hands so post-hand assertions are deterministic.
-    if (opts?.pin) ps.registry.get(res.roomCode!)!.disableAutoStart();
+    if (opts?.pin) getPokerRoom(res.roomCode!).disableAutoStart();
     return { h, v, res, hw, vw, firstTurn, preDealTotal };
   }
 
@@ -428,7 +435,7 @@ describe("actions & authority", () => {
 
   it("plays an entire uncontested hand and conserves chips", async () => {
     const { h, v, res, preDealTotal } = await headsUp({ pin: true });
-    const room = ps.registry.get(res.roomCode!)!;
+    const room = getPokerRoom(res.roomCode!);
 
     const finished = once(h, "HAND_FINISHED", 30000);
     v_foldLoop(h, [0]);
@@ -437,7 +444,7 @@ describe("actions & authority", () => {
     expect(summary.awards[0]!.amount).toBeGreaterThan(0);
 
     // Chip conservation across the whole table (blinds included).
-    const totalAfter = room.table.seats.reduce((x, s) => x + s.coins, 0);
+    const totalAfter = room.table.seats.reduce((x: number, s: { coins: number }) => x + s.coins, 0);
     expect(totalAfter).toBe(preDealTotal);
     h.disconnect(); v.disconnect();
   }, 40000);
@@ -461,7 +468,7 @@ describe("actions & authority", () => {
 
   it("pre-action queues and executes at turn start (FOLD-ahead)", async () => {
     const { h, v, res } = await headsUp({ autofold: false });
-    const room = ps.registry.get(res.roomCode!)!;
+    const room = getPokerRoom(res.roomCode!);
     // Villain (seat 1) is NOT the first actor heads-up (button/seat 0 is),
     // so villain may queue an intent.
     const preSet = once(v, "PREACTION_SET");
@@ -483,7 +490,7 @@ describe("actions & authority", () => {
 
   it("queued CHECK degrades to fold when facing a bet", async () => {
     const { h, v, res } = await headsUp({ autofold: false });
-    const room = ps.registry.get(res.roomCode!)!;
+    const room = getPokerRoom(res.roomCode!);
     const preSet = once(v, "PREACTION_SET");
     v.emit("SET_PREACTION", { action: "CHECK" });
     await preSet;
@@ -542,7 +549,7 @@ describe("loans", () => {
   /** Debtor is busted BEFORE the second player joins -> auto-start never fires. */
   async function brokeVsLender() {
     const { socket: debtor, res } = await makeRoom("debtor");
-    const room = ps.registry.get(res.roomCode!)!;
+    const room = getPokerRoom(res.roomCode!);
     room.disableAutoStart(); // pin the table: no hands will ever fire
     const seat = room.table.seats[0]!;
     seat.coins = 0;

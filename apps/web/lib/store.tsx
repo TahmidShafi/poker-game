@@ -631,6 +631,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         meRef.current = newMe;
         setMe(newMe);
         setState(ack.state ?? null);
+        if (ack.tnState) {
+          setTnState(ack.tnState);
+          tnStateRef.current = ack.tnState;
+        }
         // If Twenty-Nine, trigger hand sync immediately to recover cards if needed
         if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
           s.emit("GAME29_SYNC_HAND");
@@ -659,6 +663,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     (socket: PokerSocket, ack: RoomAck) => {
       if (ack.ok && ack.roomCode && ack.sessionToken) {
         const cleanCode = ack.roomCode.trim().toUpperCase();
+        const prevCode = meRef.current?.roomCode;
         localStorage.setItem(TOKEN_KEY, ack.sessionToken);
         localStorage.setItem(ROOM_KEY, cleanCode);
         const newMe = {
@@ -680,10 +685,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           clearTimeout(showdownTimer.current);
           showdownTimer.current = null;
         }
-        setTnState(null);
-        setMyTnCards(null);
-        myTnHandRef.current = null;
-        tnPlayedRef.current = null;
+        if (ack.tnState) {
+          setTnState(ack.tnState);
+          tnStateRef.current = ack.tnState;
+        } else if (ack.config?.gameType !== "TWENTY_NINE" && ack.gameType !== "TWENTY_NINE") {
+          setTnState(null);
+          tnStateRef.current = null;
+        }
+        // Only wipe out hand cards if changing to a different room
+        if (prevCode && prevCode !== cleanCode) {
+          setMyTnCards(null);
+          myTnHandRef.current = null;
+          tnPlayedRef.current = null;
+        }
         setTnBidderPrivate(null);
         setLastTnRound(null);
         setTnResolvedTrick(null);
@@ -772,6 +786,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         meRef.current = newMe;
         setMe(newMe);
         setState(ack.state ?? null);
+        if (ack.tnState) {
+          setTnState(ack.tnState);
+          tnStateRef.current = ack.tnState;
+        }
         if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
           s.emit("GAME29_SYNC_HAND");
         }

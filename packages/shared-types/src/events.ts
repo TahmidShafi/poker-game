@@ -116,6 +116,8 @@ export interface RoomAck {
   state?: PublicGameState;
   /** Which UI the client should render for this room (absent on legacy acks => POKER). */
   gameType?: GameType;
+  /** Authoritative Twenty-Nine state at ack time. */
+  tnState?: PublicTwentyNineState;
 }
 
 // ---- Server -> Client ----
