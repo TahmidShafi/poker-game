@@ -300,6 +300,10 @@ export class GameManager {
     }
     const seat = this.table.seats[rec.seatIndex]!;
     if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
+    if (seat.status === "BUSTED" && !this.isHandRunning()) {
+      seat.coins = this.config.startingCoins;
+      seat.status = "SITTING_OUT";
+    }
     if (seat.holeCards && seat.holeCards.length === 2) {
       this.io.to(socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
     }
@@ -363,6 +367,14 @@ export class GameManager {
     const rec = this.findPlayerBySocket(socketId);
     if (!rec) return;
     rec.socketIds.delete(socketId);
+    // Cancel any pending loan requests involving the departing player
+    for (const [id, loan] of this.pendingLoans) {
+      if (loan.debtorSeatIndex === rec.seatIndex || loan.creditorSeatIndex === rec.seatIndex) {
+        clearTimeout(loan.timer);
+        this.pendingLoans.delete(id);
+        this.io.to(this.socketRoom()).emit("LOAN_RESOLVED", { requestId: id, approved: false, reason: "player left" });
+      }
+    }
     const seat = this.table.seats[rec.seatIndex]!;
     if (isInHand(seat) && seat.status !== "BUSTED") {
       // Fold them now; free the seat when the hand ends.
@@ -389,6 +401,13 @@ export class GameManager {
     fresh.isDealer = seat.isDealer;
     this.table.seats[seatIndex] = fresh;
     this.seatToPlayer.delete(seatIndex);
+    // Purge any debts owed to the vacated seat so subsequent occupants don't receive them
+    const key = String(seatIndex);
+    for (const s of this.table.seats) {
+      if (s.debtTo && s.debtTo[key] !== undefined) {
+        delete s.debtTo[key];
+      }
+    }
   }
 
   private firstEmptySeat() {
@@ -863,12 +882,16 @@ export class GameManager {
       this.broadcastState();
       return;
     }
-    const creditor = this.table.seats[loan.creditorSeatIndex]!;
+    const creditor = this.table.seats[loan.creditorSeatIndex];
+    const debtor = this.table.seats[loan.debtorSeatIndex];
+    if (!creditor || creditor.playerId === null || !debtor || debtor.playerId === null) {
+      this.io.to(this.socketRoom()).emit("LOAN_RESOLVED", { requestId, approved: false, reason: "player left" });
+      return;
+    }
     if (creditor.coins < loan.amount) {
       this.io.to(this.socketRoom()).emit("LOAN_RESOLVED", { requestId, approved: false, reason: "lender cannot afford it" });
       return;
     }
-    const debtor = this.table.seats[loan.debtorSeatIndex]!;
     creditor.coins -= loan.amount;
     debtor.coins += loan.amount;
     debtor.status = "SITTING_OUT"; // back with chips; joins next hand

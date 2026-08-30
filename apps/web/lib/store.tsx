@@ -191,6 +191,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [soundOn, setSoundOn] = useState(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showdownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mutable refs used inside socket handlers (avoid stale closures).
   const meRef = useRef<Me | null>(null);
@@ -317,6 +318,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const clearShowdown = useCallback(() => {
+    if (showdownTimer.current) {
+      clearTimeout(showdownTimer.current);
+      showdownTimer.current = null;
+    }
+    setShowdown(null);
+  }, []);
+
   const clearCelebration = useCallback(() => {
     if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
     celebrationTimer.current = null;
@@ -432,7 +441,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       setShowdown((cur) => cur); // winner banner clears on its own timer below
-      setTimeout(() => setShowdown(null), 4200);
+      if (showdownTimer.current) clearTimeout(showdownTimer.current);
+      showdownTimer.current = setTimeout(() => {
+        showdownTimer.current = null;
+        setShowdown(null);
+      }, 4200);
       myDealtIn.current = false;
     });
 
@@ -567,6 +580,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return () => {
       endTurnAlerts();
       if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      if (showdownTimer.current) clearTimeout(showdownTimer.current);
+      if (resolvedTrickTimer.current) clearTimeout(resolvedTrickTimer.current);
       socket.removeAllListeners();
       socket.disconnect();
     };
@@ -653,7 +669,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         };
         meRef.current = newMe;
         setMe(newMe);
-        setState(ack.state ?? null);
+        if (ack.state) {
+          setState(ack.state);
+        } else if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
+          setState(null);
+        }
+        setMyCards(null);
+        setShowdown(null);
+        if (showdownTimer.current) {
+          clearTimeout(showdownTimer.current);
+          showdownTimer.current = null;
+        }
+        setTnState(null);
+        setMyTnCards(null);
+        myTnHandRef.current = null;
+        tnPlayedRef.current = null;
+        setTnBidderPrivate(null);
+        setLastTnRound(null);
+        setTnResolvedTrick(null);
+        if (resolvedTrickTimer.current) {
+          clearTimeout(resolvedTrickTimer.current);
+          resolvedTrickTimer.current = null;
+        }
         setSession(EMPTY_STATS);
         setRecentHands([]);
         if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
@@ -757,6 +794,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const leaveRoom = useCallback(() => {
     socketRef.current?.emit("LEAVE_ROOM");
     endTurnAlerts();
+    if (showdownTimer.current) {
+      clearTimeout(showdownTimer.current);
+      showdownTimer.current = null;
+    }
+    if (resolvedTrickTimer.current) {
+      clearTimeout(resolvedTrickTimer.current);
+      resolvedTrickTimer.current = null;
+    }
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+      toastTimer.current = null;
+    }
+    if (celebrationTimer.current) {
+      clearTimeout(celebrationTimer.current);
+      celebrationTimer.current = null;
+    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROOM_KEY);
     meRef.current = null;
@@ -772,6 +825,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     tnPlayedRef.current = null;
     setTnBidderPrivate(null);
     setLastTnRound(null);
+    setTnResolvedTrick(null);
+    setCelebration(null);
+    setToast(null);
   }, []);
 
   const act = useCallback((action: PlayerAction, amount?: number) => {
@@ -840,6 +896,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const dismissIncomingLoan = useCallback(() => {
+    setIncomingLoan(null);
+  }, []);
+
   const gameType: GameType = me?.config?.gameType ?? "POKER";
 
   const value: GameContextValue = useMemo(
@@ -859,11 +919,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       lastTnRound,
       myCards,
       showdown,
-      clearShowdown: () => setShowdown(null),
+      clearShowdown,
       toast,
       pushToast,
       incomingLoan,
-      dismissIncomingLoan: () => setIncomingLoan(null),
+      dismissIncomingLoan,
       session,
       recentHands,
       timeline,
@@ -891,7 +951,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       status, isReconnecting, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
-      myCards, showdown, toast, incomingLoan,
+      myCards, showdown, clearShowdown, toast, pushToast, incomingLoan, dismissIncomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn,

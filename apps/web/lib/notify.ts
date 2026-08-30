@@ -157,7 +157,8 @@ export function beginTurnAlerts(info: { roomCode: string; seconds: number }): vo
   if (typeof document === "undefined") return;
   if (!turnAlertsEnabled()) return;
 
-  originalTitle = document.title || "Texas Hold'em";
+  const rawTitle = document.title || "Texas Hold'em";
+  originalTitle = rawTitle.replace(/^✔ YOUR TURN · /, "").trim() || "Texas Hold'em";
 
   visibilityHandler = () => {
     if (document.hidden) {

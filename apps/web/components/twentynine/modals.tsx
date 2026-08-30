@@ -341,7 +341,7 @@ function RoundBannerComponent() {
   if (summary.endReason === "SINGLE_HAND_WIN") {
     title = iWon ? "👑 SINGLE HAND SUCCESS!" : "👑 OPPONENT SINGLE HAND SUCCESS";
     subtitle = "Single Hand player won all 8 tricks!";
-    pointsAwardedText = "+3 Match Points";
+    pointsAwardedText = iWon ? "+3 Match Points" : "Opponent +3 Match Points";
   } else if (summary.endReason === "SINGLE_HAND_FAIL") {
     title = iWon ? "🛡️ SINGLE HAND DEFEATED!" : "❌ SINGLE HAND FAILED";
     subtitle = "Single hand attempt failed. Caller's team loses 3 points.";

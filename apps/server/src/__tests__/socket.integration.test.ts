@@ -112,6 +112,8 @@ describe("rooms: create / join / codes", () => {
     expect(res.sessionToken).toBeTruthy();
     expect(res.seatIndex).toBe(0);
     expect(res.config).toEqual({ startingCoins: 1000, smallBlind: 10, bigBlind: 20, turnTimeSeconds: CONFIG.turnTimeSeconds });
+    expect(res.state).toBeDefined();
+    expect(res.state?.seats[0]?.username).toBe("alice");
     expect(w.latest().seats[0]!.username).toBe("alice");
     socket.disconnect();
   }, 10000);

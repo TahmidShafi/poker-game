@@ -119,6 +119,7 @@ export function registerSocketHandlers(
           return ack?.({ ok: false, error: joined.error });
         }
         socket.join(room.socketRoom());
+        room.broadcastState();
         return ack?.({
           ok: true,
           roomCode: room.roomCode,
@@ -126,6 +127,7 @@ export function registerSocketHandlers(
           sessionToken: joined.sessionToken,
           config: validated.config,
           gameType: room.gameType,
+          state: room.gameType === "POKER" ? (room as GameManager).publicStateForSeat(joined.seatIndex) : undefined,
         });
       } catch (err) {
         return ack?.({ ok: false, error: (err as Error).message });

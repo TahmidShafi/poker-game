@@ -126,6 +126,7 @@ export class TwentyNineGameManager implements RoomLike {
   /** `${roundNumber}` -> set of batch numbers already delivered per seat. */
   private deliveredBatches = new Map<number, Set<string>>();
   private lastBidderPrivateKey: string | null = null;
+  private pendingSeatRemovals = new Set<number>();
   private readonly createdAt = Date.now();
 
   creationTime(): number {
@@ -346,12 +347,34 @@ export class TwentyNineGameManager implements RoomLike {
     const rec = this.findPlayerBySocket(socketId);
     if (!rec) return;
     rec.socketIds.delete(socketId);
-    this.freeSeat(rec.seatIndex);
+    if (this.isRoundRunning()) {
+      // Keep hand cards intact so fallback/bot moves can legally finish the active round
+      this.pendingSeatRemovals.add(rec.seatIndex);
+      const seat = this.match.seats[rec.seatIndex];
+      if (seat) {
+        seat.connected = false;
+        seat.username = `${rec.username} (Left)`;
+      }
+    } else {
+      this.freeSeat(rec.seatIndex);
+    }
     this.players.delete(rec.playerId);
     this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: rec.seatIndex });
     this.clearFallbackTimer(); // re-armed by broadcastState if still applicable
     this.broadcastState();
     this.maybeScheduleAutoStart();
+  }
+
+  private isRoundRunning(): boolean {
+    const phase = this.match.phase;
+    return (
+      phase === "BIDDING" ||
+      phase === "TRUMP_SETUP" ||
+      phase === "SINGLE_HAND_DECISION" ||
+      phase === "PLAYING" ||
+      phase === "DEALING_BATCH_1" ||
+      phase === "DEALING_BATCH_2"
+    );
   }
 
   private freeSeat(seatIndex: number): void {
@@ -539,6 +562,10 @@ export class TwentyNineGameManager implements RoomLike {
       snap.phase !== "ROUND_SCORED" &&
       snap.phase !== "MATCH_OVER";
     if (finished) {
+      for (const idx of this.pendingSeatRemovals) {
+        this.freeSeat(idx);
+      }
+      this.pendingSeatRemovals.clear();
       const summary = this.match.lastRoundSummary!;
       this.io.to(this.socketRoom()).emit("TN_ROUND_FINISHED", { summary });
       this.hooks.onRoundFinished?.({
@@ -752,6 +779,12 @@ export class TwentyNineGameManager implements RoomLike {
 
   private autoStart(): void {
     if (this.destroyed || !this.autoStartEnabled) return;
+    if (this.pendingSeatRemovals.size > 0) {
+      for (const idx of this.pendingSeatRemovals) {
+        this.freeSeat(idx);
+      }
+      this.pendingSeatRemovals.clear();
+    }
     if (!this.allSeated()) return;
     const phase = this.match.phase;
     if (phase !== "WAITING_FOR_PLAYERS" && phase !== "ROUND_SCORED" && phase !== "REDEALING") return;

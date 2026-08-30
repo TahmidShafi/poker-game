@@ -99,11 +99,9 @@ export class RoomRegistry {
         continue;
       }
       const last = room.lastActivityAt();
-      if (last === 0 || now - last > this.config.limits.emptyRoomTtlMs) {
-        // Brand-new empty rooms get the full TTL measured from creation.
-        if (last !== 0 || now - room.creationTime() > this.config.limits.emptyRoomTtlMs) {
-          this.removeRoom(code);
-        }
+      const referenceTime = last > 0 ? last : room.creationTime();
+      if (now - referenceTime > this.config.limits.emptyRoomTtlMs) {
+        this.removeRoom(code);
       }
     }
   }
