@@ -26,7 +26,7 @@ import type {
 } from "@poker/shared-types";
 import { describeHand, HandCategory } from "@poker/shared-types";
 import { createSocket, SERVER_URL, type PokerSocket } from "./socket";
-import { accumulateTnHand, type AccumulatedHand } from "./tnHand";
+import { accumulateTnHand, sortTnCards, type AccumulatedHand } from "./tnHand";
 import {
   isMuted,
   playChips,
@@ -221,7 +221,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const remaining = played
       ? hand.cards.filter((c) => !played.has(`${c.suit}:${c.rank}`))
       : hand.cards;
-    setMyTnCards(remaining);
+    setMyTnCards(sortTnCards(remaining));
   }, []);
 
   const requestTnHandSync = useCallback((reason: string) => {

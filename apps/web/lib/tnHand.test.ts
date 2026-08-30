@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TnCard, YourTnHandPayload } from "@poker/shared-types";
-import { accumulateTnHand, type AccumulatedHand } from "./tnHand";
+import { accumulateTnHand, sortTnCards, type AccumulatedHand } from "./tnHand";
 
 const c = (rank: TnCard["rank"], suit: TnCard["suit"]): TnCard => ({ rank, suit });
 
@@ -20,21 +20,69 @@ function acc(
   return accumulateTnHand(prev, payload);
 }
 
-describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
-  it("batch 1 starts a fresh hand view with exactly its 4 cards", () => {
-    const next = acc(null, batch(1, 1, B1));
-    expect(next.handNumber).toBe(1);
-    expect(next.cards).toEqual(B1);
-    expect(next.cards).toHaveLength(4);
+describe("sortTnCards (Power descending order: J > 9 > A > 10 > K > Q > 8 > 7)", () => {
+  it("sorts same-suit cards in strict 29 power rank order", () => {
+    // Hearts: 7, 8, Q(12), K(13), 10, A(14), 9, J(11)
+    const mixedHearts = [
+      c(7, "HEARTS"),
+      c(8, "HEARTS"),
+      c(12, "HEARTS"),
+      c(13, "HEARTS"),
+      c(10, "HEARTS"),
+      c(14, "HEARTS"),
+      c(9, "HEARTS"),
+      c(11, "HEARTS"),
+    ];
+    const sorted = sortTnCards(mixedHearts);
+    // Should be J(11) > 9 > A(14) > 10 > K(13) > Q(12) > 8 > 7
+    expect(sorted.map((x) => x.rank)).toEqual([11, 9, 14, 10, 13, 12, 8, 7]);
   });
 
-  it("batch 2 of the same hand accumulates to 8 unique cards (THE BUG: replace lost batch 1)", () => {
+  it("groups by suit and sorts each suit in power descending order", () => {
+    const multiSuit = [
+      c(7, "DIAMONDS"),
+      c(14, "HEARTS"), // A
+      c(11, "HEARTS"), // J
+      c(9, "HEARTS"),  // 9
+      c(10, "SPADES"),
+      c(11, "SPADES"), // J
+      c(8, "CLUBS"),
+      c(9, "CLUBS"),   // 9
+    ];
+    const sorted = sortTnCards(multiSuit);
+    expect(sorted).toEqual([
+      // Spades
+      c(11, "SPADES"),
+      c(10, "SPADES"),
+      // Hearts (Love: J, 9, A)
+      c(11, "HEARTS"),
+      c(9, "HEARTS"),
+      c(14, "HEARTS"),
+      // Clubs
+      c(9, "CLUBS"),
+      c(8, "CLUBS"),
+      // Diamonds
+      c(7, "DIAMONDS"),
+    ]);
+  });
+});
+
+describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
+  it("batch 1 starts a fresh hand view with its 4 cards sorted by power", () => {
+    const next = acc(null, batch(1, 1, B1)); // B1 = 7, 8, 9, 10 of SPADES
+    expect(next.handNumber).toBe(1);
+    expect(next.cards).toHaveLength(4);
+    // 9 > 10 > 8 > 7
+    expect(next.cards.map((x) => x.rank)).toEqual([9, 10, 8, 7]);
+  });
+
+  it("batch 2 of the same hand accumulates to 8 unique cards sorted by power", () => {
     const afterB1 = acc(null, batch(1, 1, B1));
     const afterB2 = acc(afterB1, batch(1, 2, B2));
     expect(afterB2.cards).toHaveLength(8);
     expect(new Set(afterB2.cards.map((x) => `${x.suit}${x.rank}`)).size).toBe(8);
-    expect(afterB2.cards.slice(0, 4)).toEqual(B1);
-    expect(afterB2.cards.slice(4)).toEqual(B2);
+    // All 8 spades in descending power: J(11) > 9 > A(14) > 10 > K(13) > Q(12) > 8 > 7
+    expect(afterB2.cards.map((x) => x.rank)).toEqual([11, 9, 14, 10, 13, 12, 8, 7]);
   });
 
   it("a duplicate batch 2 delivery is idempotent (stays 8)", () => {
@@ -42,16 +90,17 @@ describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
     hand = acc(hand, batch(1, 2, B2));
     hand = acc(hand, batch(1, 2, [...B2].reverse()));
     expect(hand.cards).toHaveLength(8);
+    expect(hand.cards.map((x) => x.rank)).toEqual([11, 9, 14, 10, 13, 12, 8, 7]);
   });
 
   it("a duplicate batch 1 delivery is idempotent (stays 4)", () => {
     let hand = acc(null, batch(1, 1, B1));
     hand = acc(hand, batch(1, 1, B1));
-    expect(hand.cards).toEqual(B1);
     expect(hand.cards).toHaveLength(4);
+    expect(hand.cards.map((x) => x.rank)).toEqual([9, 10, 8, 7]);
   });
 
-  it("FULL_RECONNECT replaces the whole hand authoritatively", () => {
+  it("FULL_RECONNECT replaces the whole hand authoritatively and sorts by power", () => {
     let hand = acc(null, batch(1, 1, B1));
     hand = acc(hand, batch(1, 2, B2));
     const reconnected = acc(hand, {
@@ -60,13 +109,15 @@ describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
       cards: [B2[1]!, B1[0]!, B2[3]!, B1[2]!, B2[0]!, B1[1]!, B2[2]!, B1[3]!],
     });
     expect(reconnected.cards).toHaveLength(8);
-    expect(reconnected.cards[0]).toEqual(B2[1]);
+    expect(reconnected.cards.map((x) => x.rank)).toEqual([11, 9, 14, 10, 13, 12, 8, 7]);
   });
 
-  it("batch 2 for a hand whose batch 1 was never received is kept (partial view beats none)", () => {
+  it("batch 2 for a hand whose batch 1 was never received is kept and sorted", () => {
     const next = acc(null, batch(3, 2, B2));
     expect(next.handNumber).toBe(3);
-    expect(next.cards).toEqual(B2);
+    expect(next.cards).toHaveLength(4);
+    // B2 = 11, 12, 13, 14 -> J(11) > A(14) > K(13) > Q(12)
+    expect(next.cards.map((x) => x.rank)).toEqual([11, 14, 13, 12]);
   });
 
   it("stale batch 1 for an already-retired hand is ignored", () => {
@@ -89,17 +140,11 @@ describe("accumulateTnHand (YOUR_TN_HAND state machine)", () => {
     const hearts: TnCard[] = [c(7, "HEARTS"), c(8, "HEARTS"), c(9, "HEARTS"), c(10, "HEARTS")];
     hand = acc(hand, batch(2, 1, hearts));
     expect(hand.handNumber).toBe(2);
-    expect(hand.cards).toEqual(hearts);
+    expect(hand.cards.map((x) => x.rank)).toEqual([9, 10, 8, 7]);
     expect(hand.cards).toHaveLength(4);
   });
 
-  it("preserves deal order across both batches (batch1 order then batch2 order)", () => {
-    let hand = acc(null, batch(1, 1, [B1[3]!, B1[2]!, B1[1]!, B1[0]!]));
-    hand = acc(hand, batch(1, 2, [B2[2]!, B2[0]!, B2[3]!, B2[1]!]));
-    expect(hand.cards.map((x) => x.rank)).toEqual([10, 9, 8, 7, 13, 11, 14, 12]);
-  });
-
-  it("FULL_RECONNECT mid-hand sets exact remaining cards (e.g. 7, 5, 0 remaining)", () => {
+  it("FULL_RECONNECT mid-hand sets exact remaining cards sorted by power", () => {
     let hand = acc(null, batch(1, 1, B1));
     hand = acc(hand, batch(1, 2, B2));
     expect(hand.cards).toHaveLength(8);

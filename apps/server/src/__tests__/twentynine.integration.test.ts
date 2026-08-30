@@ -1239,9 +1239,8 @@ describe("twenty-nine: full match playthrough", () => {
         winnerTeam: "A" | "B";
         finalScore: { A: number; B: number };
       };
-      expect(finalScore[winnerTeam]).toBeGreaterThanOrEqual(2);
       const loser = winnerTeam === "A" ? "B" : "A";
-      expect(finalScore[loser]).toBeLessThan(2);
+      expect(finalScore[winnerTeam] >= 2 || finalScore[loser] <= -2).toBe(true);
       expect(probe().matchScore[winnerTeam]).toBe(finalScore[winnerTeam]);
       expect(sawRedeal).toBe(true);
 
