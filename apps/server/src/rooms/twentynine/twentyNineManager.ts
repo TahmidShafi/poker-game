@@ -454,10 +454,14 @@ export class TwentyNineGameManager implements RoomLike {
     this.sendPrivateSnapshot(rec, socketId);
     const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
-      pub.offlineFallback = {
-        seatIndex: this.match.actingSeatIndex,
-        deadline: this.fallbackDeadline,
-      };
+      const actingRec = [...this.players.values()].find((r) => r.seatIndex === this.match.actingSeatIndex);
+      const isOffline = !actingRec || (!actingRec.isBot && actingRec.socketIds.size === 0);
+      if (isOffline) {
+        pub.offlineFallback = {
+          seatIndex: this.match.actingSeatIndex,
+          deadline: this.fallbackDeadline,
+        };
+      }
     }
     this.io.to(socketId).emit("TN_STATE", pub);
   }
@@ -635,43 +639,49 @@ export class TwentyNineGameManager implements RoomLike {
     for (const rec of this.players.values()) {
       const seat = this.match.seats[rec.seatIndex];
       if (!seat || seat.username === null) continue;
+      if (rec.isBot) continue;
+
       if (seat.batch1.length === 4 && !sent.has(`${rec.seatIndex}:1`)) {
-        sent.add(`${rec.seatIndex}:1`);
-        if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
-          console.log(
-            `[TN_SYNC ${this.roomCode}] emitting batch 1 to seat ${rec.seatIndex} (${rec.username}): 4 cards across ${rec.socketIds.size} sockets`
-          );
+        if (rec.socketIds.size > 0) {
+          sent.add(`${rec.seatIndex}:1`);
+          if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+            console.log(
+              `[TN_SYNC ${this.roomCode}] emitting batch 1 to seat ${rec.seatIndex} (${rec.username}): 4 cards across ${rec.socketIds.size} sockets`
+            );
+          }
+          this.emitToPlayer(rec, "YOUR_TN_HAND", {
+            handNumber: round,
+            batch: 1,
+            cards: seat.batch1.map((c) => ({ ...c })),
+          });
         }
-        this.emitToPlayer(rec, "YOUR_TN_HAND", {
-          handNumber: round,
-          batch: 1,
-          cards: seat.batch1.map((c) => ({ ...c })),
-        });
       }
       if (seat.batch2.length === 4 && !sent.has(`${rec.seatIndex}:2`)) {
-        sent.add(`${rec.seatIndex}:2`);
-        const isBidderSeventhLocked =
-          rec.seatIndex === this.match.bidderSeatIndex &&
-          this.match.trumpStyle === "SEVENTH_CARD" &&
-          !this.match.trumpRevealed &&
-          this.match.indicatorCard;
+        if (rec.socketIds.size > 0) {
+          sent.add(`${rec.seatIndex}:2`);
+          const isBidderSeventhLocked =
+            rec.seatIndex === this.match.bidderSeatIndex &&
+            this.match.trumpStyle === "SEVENTH_CARD" &&
+            !this.match.trumpRevealed &&
+            this.match.indicatorCard;
 
-        const cardsToSend = isBidderSeventhLocked
-          ? seat.batch2.filter(
-              (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
-            )
-          : seat.batch2;
+          const cardsToSend = isBidderSeventhLocked
+            ? seat.batch2.filter(
+                (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
+              )
+            : seat.batch2;
 
-        if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
-          console.log(
-            `[TN_SYNC ${this.roomCode}] emitting batch 2 to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards across ${rec.socketIds.size} sockets`
-          );
+          if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+            console.log(
+              `[TN_SYNC ${this.roomCode}] emitting batch 2 to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards across ${rec.socketIds.size} sockets`
+            );
+          }
+          this.emitToPlayer(rec, "YOUR_TN_HAND", {
+            handNumber: round,
+            batch: 2,
+            cards: cardsToSend.map((c) => ({ ...c })),
+          });
         }
-        this.emitToPlayer(rec, "YOUR_TN_HAND", {
-          handNumber: round,
-          batch: 2,
-          cards: cardsToSend.map((c) => ({ ...c })),
-        });
       }
     }
     // Prune old rounds to bound memory.
@@ -854,9 +864,12 @@ export class TwentyNineGameManager implements RoomLike {
     if (acting === null) return;
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
     if (rec?.isBot) return; // bots arm their own think-delay timer instead
+
     const offline = !rec || rec.socketIds.size === 0;
-    if (!offline) return;
-    const seconds = Math.max(1, this.limits.tnOfflineFallbackSeconds);
+    const seconds = offline
+      ? Math.max(1, this.limits.tnOfflineFallbackSeconds)
+      : Math.max(1, this.limits.tnConnectedTurnSeconds ?? 25);
+
     this.fallbackDeadline = Date.now() + seconds * 1000;
     this.fallbackTimer = setTimeout(() => {
       this.fallbackTimer = null;
@@ -865,7 +878,7 @@ export class TwentyNineGameManager implements RoomLike {
   }
 
   /**
-   * Auto-acts for a disconnected player: bidding -> PASS, trump setup ->
+   * Auto-acts for an offline or unresponsive player: bidding -> PASS, trump setup ->
    * dominant suit of their own first batch (server-side, leaks nothing),
    * single hand -> skip, card play -> lowest legal card.
    */
@@ -879,11 +892,9 @@ export class TwentyNineGameManager implements RoomLike {
     ) {
       return;
     }
-    const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
-    if (rec && rec.socketIds.size > 0) return; // they came back
     const snap = Snapshot.of(this.match);
     try {
-      console.log(`[tn ${this.roomCode}] offline fallback fires for seat ${acting} (${phase})`);
+      console.log(`[tn ${this.roomCode}] turn fallback fires for seat ${acting} (${phase})`);
       if (phase === "BIDDING") {
         applyBid(this.match, acting); // pass
       } else if (phase === "TRUMP_SETUP") {
@@ -893,7 +904,11 @@ export class TwentyNineGameManager implements RoomLike {
         respondSingleHand(this.match, acting, false);
       } else {
         const card = lowestLegalCard(this.match, acting);
-        if (!card) throw new Error("no legal card for offline fallback");
+        if (!card) {
+          throw new Error(
+            `no legal card for turn fallback (seat ${acting}, phase ${phase}, hand: ${this.match.seats[acting]?.hand.length ?? 0})`
+          );
+        }
         playCard(this.match, acting, card);
         this.emitCompletedTrick(snap, acting, card);
       }
@@ -902,7 +917,9 @@ export class TwentyNineGameManager implements RoomLike {
       this.maybeScheduleAutoStart();
       this.broadcastState();
     } catch (err) {
-      console.error(`[tn ${this.roomCode}] offline fallback failed:`, (err as Error).message);
+      console.error(`[tn ${this.roomCode}] turn fallback failed (seat ${acting}, phase ${phase}):`, (err as Error).message);
+      // Guarantee error recovery: broadcast current state so clients are updated and re-arm timer if needed
+      this.broadcastState();
     }
   }
 
@@ -938,10 +955,14 @@ export class TwentyNineGameManager implements RoomLike {
 
     const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
-      pub.offlineFallback = {
-        seatIndex: this.match.actingSeatIndex,
-        deadline: this.fallbackDeadline,
-      };
+      const actingRec = [...this.players.values()].find((r) => r.seatIndex === this.match.actingSeatIndex);
+      const isOffline = !actingRec || (!actingRec.isBot && actingRec.socketIds.size === 0);
+      if (isOffline) {
+        pub.offlineFallback = {
+          seatIndex: this.match.actingSeatIndex,
+          deadline: this.fallbackDeadline,
+        };
+      }
     }
     this.io.to(this.socketRoom()).emit("TN_STATE", pub);
     for (const [, sio] of this.io.of("/").sockets) {

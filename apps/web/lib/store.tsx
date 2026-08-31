@@ -212,6 +212,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const publishMyTnHand = useCallback(() => {
     const hand = myTnHandRef.current;
     if (!hand) {
+      myTnCardsRef.current = null;
       setMyTnCards(null);
       return;
     }
@@ -222,7 +223,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const remaining = played
       ? hand.cards.filter((c) => !played.has(`${c.suit}:${c.rank}`))
       : hand.cards;
-    setMyTnCards(sortTnCards(remaining));
+    const sorted = sortTnCards(remaining);
+    myTnCardsRef.current = sorted;
+    setMyTnCards(sorted);
   }, []);
 
   const requestTnHandSync = useCallback((reason: string) => {

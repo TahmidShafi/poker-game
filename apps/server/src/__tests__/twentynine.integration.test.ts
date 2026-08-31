@@ -1218,6 +1218,178 @@ describe("twenty-nine: room lifecycle & leaks", () => {
   );
 });
 
+describe("twenty-nine: multiplayer reliability & turn resilience", () => {
+  it("disconnect during trick play: offline fallback executes legal card and advances turn", async () => {
+    ps.close();
+    ps = createPokerServer({ limits: { ...BASE_LIMITS, tnOfflineFallbackSeconds: 1 } });
+    await new Promise<void>((resolve) => {
+      ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    port = (ps.httpServer.address() as AddressInfo).port;
+
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    const actingBefore = latestOf(seats[0]!.log)!.actingSeatIndex!;
+    const actingSeat = seats.find((s) => s.seatIndex === actingBefore)!;
+
+    // Disconnect the active player on their turn
+    actingSeat.socket.disconnect();
+
+    // Fallback should execute within ~2s and play a card
+    const observer = seats.find((s) => s.seatIndex !== actingBefore)!;
+    await pollUntil(
+      () => latestOf(observer.log)!.trick.length === 1 || latestOf(observer.log)!.actingSeatIndex !== actingBefore,
+      6000,
+      "turn fallback executed"
+    );
+
+    const st = latestOf(observer.log)!;
+    expect(st.actingSeatIndex).not.toBe(actingBefore);
+    expect(st.trick.some((p) => p.seatIndex === actingBefore)).toBe(true);
+  }, 25000);
+
+  it("reconnect before fallback executes: fallback cancelled and player acts manually", async () => {
+    ps.close();
+    // 3 seconds offline grace window
+    ps = createPokerServer({ limits: { ...BASE_LIMITS, tnOfflineFallbackSeconds: 3, tnConnectedTurnSeconds: 20 } });
+    await new Promise<void>((resolve) => {
+      ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    port = (ps.httpServer.address() as AddressInfo).port;
+
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    const actingBefore = latestOf(seats[0]!.log)!.actingSeatIndex!;
+    const actingSeat = seats.find((s) => s.seatIndex === actingBefore)!;
+
+    // Disconnect active player
+    actingSeat.socket.disconnect();
+    await sleep(200);
+
+    // Reconnect on new socket before 3s window expires
+    const re = connect();
+    const reLog = recorder(re);
+    const ack = await emitAck(re, "RECONNECT", { sessionToken: actingSeat.token });
+    expect(ack.ok).toBe(true);
+    expect(ack.seatIndex).toBe(actingBefore);
+
+    // Verify player is connected and can play manually
+    await pollUntil(() => reLog.some((e) => e.ev === "YOUR_TN_HAND"), 4000, "hand received");
+    const hand = (reLog.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[] }).cards;
+    expect(hand).toHaveLength(8);
+
+    re.emit("GAME29_PLAY_CARD", { card: hand[0]! });
+
+    const observer = seats.find((s) => s.seatIndex !== actingBefore)!;
+    await pollUntil(
+      () => latestOf(observer.log)!.trick.length === 1 && latestOf(observer.log)!.actingSeatIndex !== actingBefore,
+      6000,
+      "manual play accepted"
+    );
+
+    re.disconnect();
+  }, 25000);
+
+  it("connected inactive player: active turn timeout executes fallback after inactivity window", async () => {
+    ps.close();
+    // 1 second connected turn timeout
+    ps = createPokerServer({ limits: { ...BASE_LIMITS, tnOfflineFallbackSeconds: 10, tnConnectedTurnSeconds: 1 } });
+    await new Promise<void>((resolve) => {
+      ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    port = (ps.httpServer.address() as AddressInfo).port;
+
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+    const bidder = await simpleAuctionToTrumpSetup(seats);
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats);
+    await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+    const actingBefore = latestOf(seats[0]!.log)!.actingSeatIndex!;
+    // Player remains connected but does NOT send any move
+    const observer = seats.find((s) => s.seatIndex !== actingBefore)!;
+    await pollUntil(
+      () => latestOf(observer.log)!.trick.length === 1 || latestOf(observer.log)!.actingSeatIndex !== actingBefore,
+      6000,
+      "inactivity fallback executed"
+    );
+
+    const st = latestOf(observer.log)!;
+    expect(st.actingSeatIndex).not.toBe(actingBefore);
+    expect(st.trick.some((p) => p.seatIndex === actingBefore)).toBe(true);
+  }, 25000);
+
+  it("missed batch delivery when offline: syncHandDeliveries preserves unreached batch and restores on reconnect", async () => {
+    ps.close();
+    ps = createPokerServer({ limits: { ...BASE_LIMITS, tnOfflineFallbackSeconds: 1 } });
+    await new Promise<void>((resolve) => {
+      ps.httpServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    port = (ps.httpServer.address() as AddressInfo).port;
+
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+    // Seat 3 disconnects during bidding
+    const seat3 = seats[3]!;
+    seat3.socket.disconnect();
+
+    // Remaining players complete bidding and declare trump (which deals batch 2)
+    const bidder = await simpleAuctionToTrumpSetup(seats.slice(0, 3));
+    seats.find((s) => s.seatIndex === bidder)!.socket.emit("GAME29_DECLARE_TRUMP", { choice: "JOKER" });
+    await skipSingleHandForAll(seats.slice(0, 3));
+
+    // Seat 3 reconnects
+    const re = connect();
+    const reLog = recorder(re);
+    const ack = await emitAck(re, "RECONNECT", { sessionToken: seat3.token });
+    expect(ack.ok).toBe(true);
+    expect(ack.seatIndex).toBe(3);
+
+    // Full 8 cards must be delivered via FULL_RECONNECT snapshot
+    await pollUntil(() => reLog.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "cards received on reconnect");
+    const hand = (reLog.find((e) => e.ev === "YOUR_TN_HAND")!.data as { cards: TnCard[] }).cards;
+    expect(hand).toHaveLength(8);
+
+    re.disconnect();
+  }, 25000);
+
+  it("rapid disconnect and reconnect race: room remains stable, seat restored, single action resolved", async () => {
+    const { seats } = await makeTnRoom(false);
+    await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+    const victim = seats[1]!;
+    // Rapidly disconnect and reconnect 3 times in a row
+    for (let cycle = 0; cycle < 3; cycle++) {
+      victim.socket.disconnect();
+      await sleep(30);
+      const re = connect();
+      const reLog = recorder(re);
+      const ack = await emitAck(re, "RECONNECT", { sessionToken: victim.token });
+      expect(ack.ok).toBe(true);
+      expect(ack.seatIndex).toBe(1);
+      victim.socket = re;
+      victim.log = reLog;
+    }
+
+    // Verify room is still alive and in BIDDING
+    const st = latestOf(victim.log)!;
+    expect(st.phase).toBe("BIDDING");
+    expect(st.seats[1]!.status).toBe("SEATED");
+  }, 25000);
+});
+
 describe("twenty-nine: full match playthrough", () => {
   it(
     "multiple hands incl. a forced redeal: dealer rotation, score accumulation, match finish",
