@@ -534,6 +534,41 @@ export function declareTrumpPlan(
   beginPlayAfterTrump(state);
 }
 
+/** Verifies all strict deal invariants before play proceeds. */
+export function assertPlayingInvariants(state: TwentyNineState): void {
+  let totalCards = 0;
+  const allKeys = new Set<string>();
+  for (let i = 0; i < 4; i++) {
+    const seat = state.seats[i];
+    if (!seat) throw new Error(`Invariant failed: seat ${i} is missing`);
+    if (seat.batch1.length !== 4) {
+      throw new Error(`Invariant failed: seat ${i} batch1 length is ${seat.batch1.length}, expected 4`);
+    }
+    if (seat.batch2.length !== 4) {
+      throw new Error(`Invariant failed: seat ${i} batch2 length is ${seat.batch2.length}, expected 4`);
+    }
+    if (seat.hand.length !== 8) {
+      throw new Error(`Invariant failed: seat ${i} hand length is ${seat.hand.length}, expected 8`);
+    }
+    const seatKeys = new Set<string>();
+    for (const card of seat.hand) {
+      const key = `${card.suit}:${card.rank}`;
+      if (seatKeys.has(key)) {
+        throw new Error(`Invariant failed: duplicate card ${key} within seat ${i}`);
+      }
+      seatKeys.add(key);
+      if (allKeys.has(key)) {
+        throw new Error(`Invariant failed: card ${key} dealt to multiple seats`);
+      }
+      allKeys.add(key);
+      totalCards++;
+    }
+  }
+  if (totalCards !== 32) {
+    throw new Error(`Invariant failed: total distributed cards = ${totalCards}, expected 32`);
+  }
+}
+
 /** Automatic SEVENTH_CARD resolution incl. invalid-hand redeal check. */
 function resolveSeventhTrump(state: TwentyNineState): void {
   const bidder = state.bidderSeatIndex;
@@ -549,29 +584,12 @@ function resolveSeventhTrump(state: TwentyNineState): void {
   }
   state.trumpSuit = indicator.suit;
   state.trumpSet = true;
-  // The 7th card is locked on the trump section on the table:
-  // remove it from bidder's hand so bidder holds 7 cards while trump remains hidden.
-  seat.hand = seat.hand.filter((c) => !(c.suit === indicator.suit && c.rank === indicator.rank));
+  // All 8 cards remain in bidder's hand; indicatorCard records the trump indicator
   beginPlayAfterTrump(state);
 }
 
-function restoreSeventhCardIfLocked(state: TwentyNineState): void {
-  if (
-    state.trumpStyle === "SEVENTH_CARD" &&
-    state.indicatorCard &&
-    state.bidderSeatIndex !== null
-  ) {
-    const seat = state.seats[state.bidderSeatIndex];
-    if (seat) {
-      const indicator = state.indicatorCard;
-      const alreadyInHand = seat.hand.some(
-        (c) => c.suit === indicator.suit && c.rank === indicator.rank
-      );
-      if (!alreadyInHand) {
-        seat.hand.push(indicator);
-      }
-    }
-  }
+function restoreSeventhCardIfLocked(_state: TwentyNineState): void {
+  // No-op: all 8 cards remain in hand permanently
 }
 
 function countOtherOfSuit(all8: TnCard[], indicator: TnCard): number {
@@ -589,6 +607,7 @@ function beginPlayAfterTrump(state: TwentyNineState): void {
   state.singleHandSkippedCount = 0;
   const first = tnNextSeat(state.dealerSeatIndex);
   state.actingSeatIndex = first;
+  assertPlayingInvariants(state);
 }
 
 export function respondSingleHand(
@@ -607,8 +626,6 @@ export function respondSingleHand(
     state.isSingleHand = true;
     state.singleHandSeatIndex = seatIndex;
     state.inactiveSeatIndex = (seatIndex + 2) % TN_SEAT_COUNT; // partner sits out
-    // If 7th card was locked on table, restore it back to hand
-    restoreSeventhCardIfLocked(state);
     // No trump is used in Single Hand
     state.trumpStyle = null;
     state.trumpSet = false;
@@ -623,6 +640,7 @@ export function respondSingleHand(
     state.actingSeatIndex = seatIndex;
     state.trickNumber = 1;
     state.lastMove = { seatIndex, kind: "DECLARE_SINGLE_HAND" };
+    assertPlayingInvariants(state);
     return;
   }
 
@@ -636,6 +654,7 @@ export function respondSingleHand(
     state.ledSeatIndex = leader;
     state.actingSeatIndex = leader;
     state.trickNumber = 1;
+    assertPlayingInvariants(state);
   } else {
     // Advance to next player anti-clockwise
     state.actingSeatIndex = tnNextSeat(seatIndex);
@@ -768,7 +787,16 @@ export function playCard(state: TwentyNineState, seatIndex: number, card: TnCard
     throw new Error("must follow suit");
   }
 
+  const beforeLen = seat.hand.length;
   seat.hand = seat.hand.filter((c) => !(c.suit === card.suit && c.rank === card.rank));
+  const afterLen = seat.hand.length;
+  if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+    console.log(
+      `[CARD_REMOVE ${state.gameId}] seat=${seatIndex} card=${card.suit}:${card.rank} reason=PLAY_CARD ` +
+        `phase=${state.phase} round=${state.roundNumber} handLenBefore=${beforeLen} handLenAfter=${afterLen} ` +
+        `b1=${seat.batch1.length} b2=${seat.batch2.length}`
+    );
+  }
   state.currentTrick.push({ seatIndex, card });
   state.lastMove = { seatIndex, kind: "PLAY", card };
 

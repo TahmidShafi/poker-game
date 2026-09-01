@@ -15,6 +15,7 @@ import { isTnTrumpChoice } from "@poker/shared-types";
 import { tnCardPoints, tnTeamOfSeat } from "@poker/shared-types";
 import {
   applyBid,
+  assertPlayingInvariants,
   callTrump,
   createMatch,
   declareMarriage,
@@ -125,6 +126,8 @@ export class TwentyNineGameManager implements RoomLike {
   private fallbackDeadline = 0;
   private fallbackActingSeat: number | null = null;
   private fallbackIsOffline = false;
+  private turnGeneration = 0;
+  private turnStartedAt = 0;
   private botTimer: NodeJS.Timeout | null = null;
   /** `${roundNumber}` -> set of batch numbers already delivered per seat. */
   private deliveredBatches = new Map<number, Set<string>>();
@@ -788,7 +791,8 @@ export class TwentyNineGameManager implements RoomLike {
           sent.add(`${rec.seatIndex}:1`);
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
-              `[TN_SYNC ${this.roomCode}] emitting batch 1 to seat ${rec.seatIndex} (${rec.username}): 4 cards across ${rec.socketIds.size} sockets`
+              `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${round} seat=${rec.seatIndex} (${rec.username}) batch=1 ` +
+                `cards=${seat.batch1.length} handLen=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
             );
           }
           this.emitToPlayer(rec, "YOUR_TN_HAND", {
@@ -801,27 +805,16 @@ export class TwentyNineGameManager implements RoomLike {
       if (seat.batch2.length === 4 && !sent.has(`${rec.seatIndex}:2`)) {
         if (rec.socketIds.size > 0) {
           sent.add(`${rec.seatIndex}:2`);
-          const isBidderSeventhLocked =
-            rec.seatIndex === this.match.bidderSeatIndex &&
-            this.match.trumpStyle === "SEVENTH_CARD" &&
-            !this.match.trumpRevealed &&
-            this.match.indicatorCard;
-
-          const cardsToSend = isBidderSeventhLocked
-            ? seat.batch2.filter(
-                (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
-              )
-            : seat.batch2;
-
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
-              `[TN_SYNC ${this.roomCode}] emitting batch 2 to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards across ${rec.socketIds.size} sockets`
+              `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${round} seat=${rec.seatIndex} (${rec.username}) batch=2 ` +
+                `cards=${seat.batch2.length} handLen=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
             );
           }
           this.emitToPlayer(rec, "YOUR_TN_HAND", {
             handNumber: round,
             batch: 2,
-            cards: cardsToSend.map((c) => ({ ...c })),
+            cards: seat.batch2.map((c) => ({ ...c })),
           });
         }
       }
@@ -875,27 +868,16 @@ export class TwentyNineGameManager implements RoomLike {
     const seat = this.match.seats[rec.seatIndex];
     if (!seat) return;
 
-    const isBidderSeventhLocked =
-      rec.seatIndex === this.match.bidderSeatIndex &&
-      this.match.trumpStyle === "SEVENTH_CARD" &&
-      !this.match.trumpRevealed &&
-      this.match.indicatorCard;
-
-    const cardsToSend = isBidderSeventhLocked
-      ? seat.hand.filter(
-          (c) => !(c.suit === this.match.indicatorCard!.suit && c.rank === this.match.indicatorCard!.rank)
-        )
-      : seat.hand;
-
     if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
       console.log(
-        `[TN_SYNC ${this.roomCode}] sending authoritative hand snapshot to seat ${rec.seatIndex} (${rec.username}): ${cardsToSend.length} cards (batch FULL_RECONNECT) across ${rec.socketIds.size} sockets`
+        `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${this.match.roundNumber} seat=${rec.seatIndex} (${rec.username}) ` +
+          `snapshot batch=FULL_RECONNECT cards=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
       );
     }
     const payload = {
       handNumber: this.match.roundNumber,
       batch: "FULL_RECONNECT" as const,
-      cards: cardsToSend.map((c) => ({ ...c })),
+      cards: seat.hand.map((c) => ({ ...c })),
     };
     if (targetSocketId) {
       this.io.to(targetSocketId).emit("YOUR_TN_HAND", payload);
@@ -981,6 +963,7 @@ export class TwentyNineGameManager implements RoomLike {
   // ---------------------------------------------- offline fallback timing
 
   private clearFallbackTimer(): void {
+    this.turnGeneration += 1;
     if (this.fallbackTimer) {
       clearTimeout(this.fallbackTimer);
       this.fallbackTimer = null;
@@ -1026,17 +1009,43 @@ export class TwentyNineGameManager implements RoomLike {
     // If acting seat changed or no active timer, start a fresh deadline
     if (this.fallbackActingSeat !== acting || this.fallbackDeadline <= now || !this.fallbackTimer) {
       if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+      const gen = ++this.turnGeneration;
       this.fallbackActingSeat = acting;
       this.fallbackIsOffline = isOffline;
+      this.turnStartedAt = now;
       const seconds = isOffline
         ? Math.max(1, this.limits.tnOfflineFallbackSeconds)
         : Math.max(1, this.limits.tnConnectedTurnSeconds ?? 25);
 
       this.fallbackDeadline = now + seconds * 1000;
+      const remainingMs = seconds * 1000 + 250;
+
+      if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+        console.log(
+          `[FALLBACK_ARM ${this.roomCode}] gen=${gen} seat=${acting} phase=${phase} offline=${isOffline} ` +
+            `startedAt=${this.turnStartedAt} deadline=${this.fallbackDeadline} inMs=${remainingMs}`
+        );
+      }
+
       this.fallbackTimer = setTimeout(() => {
         this.fallbackTimer = null;
-        this.fireOfflineFallback();
-      }, seconds * 1000 + 250);
+        if (this.destroyed) return;
+        if (this.turnGeneration !== gen) {
+          if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+            console.log(`[FALLBACK_STALE_IGNORED ${this.roomCode}] gen=${gen} vs currentGen=${this.turnGeneration}`);
+          }
+          return;
+        }
+        if (this.match.actingSeatIndex !== acting || this.match.phase !== phase) {
+          if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+            console.log(
+              `[FALLBACK_STATE_CHANGED ${this.roomCode}] acting=${this.match.actingSeatIndex} vs ${acting}, phase=${this.match.phase} vs ${phase}`
+            );
+          }
+          return;
+        }
+        this.fireOfflineFallback(gen);
+      }, remainingMs);
       return;
     }
 
@@ -1047,11 +1056,22 @@ export class TwentyNineGameManager implements RoomLike {
       const offlineMaxDeadline = now + Math.max(1, this.limits.tnOfflineFallbackSeconds) * 1000;
       if (offlineMaxDeadline < this.fallbackDeadline) {
         if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+        const gen = ++this.turnGeneration;
         this.fallbackDeadline = offlineMaxDeadline;
         const remainingMs = Math.max(250, this.fallbackDeadline - now);
+
+        if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
+          console.log(
+            `[FALLBACK_CLAMP ${this.roomCode}] gen=${gen} seat=${acting} phase=${phase} clampedTo=${this.fallbackDeadline} inMs=${remainingMs}`
+          );
+        }
+
         this.fallbackTimer = setTimeout(() => {
           this.fallbackTimer = null;
-          this.fireOfflineFallback();
+          if (this.destroyed) return;
+          if (this.turnGeneration !== gen) return;
+          if (this.match.actingSeatIndex !== acting || this.match.phase !== phase) return;
+          this.fireOfflineFallback(gen);
         }, remainingMs + 250);
       }
     }
@@ -1062,8 +1082,9 @@ export class TwentyNineGameManager implements RoomLike {
    * dominant suit of their own first batch (server-side, leaks nothing),
    * single hand -> skip, card play -> lowest legal card.
    */
-  private fireOfflineFallback(): void {
+  private fireOfflineFallback(generation?: number): void {
     if (this.destroyed) return;
+    if (generation !== undefined && this.turnGeneration !== generation) return;
     const phase = this.match.phase;
     const acting = this.match.actingSeatIndex;
     if (
@@ -1074,7 +1095,11 @@ export class TwentyNineGameManager implements RoomLike {
     }
     const snap = Snapshot.of(this.match);
     try {
-      console.log(`[tn ${this.roomCode}] turn fallback fires for seat ${acting} (${phase})`);
+      console.log(
+        `[tn ${this.roomCode}] turn fallback fires for seat ${acting} (${phase}) gen=${this.turnGeneration} ` +
+          `startedAt=${this.turnStartedAt} deadline=${this.fallbackDeadline}`
+      );
+      this.turnGeneration += 1;
       if (phase === "BIDDING") {
         applyBid(this.match, acting); // pass
       } else if (phase === "TRUMP_SETUP") {

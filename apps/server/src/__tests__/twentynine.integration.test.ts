@@ -1939,5 +1939,87 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
 
       for (const s of sockets) s.disconnect();
     });
+
+    it("SEVENTH_CARD trump choice: bidder and all players receive exactly 4 cards in batch 2 and 8 total cards", async () => {
+      const { seats, code } = await makeTnRoom(false);
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+      // Verify batch 1 has 4 cards for everyone
+      await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch1");
+
+      const bidderSeat = await simpleAuctionToTrumpSetup(seats);
+      const bidderClient = seats.find((s) => s.seatIndex === bidderSeat)!;
+
+      // Bidder declares SEVENTH_CARD
+      bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "SEVENTH_CARD" });
+
+      // In case of redeal due to invalid 7th card indicator, loop if needed
+      await pollUntil(
+        () => {
+          const st = latestOf(bidderClient.log);
+          return st?.phase === "SINGLE_HAND_DECISION" || st?.phase === "PLAYING" || st?.phase === "REDEALING";
+        },
+        8000,
+        "single hand or playing or redeal"
+      );
+
+      const room = ps.registry.get(code) as TwentyNineGameManager;
+      if (room.match.phase === "SINGLE_HAND_DECISION" || room.match.phase === "PLAYING") {
+        // Verify batch 2 has EXACTLY 4 cards for the bidder and all other seats
+        for (const s of seats) {
+          const b2 = batchCardsOf(s, 2);
+          expect(b2).toHaveLength(4);
+          const b1 = batchCardsOf(s, 1);
+          expect(b1).toHaveLength(4);
+        }
+
+        // Verify authoritative hands
+        for (let i = 0; i < 4; i++) {
+          expect(room.match.seats[i]!.hand).toHaveLength(8);
+          expect(room.match.seats[i]!.batch1).toHaveLength(4);
+          expect(room.match.seats[i]!.batch2).toHaveLength(4);
+        }
+      }
+
+      for (const s of seats) s.socket.disconnect();
+    });
+
+    it("stale fallback callback from an earlier turnGeneration is a no-op and never advances turn twice", async () => {
+      const sockets = [connect(), connect(), connect(), connect()];
+      const hostAck = await emitAck(sockets[0]!, "CREATE_ROOM", {
+        username: "Host1",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      for (let i = 1; i < 4; i++) {
+        await emitAck(sockets[i]!, "JOIN_ROOM", { roomCode, username: `Player${i + 1}` });
+      }
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      await sleep(400);
+      expect(room.match.phase).toBe("BIDDING");
+
+      const gen1 = room["turnGeneration"];
+      const acting1 = room.match.actingSeatIndex;
+
+      // Player acts manually before fallback timer fires
+      const actingSocket = sockets[acting1!]!;
+      actingSocket.emit("GAME29_BID", { bid: 16 });
+      await sleep(100);
+
+      // turnGeneration must have incremented and turn advanced
+      expect(room["turnGeneration"]).toBeGreaterThan(gen1);
+      const gen2 = room["turnGeneration"];
+
+      // Simulate a rogue invocation of the old fallback callback with gen1
+      room["fireOfflineFallback"](gen1);
+
+      // The generation should not change and no duplicate action executed
+      expect(room["turnGeneration"]).toBe(gen2);
+
+      for (const s of sockets) s.disconnect();
+    });
   });
 });

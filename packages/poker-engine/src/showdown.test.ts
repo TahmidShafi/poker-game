@@ -206,11 +206,12 @@ describe("chip-conservation soak test", () => {
 
     let handsPlayed = 0;
     for (let hand = 0; hand < 60; hand++) {
-      // Rebuy anyone who busted so the table keeps 4 live players.
+      // Rebuy anyone who busted or has insufficient blinds (< 100) so table keeps 4 live players.
       for (const s of t.seats) {
-        if (s.playerId !== null && s.coins === 0) {
+        if (s.playerId !== null && s.coins < 100) {
+          const topUp = 1000 - s.coins;
           s.coins = 1000;
-          house -= 1000;
+          house -= topUp;
         }
       }
       if (eligibleForHand(t).length < 2) break;

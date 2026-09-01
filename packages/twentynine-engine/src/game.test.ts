@@ -261,10 +261,9 @@ describe("SEVENTH_CARD choice", () => {
     expect(state.indicatorCard).toEqual(indicator);
     expect(state.trumpSuit).toBe("CLUBS");
     expect(state.trumpRevealed).toBe(false);
-    // Bidder holds 7 cards in hand (7th card locked on the table)
-    expect(state.seats[2]!.hand.length).toBe(7);
-    expect(state.seats[2]!.hand).not.toContainEqual(indicator);
-    // Other seats hold all 8 cards
+    // All seats hold all 8 cards; indicator card remains in bidder's hand
+    expect(state.seats[2]!.hand.length).toBe(8);
+    expect(state.seats[2]!.hand).toContainEqual(indicator);
     expect(state.seats[0]!.hand.length).toBe(8);
     expect(state.seats[1]!.hand.length).toBe(8);
     expect(state.seats[3]!.hand.length).toBe(8);
@@ -277,7 +276,7 @@ describe("SEVENTH_CARD choice", () => {
     const pub = toPublicTwentyNineState(state);
     expect(pub.trump.state).toBe("HIDDEN");
     expect(JSON.stringify(pub)).not.toContain(indicator.suit);
-    expect(pub.seats[2]!.cardsRemaining).toBe(7);
+    expect(pub.seats[2]!.cardsRemaining).toBe(8);
   });
 
   it("cancels and redeals when bidder only holds a pointless card (e.g. 7th card is A of Clubs, other card is 8 of Clubs)", () => {
@@ -405,8 +404,8 @@ describe("SEVENTH_CARD choice", () => {
     const indicator = state.indicatorCard!;
     expect(indicator).toEqual(pick("HEARTS", 13));
     expect(state.trumpSuit).toBe("HEARTS");
-    expect(state.seats[2]!.hand.length).toBe(7);
-    expect(state.seats[2]!.hand).not.toContainEqual(indicator);
+    expect(state.seats[2]!.hand.length).toBe(8);
+    expect(state.seats[2]!.hand).toContainEqual(indicator);
 
     // T1: P3 leads S7. P2 is void in Spades!
     playCard(state, 3, pick("SPADES", 7));
@@ -415,9 +414,9 @@ describe("SEVENTH_CARD choice", () => {
     callTrump(state, 2);
     expect(state.trumpRevealed).toBe(true);
 
-    // Bidder (P2) immediately has the 7th card returned into hand!
+    // Bidder (P2) still holds their remaining cards (8 - 0 played = 8)
     expect(state.seats[2]!.hand).toContainEqual(indicator);
-    expect(state.seats[2]!.hand.length).toBe(8); // 7 + 1 restored = 8
+    expect(state.seats[2]!.hand.length).toBe(8);
   });
 });
 
