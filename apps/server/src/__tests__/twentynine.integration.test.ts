@@ -10,6 +10,7 @@ import type {
   TnSuit,
 } from "@poker/shared-types";
 import { createPokerServer, PokerServer } from "../index";
+import { TwentyNineGameManager } from "../rooms/twentynine/twentyNineManager";
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -26,6 +27,7 @@ const BASE_LIMITS = {
   autoStartDelayMs: 250,
   disconnectGraceMs: 60_000,
   tnOfflineFallbackSeconds: 120,
+  tnConnectedTurnSeconds: 25,
 };
 
 let ps: PokerServer;
@@ -62,6 +64,7 @@ const WATCHED = [
   "TN_ROUND_FINISHED",
   "TN_MATCH_FINISHED",
   "ACTION_REJECTED",
+  "PLAYER_REMOVED",
 ] as const;
 
 /** Raw-payload recorder: the basis of the hidden-information audit. */
@@ -1474,4 +1477,253 @@ describe("twenty-nine: full match playthrough", () => {
     },
     300000
   );
+});
+
+describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
+  it("1. player leaves lobby -> seat immediately FREE and available", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    expect(ack.ok).toBe(true);
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    const join2 = await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+    expect(join2.ok).toBe(true);
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[1]!.username).toBe("Player2");
+
+    // Player 2 leaves lobby voluntarily
+    p2.emit("LEAVE_ROOM");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(room.match.seats[1]!.username).toBeNull();
+    expect(room.publicState().seats[1]!.status).toBe("EMPTY");
+
+    creator.disconnect();
+    p2.disconnect();
+  });
+
+  it("2. player disconnects in lobby -> seat immediately FREE without waiting grace period", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[1]!.username).toBe("Player2");
+
+    // Player 2 drops connection in lobby
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(room.match.seats[1]!.username).toBeNull();
+    expect(room.publicState().seats[1]!.status).toBe("EMPTY");
+
+    creator.disconnect();
+  });
+
+  it("3. another player can immediately occupy the seat freed by disconnect", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const p3 = connect();
+    const join3 = await emitAck(p3, "JOIN_ROOM", { roomCode, username: "Player3" });
+    expect(join3.ok).toBe(true);
+    expect(join3.seatIndex).toBe(1);
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[1]!.username).toBe("Player3");
+
+    creator.disconnect();
+    p3.disconnect();
+  });
+
+  it("4. disconnected player can rejoin using the same room code into available seat", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const p2Re = connect();
+    const joinRe = await emitAck(p2Re, "JOIN_ROOM", { roomCode, username: "Player2" });
+    expect(joinRe.ok).toBe(true);
+    expect(joinRe.seatIndex).toBe(1);
+
+    creator.disconnect();
+    p2Re.disconnect();
+  });
+
+  it("5. host can remove a player from the lobby", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    const p2Log = recorder(p2);
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[1]!.username).toBe("Player2");
+
+    creator.emit("REMOVE_PLAYER", { targetSeatIndex: 1 });
+    await pollUntil(() => p2Log.some((e) => e.ev === "PLAYER_REMOVED"), 4000, "player removed");
+
+    expect(room.match.seats[1]!.username).toBeNull();
+    expect(room.publicState().seats[1]!.status).toBe("EMPTY");
+
+    creator.disconnect();
+    p2.disconnect();
+  });
+
+  it("6. non-host cannot remove another player", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    const p2Log = recorder(p2);
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+
+    const p3 = connect();
+    await emitAck(p3, "JOIN_ROOM", { roomCode, username: "Player3" });
+
+    p2.emit("REMOVE_PLAYER", { targetSeatIndex: 2 });
+    await pollUntil(() => p2Log.some((e) => e.ev === "ACTION_REJECTED"), 4000, "action rejected");
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[2]!.username).toBe("Player3");
+
+    creator.disconnect();
+    p2.disconnect();
+    p3.disconnect();
+  });
+
+  it("7. host cannot remove themselves", async () => {
+    const creator = connect();
+    const creatorLog = recorder(creator);
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    creator.emit("REMOVE_PLAYER", { targetSeatIndex: 0 });
+    await pollUntil(() => creatorLog.some((e) => e.ev === "ACTION_REJECTED"), 4000, "action rejected");
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[0]!.username).toBe("HostPlayer");
+
+    creator.disconnect();
+  });
+
+  it("8. host remains host after another player leaves lobby", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+    p2.emit("LEAVE_ROOM");
+    await new Promise((r) => setTimeout(r, 100));
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.hostSeatIndex()).toBe(0);
+    expect(room.publicState().hostSeatIndex).toBe(0);
+
+    creator.disconnect();
+    p2.disconnect();
+  });
+
+  it("9. rapid lobby disconnect/reconnect race condition", async () => {
+    const creator = connect();
+    const ack = await emitAck(creator, "CREATE_ROOM", {
+      username: "HostPlayer",
+      gameType: "TWENTY_NINE",
+      startingCoins: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      turnTimeSeconds: 15,
+    });
+    const roomCode = ack.roomCode!;
+
+    const p2 = connect();
+    await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+    p2.disconnect();
+
+    const p2New = connect();
+    const rejoin = await emitAck(p2New, "JOIN_ROOM", { roomCode, username: "Player2" });
+    expect(rejoin.ok).toBe(true);
+
+    const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+    expect(room.match.seats[1]!.username).toBe("Player2");
+
+    creator.disconnect();
+    p2New.disconnect();
+  });
 });

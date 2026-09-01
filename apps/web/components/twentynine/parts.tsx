@@ -53,7 +53,9 @@ function SeatCardComponent({
   isMe,
   myTeam,
   onFillBots,
+  onRemove,
   isWaiting,
+  canRemove,
 }: {
   seat: TnSeatView;
   isDealer: boolean;
@@ -61,7 +63,9 @@ function SeatCardComponent({
   isMe: boolean;
   myTeam?: "A" | "B" | null;
   onFillBots?: () => void;
+  onRemove?: () => void;
   isWaiting?: boolean;
+  canRemove?: boolean;
 }) {
   const empty = seat.username === null;
   const isTeammate = myTeam && seat.team === myTeam && !isMe;
@@ -87,6 +91,21 @@ function SeatCardComponent({
           seat.isInactive ? "opacity-40 grayscale" : ""
         }`}
       >
+        {/* Host Remove Player Button in lobby */}
+        {canRemove && onRemove && isWaiting && !empty && !isMe && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="absolute -top-1 -left-1 z-40 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-crimson hover:bg-red-500 text-[8px] sm:text-[9px] font-black text-white shadow-md ring-1 ring-white/40 cursor-pointer transition-transform hover:scale-110"
+            title="Remove player"
+          >
+            ✕
+          </button>
+        )}
+
         {/* Dealer chip */}
         {isDealer && (
           <span className="absolute -top-1 -right-1 z-30 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-[8px] sm:text-[9px] font-black text-slate-950 shadow-md ring-1 ring-white/50">

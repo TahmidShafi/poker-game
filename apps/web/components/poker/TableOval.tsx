@@ -121,8 +121,10 @@ export function TableOval({
   state: PublicGameState;
   mySeat: number | null;
 }) {
-  const { myCards, me } = useGame();
+  const { myCards, me, removePlayer } = useGame();
   const turnTimeMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
+  const isHost = mySeat !== null && state.hostSeatIndex === mySeat;
+  const isLobby = state.handNumber === 0;
 
   const potTotal =
     state.pots.reduce((s, p) => s + p.amount, 0) ||
@@ -165,6 +167,8 @@ export function TableOval({
         compact={compact}
         turnDeadline={state.turnDeadline}
         totalMs={turnTimeMs}
+        canRemove={isHost && isLobby}
+        onRemove={() => removePlayer(seatIndex)}
       />
     );
   };

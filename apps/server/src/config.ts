@@ -1,28 +1,30 @@
 import { RoomConfig } from "@poker/shared-types";
 
+export type ServerLimits = {
+  minStartingCoins: number;
+  maxStartingCoins: number;
+  maxBigBlind: number;
+  minTurnSeconds: number;
+  maxTurnSeconds: number;
+  maxRooms: number;
+  emptyRoomTtlMs: number;
+  loanRequestTtlMs: number;
+  debtCeilingMultiple: number; // x startingCoins
+  autoStartDelayMs: number;
+  disconnectGraceMs: number; // seat freed after being gone this long between hands
+  /** Twenty-Nine only: countdown for a DISCONNECTED seat whose turn is up. */
+  tnOfflineFallbackSeconds: number;
+  /** Twenty-Nine only: inactivity countdown for a CONNECTED human seat whose turn is up. */
+  tnConnectedTurnSeconds: number;
+};
+
 /** Server-level defaults & limits; per-room config is chosen by creators. */
 export interface ServerConfig {
   port: number;
   clientOrigins: string[];
   defaultRoomConfig: RoomConfig;
   /** Hard clamps applied to any creator-supplied config. */
-  limits: {
-    minStartingCoins: number;
-    maxStartingCoins: number;
-    maxBigBlind: number;
-    minTurnSeconds: number;
-    maxTurnSeconds: number;
-    maxRooms: number;
-    emptyRoomTtlMs: number;
-    loanRequestTtlMs: number;
-    debtCeilingMultiple: number; // x startingCoins
-    autoStartDelayMs: number;
-    disconnectGraceMs: number; // seat freed after being gone this long between hands
-    /** Twenty-Nine only: countdown for a DISCONNECTED seat whose turn is up. */
-    tnOfflineFallbackSeconds: number;
-    /** Twenty-Nine only: inactivity countdown for a CONNECTED human seat whose turn is up. */
-    tnConnectedTurnSeconds: number;
-  };
+  limits: ServerLimits;
 }
 
 function intEnv(name: string, fallback: number): number {

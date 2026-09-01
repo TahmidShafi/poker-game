@@ -26,6 +26,7 @@ const BASE_LIMITS = {
   autoStartDelayMs: 4000,
   disconnectGraceMs: 60_000,
   tnOfflineFallbackSeconds: 120,
+  tnConnectedTurnSeconds: 25,
 };
 
 let ps: PokerServer;
@@ -239,9 +240,13 @@ describe("joining rules", () => {
 
 describe("avatars", () => {
   it("stores a valid avatar on the seat and it survives reconnect", async () => {
-    const { socket: host, res, w } = await makeRoom("avaHost", undefined, 3);
+    const { socket: host, res, w } = await makeRoom("avaHost", { turnTimeSeconds: 10 }, 3);
     expect(res.ok).toBe(true);
     expect(w.latest().seats[0]!.avatar).toBe(3);
+
+    const guest = connect();
+    await joinRoom(guest, res.roomCode!, "avaGuest");
+    await once(host, "HAND_STARTED");
 
     const token = res.sessionToken!;
     host.disconnect();
@@ -255,6 +260,7 @@ describe("avatars", () => {
     const state = await stateP;
     expect(state.seats[0]!.avatar).toBe(3);
     again.disconnect();
+    guest.disconnect();
   }, 15000);
 
   it("joins carry avatars; out-of-range values fall back to undefined", async () => {
@@ -510,7 +516,11 @@ describe("actions & authority", () => {
 
 describe("disconnect & reconnect", () => {
   it("reconnect restores the same seat and delivers authoritative state", async () => {
-    const { socket: host, res } = await makeRoom("keeper");
+    const { socket: host, res } = await makeRoom("keeper", { turnTimeSeconds: 10 });
+    const guest = connect();
+    await joinRoom(guest, res.roomCode!, "opponent");
+    await once(host, "HAND_STARTED");
+
     const token = res.sessionToken!;
     host.disconnect();
     await new Promise((r) => setTimeout(r, 100));
@@ -527,6 +537,7 @@ describe("disconnect & reconnect", () => {
     const state = await stateP;
     expect(state.seats[0]!.username).toBe("keeper");
     again.disconnect();
+    guest.disconnect();
   }, 15000);
 
   it("disconnect during a hand does not freeze the game", async () => {
@@ -616,4 +627,211 @@ describe("loans", () => {
     expect((await rejP).reason).toMatch(/only busted/i);
     debtor.disconnect(); lender.disconnect();
   }, 15000);
+});
+
+describe("poker: lobby seat lifecycle & host seat management", () => {
+  it("1. player leaves lobby -> seat immediately FREE and available", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const joiner = connect();
+    const joined = await joinRoom(joiner, res.roomCode!, "Player2");
+    expect(joined.ok).toBe(true);
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    // Player 2 leaves lobby voluntarily
+    joiner.emit("LEAVE_ROOM");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(room.table.seats[1]!.username).toBeNull();
+    expect(room.table.seats[1]!.playerId).toBeNull();
+    expect(room.table.seats[1]!.status).toBe("EMPTY");
+
+    host.disconnect();
+    joiner.disconnect();
+  });
+
+  it("2. player disconnects in lobby -> seat immediately FREE without waiting grace period", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const joiner = connect();
+    const joined = await joinRoom(joiner, res.roomCode!, "Player2");
+    expect(joined.ok).toBe(true);
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    // Player 2 socket drops in lobby
+    joiner.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(room.table.seats[1]!.username).toBeNull();
+    expect(room.table.seats[1]!.playerId).toBeNull();
+    expect(room.table.seats[1]!.status).toBe("EMPTY");
+
+    host.disconnect();
+  });
+
+  it("3. another player can immediately occupy the seat freed by disconnect", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Player 3 joins immediately into the exact vacated seat
+    const p3 = connect();
+    const joinResult = await joinRoom(p3, res.roomCode!, "Player3");
+    expect(joinResult.ok).toBe(true);
+    expect(joinResult.seatIndex).toBe(1);
+    expect(room.table.seats[1]!.username).toBe("Player3");
+
+    host.disconnect();
+    p3.disconnect();
+  });
+
+  it("4. disconnected player can rejoin using the same room code as a fresh join", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const p2Re = connect();
+    const joinResult = await joinRoom(p2Re, res.roomCode!, "Player2");
+    expect(joinResult.ok).toBe(true);
+    expect(joinResult.seatIndex).toBe(1);
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    host.disconnect();
+    p2Re.disconnect();
+  });
+
+  it("5. host can remove a player from the lobby", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    const removedPromise = once(p2, "PLAYER_REMOVED");
+    host.emit("REMOVE_PLAYER", { targetSeatIndex: 1 });
+    const removedEvent = await removedPromise;
+    expect(removedEvent.seatIndex).toBe(1);
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(room.table.seats[1]!.username).toBeNull();
+    expect(room.table.seats[1]!.playerId).toBeNull();
+
+    host.disconnect();
+    p2.disconnect();
+  });
+
+  it("6. non-host cannot remove a player", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+    const p3 = connect();
+    await joinRoom(p3, res.roomCode!, "Player3");
+
+    const rejPromise = once(p2, "ACTION_REJECTED");
+    p2.emit("REMOVE_PLAYER", { targetSeatIndex: 2 });
+    const rej = await rejPromise;
+    expect(rej.reason).toMatch(/only the host/i);
+    expect(room.table.seats[2]!.username).toBe("Player3");
+
+    host.disconnect();
+    p2.disconnect();
+    p3.disconnect();
+  });
+
+  it("7. host cannot remove themselves", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const rejPromise = once(host, "ACTION_REJECTED");
+    host.emit("REMOVE_PLAYER", { targetSeatIndex: 0 });
+    const rej = await rejPromise;
+    expect(rej.reason).toMatch(/host cannot remove themselves/i);
+    expect(room.table.seats[0]!.username).toBe("HostPlayer");
+
+    host.disconnect();
+  });
+
+  it("8. removed player socket cannot control room actions after removal", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+
+    host.emit("REMOVE_PLAYER", { targetSeatIndex: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const rejPromise = once(p2, "ACTION_REJECTED");
+    p2.emit("PLAYER_ACTION", { action: "CHECK" });
+    const rej = await rejPromise;
+    expect(rej.reason).toMatch(/you are not in a room/i);
+
+    host.disconnect();
+    p2.disconnect();
+  });
+
+  it("9. rapid disconnect/reconnect race condition in lobby", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer");
+    const room = getPokerRoom(res.roomCode!);
+    room.disableAutoStart();
+
+    const p2 = connect();
+    const joined = await joinRoom(p2, res.roomCode!, "Player2");
+    expect(joined.ok).toBe(true);
+
+    // Socket 2 disconnects and immediately a new socket attempts to connect
+    p2.disconnect();
+    const p2New = connect();
+    const rejoin = await joinRoom(p2New, res.roomCode!, "Player2");
+    expect(rejoin.ok).toBe(true);
+    expect(room.table.seats[1]!.username).toBe("Player2");
+
+    host.disconnect();
+    p2New.disconnect();
+  });
+
+  it("10. active-hand disconnect preserves game state and does not wipe player", async () => {
+    const { socket: host, res } = await makeRoom("HostPlayer", { turnTimeSeconds: 15 });
+    const p2 = connect();
+    await joinRoom(p2, res.roomCode!, "Player2");
+    await once(host, "HAND_STARTED");
+
+    const room = getPokerRoom(res.roomCode!);
+    expect(room.table.seats[1]!.username).toBe("Player2");
+    expect(room.table.seats[1]!.playerId).not.toBeNull();
+
+    // p2 disconnects during active hand
+    p2.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Seat must NOT be wiped during active hand
+    expect(room.table.seats[1]!.username).toBe("Player2");
+    expect(room.table.seats[1]!.playerId).not.toBeNull();
+    expect(room.table.seats[1]!.holeCards).toHaveLength(2);
+
+    host.disconnect();
+  });
 });

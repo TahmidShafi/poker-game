@@ -1049,7 +1049,7 @@ export function lowestLegalCard(state: TwentyNineState, seatIndex: number): TnCa
 /** Broadcast-safe public snapshot. Contains NO hands, NO hidden suit, NO deck. */
 export function toPublicTwentyNineState(
   state: TwentyNineState,
-  extras?: { roomCode?: string }
+  extras?: { roomCode?: string; hostSeatIndex?: number | null }
 ): PublicTwentyNineState {
   const trumpView: TnTrumpView =
     state.isSingleHand || state.trumpStyle === null
@@ -1108,5 +1108,6 @@ export function toPublicTwentyNineState(
     isSingleHand: state.isSingleHand,
     singleHandSeatIndex: state.singleHandSeatIndex,
     inactiveSeatIndex: state.inactiveSeatIndex,
+    hostSeatIndex: extras?.hostSeatIndex ?? null,
   };
 }

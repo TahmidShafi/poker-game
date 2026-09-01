@@ -266,6 +266,8 @@ export interface PublicTwentyNineState {
   isSingleHand?: boolean;
   singleHandSeatIndex?: number | null;
   inactiveSeatIndex?: number | null;
+  /** Index of the player seat that has host authority in this room. */
+  hostSeatIndex?: number | null;
 }
 
 // ---- Private payloads (single-socket) ---------------------------------------------

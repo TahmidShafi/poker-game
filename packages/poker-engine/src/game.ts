@@ -92,6 +92,7 @@ export function toPublicGameState(
     roomCode?: string;
     turnDeadline?: number | null;
     nextHandDeadline?: number | null;
+    hostSeatIndex?: number | null;
   }
 ): PublicGameState {
   return {
@@ -111,6 +112,7 @@ export function toPublicGameState(
     bigBlind: t.bigBlind,
     handNumber: t.handNumber,
     lastAction: t.lastAction ? { ...t.lastAction } : null,
+    hostSeatIndex: extras?.hostSeatIndex ?? null,
   };
 }
 

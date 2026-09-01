@@ -368,6 +368,21 @@ export function registerSocketHandlers(
       tn.game29SyncHand(socket.id);
     });
 
+    // ---- HOST SEAT MANAGEMENT -----------------------------------------------
+    socket.on("REMOVE_PLAYER", (payload) => {
+      const room = findRoomOf(registry, socket.id);
+      if (!room) return;
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        typeof payload.targetSeatIndex !== "number" ||
+        !isValidSeatIndex(payload.targetSeatIndex)
+      ) {
+        return room.reject(socket.id, "malformed remove player payload");
+      }
+      room.removePlayer(socket.id, payload.targetSeatIndex);
+    });
+
     // ---- DISCONNECT ----------------------------------------------------------
     socket.on("disconnect", () => {
       const room = findRoomOf(registry, socket.id);

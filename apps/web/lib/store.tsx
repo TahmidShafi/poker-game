@@ -138,6 +138,7 @@ export interface GameContextValue {
   requestLoan: (creditorSeatIndex: number, amount: number) => void;
   respondLoan: (requestId: string, approve: boolean) => void;
   repayLoan: (creditorSeatIndex: number, amount: number) => void;
+  removePlayer: (targetSeatIndex: number) => void;
   // ---- Twenty-Nine actions ----
   tnBid: (bid?: number) => void;
   tnDeclareTrump: (choice: TnSuit | "SEVENTH_CARD" | "JOKER") => void;
@@ -579,6 +580,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (approved) playChips();
     });
     socket.on("LOAN_REPAID", () => { pushToast("loan repaid", "info"); playChips(); });
+    socket.on("PLAYER_REMOVED", (payload) => {
+      if (meRef.current?.seatIndex === payload.seatIndex) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(ROOM_KEY);
+        meRef.current = null;
+        setMe(null);
+        pushToast("You were removed from the room by the host", "info");
+      }
+    });
 
     return () => {
       endTurnAlerts();
@@ -876,6 +886,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("REPAY_LOAN", { creditorSeatIndex, amount });
   }, []);
 
+  const removePlayerFn = useCallback((targetSeatIndex: number) => {
+    void unlockAudio();
+    socketRef.current?.emit("REMOVE_PLAYER", { targetSeatIndex });
+  }, []);
+
   // ---- Twenty-Nine actions ----
   const tnBidFn = useCallback((bid?: number) => {
     void unlockAudio();
@@ -961,6 +976,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       requestLoan: requestLoanFn,
       respondLoan: respondLoanFn,
       repayLoan: repayLoanFn,
+      removePlayer: removePlayerFn,
       tnBid: tnBidFn,
       tnDeclareTrump: tnDeclareTrumpFn,
       tnCallTrump: tnCallTrumpFn,
@@ -975,7 +991,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       myCards, showdown, clearShowdown, toast, pushToast, incomingLoan, dismissIncomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
-      requestLoanFn, respondLoanFn, repayLoanFn,
+      requestLoanFn, respondLoanFn, repayLoanFn, removePlayerFn,
       tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn, tnFillBotsFn, tnSyncHandFn,
     ]
   );

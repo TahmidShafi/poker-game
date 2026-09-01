@@ -82,6 +82,7 @@ export class GameManager {
 
   private players = new Map<string, PlayerRecord>(); // playerId -> record
   private seatToPlayer = new Map<number, string>();
+  private hostPlayerId: string | null = null;
   private turnTimer: NodeJS.Timeout | null = null;
   private turnDeadline = 0;
   private nextHandDeadline = 0;
@@ -93,10 +94,27 @@ export class GameManager {
   private destroyed = false;
   private autoStartEnabled = true;
   private readonly createdAt = Date.now();
+  private handNumber = 0;
 
   /** Millis since epoch when the room was created. */
   creationTime(): number {
     return this.createdAt;
+  }
+
+  hostSeatIndex(): number | null {
+    if (!this.hostPlayerId) return null;
+    const rec = this.players.get(this.hostPlayerId);
+    return rec ? rec.seatIndex : null;
+  }
+
+  private reassignHost(): void {
+    for (const seat of this.table.seats) {
+      if (seat.playerId !== null && this.players.has(seat.playerId)) {
+        this.hostPlayerId = seat.playerId;
+        return;
+      }
+    }
+    this.hostPlayerId = null;
   }
 
   getTurnDeadline(): number {
@@ -191,8 +209,7 @@ export class GameManager {
         }
         const seat = this.table.seats[rec.seatIndex]!;
         if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
-        // Busted player rejoining with their token = rebuy at stored config.
-        if (seat.status === "BUSTED") {
+        if (seat.status === "BUSTED" && !this.isHandRunning()) {
           seat.coins = this.config.startingCoins;
           seat.status = "SITTING_OUT";
         }
@@ -208,53 +225,59 @@ export class GameManager {
           seatIndex: rec.seatIndex,
           username: rec.username,
         });
-        return { ok: true, seatIndex: rec.seatIndex, playerId: rec.playerId, sessionToken: rec.sessionToken };
+        return {
+          ok: true,
+          seatIndex: rec.seatIndex,
+          playerId: rec.playerId,
+          sessionToken: rec.sessionToken,
+        };
       }
-      // If token not found in this room, fall through to match by username or assign seat.
     }
 
-    // 2. Fresh join or re-attaching to existing seat by username.
-    for (const rec of this.players.values()) {
-      if (rec.username.toLowerCase() === name.toLowerCase()) {
-        const seat = this.table.seats[rec.seatIndex]!;
-        const isDisconnected =
-          seat.status === "DISCONNECTED" ||
-          this.disconnectedSeats.has(rec.seatIndex) ||
-          rec.socketIds.size === 0;
-
-        if (isDisconnected || opts.sessionToken === rec.sessionToken) {
-          rec.socketIds.add(opts.socketId);
-          rec.lastSeen = Date.now();
-          this.disconnectedSeats.delete(rec.seatIndex);
-          const timer = this.disconnectTimers.get(rec.seatIndex);
-          if (timer) {
-            clearTimeout(timer);
-            this.disconnectTimers.delete(rec.seatIndex);
-          }
-          if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
-          if (seat.status === "BUSTED") {
-            seat.coins = this.config.startingCoins;
-            seat.status = "SITTING_OUT";
-          }
-          if (opts.avatar !== undefined) {
-            rec.avatar = opts.avatar;
-            seat.avatar = opts.avatar;
-          }
-          if (seat.holeCards && seat.holeCards.length === 2) {
-            this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
-          }
-          this.broadcastState();
-          this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
-            seatIndex: rec.seatIndex,
-            username: rec.username,
-          });
-          return { ok: true, seatIndex: rec.seatIndex, playerId: rec.playerId, sessionToken: rec.sessionToken };
+    // 2. Fresh join or reconnecting without a token under the same username.
+    const existingPlayerId = this.findPlayerByUsername(name);
+    if (existingPlayerId) {
+      const rec = this.players.get(existingPlayerId)!;
+      const isDisconnected = rec.socketIds.size === 0;
+      if (isDisconnected || opts.sessionToken === rec.sessionToken) {
+        rec.socketIds.add(opts.socketId);
+        rec.lastSeen = Date.now();
+        this.disconnectedSeats.delete(rec.seatIndex);
+        const timer = this.disconnectTimers.get(rec.seatIndex);
+        if (timer) {
+          clearTimeout(timer);
+          this.disconnectTimers.delete(rec.seatIndex);
         }
-        return { ok: false, error: `username "${rec.username}" is already taken in this room` };
+        const seat = this.table.seats[rec.seatIndex]!;
+        if (seat.status === "DISCONNECTED") seat.status = "ACTIVE";
+        if (seat.status === "BUSTED" && !this.isHandRunning()) {
+          seat.coins = this.config.startingCoins;
+          seat.status = "SITTING_OUT";
+        }
+        if (opts.avatar !== undefined) {
+          rec.avatar = opts.avatar;
+          seat.avatar = opts.avatar;
+        }
+        if (seat.holeCards && seat.holeCards.length === 2) {
+          this.io.to(opts.socketId).emit("YOUR_HOLE_CARDS", seat.holeCards.map((c) => ({ ...c })));
+        }
+        this.broadcastState();
+        this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
+          seatIndex: rec.seatIndex,
+          username: rec.username,
+        });
+        return {
+          ok: true,
+          seatIndex: rec.seatIndex,
+          playerId: rec.playerId,
+          sessionToken: rec.sessionToken,
+        };
       }
+      return { ok: false, error: `username "${name}" is already taken in this room` };
     }
+
     const seat = this.firstEmptySeat();
-    if (seat === null) return { ok: false, error: "room is full (10 players)" };
+    if (!seat) return { ok: false, error: "table is full" };
 
     const playerId = randomUUID();
     const sessionToken = randomBytes(24).toString("hex");
@@ -269,6 +292,9 @@ export class GameManager {
     };
     this.players.set(playerId, record);
     this.seatToPlayer.set(seat.seatIndex, playerId);
+    if (this.hostPlayerId === null) {
+      this.hostPlayerId = playerId;
+    }
 
     seat.playerId = playerId;
     seat.username = name;
@@ -321,6 +347,13 @@ export class GameManager {
     return undefined;
   }
 
+  findPlayerByUsername(username: string): string | undefined {
+    for (const rec of this.players.values()) {
+      if (rec.username.toLowerCase() === username.toLowerCase()) return rec.playerId;
+    }
+    return undefined;
+  }
+
   findPlayerBySocket(socketId: string): PlayerRecord | undefined {
     for (const rec of this.players.values()) {
       if (rec.socketIds.has(socketId)) return rec;
@@ -334,6 +367,26 @@ export class GameManager {
     rec.socketIds.delete(socketId);
     rec.lastSeen = Date.now();
     if (rec.socketIds.size > 0) return; // other tabs still connected
+
+    if (this.handNumber === 0 && !this.isHandRunning()) {
+      // In lobby: immediately free seat and remove player occupancy
+      const timer = this.disconnectTimers.get(rec.seatIndex);
+      if (timer) {
+        clearTimeout(timer);
+        this.disconnectTimers.delete(rec.seatIndex);
+      }
+      this.disconnectedSeats.delete(rec.seatIndex);
+      this.freeSeat(rec.seatIndex);
+      this.players.delete(rec.playerId);
+      this.seatToPlayer.delete(rec.seatIndex);
+      if (this.hostPlayerId === rec.playerId) {
+        this.reassignHost();
+      }
+      this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: rec.seatIndex });
+      this.broadcastState();
+      this.maybeScheduleAutoStart();
+      return;
+    }
 
     this.disconnectedSeats.add(rec.seatIndex);
     const seat = this.table.seats[rec.seatIndex]!;
@@ -390,7 +443,59 @@ export class GameManager {
     }
     this.players.delete(rec.playerId);
     this.seatToPlayer.delete(rec.seatIndex);
+    if (this.hostPlayerId === rec.playerId) {
+      this.reassignHost();
+    }
     this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: rec.seatIndex });
+    this.broadcastState();
+    this.maybeScheduleAutoStart();
+  }
+
+  removePlayer(requesterSocketId: string, targetSeatIndex: number): void {
+    if (this.destroyed) return;
+    const requester = this.findPlayerBySocket(requesterSocketId);
+    if (!requester) return this.reject(requesterSocketId, "you are not in this room");
+    if (requester.playerId !== this.hostPlayerId) {
+      return this.reject(requesterSocketId, "only the host can remove players");
+    }
+    if (this.handNumber > 0 || this.isHandRunning()) {
+      return this.reject(requesterSocketId, "cannot remove players during an active game");
+    }
+    if (targetSeatIndex < 0 || targetSeatIndex >= this.table.seats.length) {
+      return this.reject(requesterSocketId, "invalid seat index");
+    }
+    const seat = this.table.seats[targetSeatIndex];
+    if (!seat || seat.playerId === null) {
+      return this.reject(requesterSocketId, "seat is empty");
+    }
+    if (seat.playerId === this.hostPlayerId) {
+      return this.reject(requesterSocketId, "host cannot remove themselves");
+    }
+    const targetRec = this.players.get(seat.playerId);
+    if (targetRec) {
+      for (const sid of targetRec.socketIds) {
+        this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
+        this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
+      }
+      this.players.delete(targetRec.playerId);
+    }
+    // Cancel any loans involving target seat
+    for (const [id, loan] of this.pendingLoans) {
+      if (loan.debtorSeatIndex === targetSeatIndex || loan.creditorSeatIndex === targetSeatIndex) {
+        clearTimeout(loan.timer);
+        this.pendingLoans.delete(id);
+        this.io.to(this.socketRoom()).emit("LOAN_RESOLVED", { requestId: id, approved: false, reason: "player removed" });
+      }
+    }
+    const timer = this.disconnectTimers.get(targetSeatIndex);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectTimers.delete(targetSeatIndex);
+    }
+    this.disconnectedSeats.delete(targetSeatIndex);
+    this.freeSeat(targetSeatIndex);
+    this.seatToPlayer.delete(targetSeatIndex);
+    this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
     this.broadcastState();
     this.maybeScheduleAutoStart();
   }
@@ -977,7 +1082,8 @@ export class GameManager {
         rec.seatIndex,
         this.turnDeadline,
         this.nextHandDeadline,
-        this.disconnectedSeats
+        this.disconnectedSeats,
+        this.hostSeatIndex()
       );
       sio.emit("GAME_STATE", state);
     }
@@ -990,7 +1096,8 @@ export class GameManager {
       seatIndex,
       this.turnDeadline,
       this.nextHandDeadline,
-      this.disconnectedSeats
+      this.disconnectedSeats,
+      this.hostSeatIndex()
     );
   }
 

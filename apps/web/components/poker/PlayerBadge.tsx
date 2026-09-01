@@ -19,6 +19,8 @@ export function PlayerBadge({
   compact = false,
   turnDeadline = null,
   totalMs = 60000,
+  canRemove = false,
+  onRemove,
 }: {
   seat: Seat;
   isActing: boolean;
@@ -26,6 +28,8 @@ export function PlayerBadge({
   compact?: boolean;
   turnDeadline?: number | null;
   totalMs?: number;
+  canRemove?: boolean;
+  onRemove?: () => void;
 }) {
   const remaining = useCountdown(isActing ? turnDeadline : null, isActing);
   const secs = Math.ceil(remaining / 1000);
@@ -34,7 +38,7 @@ export function PlayerBadge({
 
   const avatar = (
     <div
-      className={`grid place-items-center rounded-full ring-2 transition-shadow ${
+      className={`relative grid place-items-center rounded-full ring-2 transition-shadow ${
         compact ? "h-11 w-11" : "h-14 w-14"
       } ${
         isMe && isActing
@@ -44,6 +48,19 @@ export function PlayerBadge({
           : "ring-white/10"
       }`}
     >
+      {canRemove && onRemove && !isMe && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="absolute -top-1 -left-1 z-30 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-crimson hover:bg-red-500 text-[8px] sm:text-[9px] font-black text-white shadow-md ring-1 ring-white/40 cursor-pointer transition-transform hover:scale-110"
+          title="Remove player"
+        >
+          ✕
+        </button>
+      )}
       <SeatAvatar username={seat.username} avatar={seat.avatar} dimmed={seat.status === "DISCONNECTED"} />
     </div>
   );

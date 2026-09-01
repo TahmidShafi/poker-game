@@ -6,7 +6,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from "@poker/shared-types";
-import { loadConfig, ServerConfig } from "./config";
+import { loadConfig, ServerConfig, ServerLimits } from "./config";
 import { registerSocketHandlers } from "./websocket/handlers";
 import { GameManagerHooks } from "./rooms/poker/gameManager";
 import type { TnManagerHooks } from "./rooms/twentynine/twentyNineManager";
@@ -20,6 +20,10 @@ import {
 } from "./persistence/persistence";
 import { db } from "./persistence/db";
 
+export interface CreateServerOverrides extends Partial<Omit<ServerConfig, "limits">> {
+  limits?: Partial<ServerLimits>;
+}
+
 export interface PokerServer {
   httpServer: http.Server;
   io: Server<ClientToServerEvents, ServerToClientEvents>;
@@ -32,9 +36,8 @@ export interface PokerServer {
  * Creates the full game server (express + Socket.IO + rooms) without
  * binding a port - used both by the production entrypoint and tests.
  */
-export function createPokerServer(overrides?: Partial<ServerConfig>, hooks: GameManagerHooks = {}): PokerServer {
-  const config = { ...loadConfig(), ...overrides };
-  if (overrides?.limits) config.limits = { ...loadConfig().limits, ...overrides.limits };
+export function createPokerServer(overrides?: CreateServerOverrides, hooks: GameManagerHooks = {}): PokerServer {
+  const config: ServerConfig = { ...loadConfig(), ...overrides, limits: { ...loadConfig().limits, ...overrides?.limits } };
 
   const app = express();
   app.use(cors({ origin: config.clientOrigins.length > 0 ? config.clientOrigins : true }));

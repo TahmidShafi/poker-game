@@ -171,6 +171,7 @@ export default function TnPreviewPage() {
       requestLoan: noop,
       respondLoan: noop,
       repayLoan: noop,
+      removePlayer: noop,
       tnBid: noop,
       tnDeclareTrump: noop,
       tnCallTrump: noop,

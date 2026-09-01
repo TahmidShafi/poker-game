@@ -71,4 +71,6 @@ export interface PublicGameState {
   bigBlind: number;
   handNumber: number;
   lastAction: { seatIndex: number; action: PlayerAction; amount?: number } | null;
+  /** Index of the player seat that has host authority in this room. */
+  hostSeatIndex?: number | null;
 }

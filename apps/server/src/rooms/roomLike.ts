@@ -41,7 +41,8 @@ export interface RoomLike {
   findPlayerBySocket(socketId: string): RoomPlayerRef | undefined;
   disconnectSocket(socketId: string): void;
   leave(socketId: string): void;
-
   reject(socketId: string, reason: string): void;
   broadcastState(): void;
+  removePlayer(requesterSocketId: string, targetSeatIndex: number): void;
+  hostSeatIndex(): number | null;
 }

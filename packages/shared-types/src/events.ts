@@ -103,6 +103,8 @@ export interface ClientToServerEvents {
   GAME29_SINGLE_HAND_DECISION: (payload: TnSingleHandDecisionPayload) => void;
   GAME29_FILL_BOTS: () => void;
   GAME29_SYNC_HAND: () => void;
+  // ---- Host seat management ----
+  REMOVE_PLAYER: (payload: { targetSeatIndex: number }) => void;
 }
 
 /** Acknowledgement payload for CREATE_ROOM / JOIN_ROOM / RECONNECT. */
@@ -168,6 +170,7 @@ export interface ServerToClientEvents {
   YOUR_HOLE_CARDS: (cards: Card[]) => void;
   PLAYER_JOINED: (payload: { seatIndex: number; username: string }) => void;
   PLAYER_LEFT: (payload: { seatIndex: number }) => void;
+  PLAYER_REMOVED: (payload: { seatIndex: number }) => void;
   HAND_STARTED: (payload: { handNumber: number; dealerSeatIndex: number }) => void;
   TURN_CHANGED: (payload: { seatIndex: number; deadline: number }) => void;
   ACTION_ACCEPTED: (payload: { seatIndex: number; action: PlayerAction; amount?: number }) => void;

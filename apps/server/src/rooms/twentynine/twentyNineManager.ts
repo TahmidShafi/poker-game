@@ -117,6 +117,7 @@ export class TwentyNineGameManager implements RoomLike {
   private readonly hooks: TnManagerHooks;
 
   private players = new Map<string, TnPlayerRecord>();
+  private hostPlayerId: string | null = null;
   private destroyed = false;
   private autoStartEnabled = true;
   private autoStartTimer: NodeJS.Timeout | null = null;
@@ -131,6 +132,26 @@ export class TwentyNineGameManager implements RoomLike {
 
   creationTime(): number {
     return this.createdAt;
+  }
+
+  hostSeatIndex(): number | null {
+    if (!this.hostPlayerId) return null;
+    const rec = this.players.get(this.hostPlayerId);
+    return rec ? rec.seatIndex : null;
+  }
+
+  private reassignHost(): void {
+    for (let i = 0; i < 4; i++) {
+      const seat = this.match.seats[i];
+      if (seat && seat.username !== null && !seat.isBot) {
+        const rec = [...this.players.values()].find((p) => p.seatIndex === i);
+        if (rec) {
+          this.hostPlayerId = rec.playerId;
+          return;
+        }
+      }
+    }
+    this.hostPlayerId = null;
   }
 
   constructor(
@@ -190,7 +211,10 @@ export class TwentyNineGameManager implements RoomLike {
 
   /** Test seam: the live public state. */
   publicState(): PublicTwentyNineState {
-    return toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
+    return toPublicTwentyNineState(this.match, {
+      roomCode: this.roomCode,
+      hostSeatIndex: this.hostSeatIndex(),
+    });
   }
 
   // --------------------------------------------------------------- joining
@@ -277,6 +301,9 @@ export class TwentyNineGameManager implements RoomLike {
       avatar: opts.avatar,
     };
     this.players.set(playerId, record);
+    if (this.hostPlayerId === null) {
+      this.hostPlayerId = playerId;
+    }
 
     const seat = this.match.seats[seatIndex];
     if (!seat) return { ok: false, error: "invalid seat" };
@@ -338,8 +365,18 @@ export class TwentyNineGameManager implements RoomLike {
     if (rec.socketIds.size > 0) return; // other tabs still connected
     const seat = this.match.seats[rec.seatIndex];
     if (seat) seat.connected = false;
-    // Seat stays RESERVED; cards stay hidden; the offline-fallback timer
-    // (armed inside broadcastState) keeps the table moving on their turn.
+
+    if (!this.isRoundRunning()) {
+      // In lobby: immediately free seat and remove player occupancy
+      this.freeSeat(rec.seatIndex);
+      this.players.delete(rec.playerId);
+      if (this.hostPlayerId === rec.playerId) {
+        this.reassignHost();
+      }
+      this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: rec.seatIndex });
+      this.clearFallbackTimer();
+      this.maybeScheduleAutoStart();
+    }
     this.broadcastState();
   }
 
@@ -359,8 +396,57 @@ export class TwentyNineGameManager implements RoomLike {
       this.freeSeat(rec.seatIndex);
     }
     this.players.delete(rec.playerId);
+    if (this.hostPlayerId === rec.playerId) {
+      this.reassignHost();
+    }
     this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: rec.seatIndex });
     this.clearFallbackTimer(); // re-armed by broadcastState if still applicable
+    this.broadcastState();
+    this.maybeScheduleAutoStart();
+  }
+
+  removePlayer(requesterSocketId: string, targetSeatIndex: number): void {
+    if (this.destroyed) return;
+    const requester = this.findPlayerBySocket(requesterSocketId);
+    if (!requester) return this.reject(requesterSocketId, "you are not in this room");
+    if (requester.playerId !== this.hostPlayerId) {
+      return this.reject(requesterSocketId, "only the host can remove players");
+    }
+    if (this.isRoundRunning()) {
+      return this.reject(requesterSocketId, "cannot remove players during an active game");
+    }
+    if (targetSeatIndex < 0 || targetSeatIndex >= 4) {
+      return this.reject(requesterSocketId, "invalid seat index");
+    }
+    const seat = this.match.seats[targetSeatIndex];
+    if (!seat || seat.username === null) {
+      return this.reject(requesterSocketId, "seat is empty");
+    }
+    if (seat.isBot) {
+      this.freeSeat(targetSeatIndex);
+      this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
+      this.broadcastState();
+      this.maybeScheduleAutoStart();
+      return;
+    }
+    const targetRec = [...this.players.values()].find((p) => p.seatIndex === targetSeatIndex);
+    if (!targetRec) {
+      this.freeSeat(targetSeatIndex);
+      this.broadcastState();
+      return;
+    }
+    if (targetRec.playerId === this.hostPlayerId) {
+      return this.reject(requesterSocketId, "host cannot remove themselves");
+    }
+
+    // Detach and notify all sockets of target player
+    for (const sid of targetRec.socketIds) {
+      this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
+      this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
+    }
+    this.players.delete(targetRec.playerId);
+    this.freeSeat(targetSeatIndex);
+    this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
     this.broadcastState();
     this.maybeScheduleAutoStart();
   }
@@ -452,7 +538,10 @@ export class TwentyNineGameManager implements RoomLike {
     }
     rec.socketIds.add(socketId);
     this.sendPrivateSnapshot(rec, socketId);
-    const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
+    const pub = toPublicTwentyNineState(this.match, {
+      roomCode: this.roomCode,
+      hostSeatIndex: this.hostSeatIndex(),
+    });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
       const actingRec = [...this.players.values()].find((r) => r.seatIndex === this.match.actingSeatIndex);
       const isOffline = !actingRec || (!actingRec.isBot && actingRec.socketIds.size === 0);
@@ -953,7 +1042,10 @@ export class TwentyNineGameManager implements RoomLike {
       console.error(`[tn ${this.roomCode}] bidder private sync failed:`, (err as Error).message);
     }
 
-    const pub = toPublicTwentyNineState(this.match, { roomCode: this.roomCode });
+    const pub = toPublicTwentyNineState(this.match, {
+      roomCode: this.roomCode,
+      hostSeatIndex: this.hostSeatIndex(),
+    });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
       const actingRec = [...this.players.values()].find((r) => r.seatIndex === this.match.actingSeatIndex);
       const isOffline = !actingRec || (!actingRec.isBot && actingRec.socketIds.size === 0);
