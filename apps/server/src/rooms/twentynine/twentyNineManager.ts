@@ -123,12 +123,26 @@ export class TwentyNineGameManager implements RoomLike {
   private autoStartTimer: NodeJS.Timeout | null = null;
   private fallbackTimer: NodeJS.Timeout | null = null;
   private fallbackDeadline = 0;
+  private fallbackActingSeat: number | null = null;
+  private fallbackIsOffline = false;
   private botTimer: NodeJS.Timeout | null = null;
   /** `${roundNumber}` -> set of batch numbers already delivered per seat. */
   private deliveredBatches = new Map<number, Set<string>>();
   private lastBidderPrivateKey: string | null = null;
   private pendingSeatRemovals = new Set<number>();
   private readonly createdAt = Date.now();
+
+  /** Prunes dead/zombie sockets and returns true if player has active connections or is a bot. */
+  private pruneAndCheckConnected(rec: TnPlayerRecord): boolean {
+    if (rec.isBot) return true;
+    for (const sid of rec.socketIds) {
+      const s = this.io.sockets.sockets.get(sid);
+      if (!s || !s.connected) {
+        rec.socketIds.delete(sid);
+      }
+    }
+    return rec.socketIds.size > 0;
+  }
 
   creationTime(): number {
     return this.createdAt;
@@ -230,6 +244,7 @@ export class TwentyNineGameManager implements RoomLike {
     if (opts.sessionToken) {
       const rec = this.findByToken(opts.sessionToken);
       if (rec) {
+        this.pruneAndCheckConnected(rec);
         rec.socketIds.add(opts.socketId);
         rec.lastSeen = Date.now();
         const seat = this.match.seats[rec.seatIndex];
@@ -239,7 +254,7 @@ export class TwentyNineGameManager implements RoomLike {
           if (seat) seat.avatar = opts.avatar;
         }
         this.deliveredBatches.delete(this.match.roundNumber); // force re-delivery below
-        this.sendPrivateSnapshot(rec);
+        this.sendPrivateSnapshot(rec, opts.socketId);
         this.broadcastState();
         this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
           seatIndex: rec.seatIndex,
@@ -259,9 +274,10 @@ export class TwentyNineGameManager implements RoomLike {
     for (const rec of this.players.values()) {
       if (rec.username.toLowerCase() === name.toLowerCase()) {
         const seat = this.match.seats[rec.seatIndex];
-        const isDisconnected = !seat || !seat.connected || rec.socketIds.size === 0;
+        const isAlive = this.pruneAndCheckConnected(rec);
+        const isDisconnected = !seat || !seat.connected || !isAlive;
 
-        if (isDisconnected || opts.sessionToken === rec.sessionToken) {
+        if (isDisconnected || opts.sessionToken === rec.sessionToken || this.isRoundRunning()) {
           rec.socketIds.add(opts.socketId);
           rec.lastSeen = Date.now();
           if (seat) seat.connected = true;
@@ -270,7 +286,7 @@ export class TwentyNineGameManager implements RoomLike {
             if (seat) seat.avatar = opts.avatar;
           }
           this.deliveredBatches.delete(this.match.roundNumber);
-          this.sendPrivateSnapshot(rec);
+          this.sendPrivateSnapshot(rec, opts.socketId);
           this.broadcastState();
           this.io.to(this.socketRoom()).emit("PLAYER_RECONNECTED", {
             seatIndex: rec.seatIndex,
@@ -412,9 +428,6 @@ export class TwentyNineGameManager implements RoomLike {
     if (requester.playerId !== this.hostPlayerId) {
       return this.reject(requesterSocketId, "only the host can remove players");
     }
-    if (this.isRoundRunning()) {
-      return this.reject(requesterSocketId, "cannot remove players during an active game");
-    }
     if (targetSeatIndex < 0 || targetSeatIndex >= 4) {
       return this.reject(requesterSocketId, "invalid seat index");
     }
@@ -422,29 +435,66 @@ export class TwentyNineGameManager implements RoomLike {
     if (!seat || seat.username === null) {
       return this.reject(requesterSocketId, "seat is empty");
     }
+    const targetRec = [...this.players.values()].find((p) => p.seatIndex === targetSeatIndex);
+    if (targetRec && targetRec.playerId === this.hostPlayerId) {
+      return this.reject(requesterSocketId, "host cannot remove themselves");
+    }
+
     if (seat.isBot) {
+      if (this.isRoundRunning()) {
+        return this.reject(requesterSocketId, "cannot remove active bot during round");
+      }
       this.freeSeat(targetSeatIndex);
+      if (targetRec) this.players.delete(targetRec.playerId);
       this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
       this.broadcastState();
       this.maybeScheduleAutoStart();
       return;
     }
-    const targetRec = [...this.players.values()].find((p) => p.seatIndex === targetSeatIndex);
-    if (!targetRec) {
-      this.freeSeat(targetSeatIndex);
+
+    if (this.isRoundRunning()) {
+      // Active round: convert human player to Bot seamlessly so game never stalls
+      if (targetRec) {
+        for (const sid of targetRec.socketIds) {
+          this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
+          this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
+        }
+        this.players.delete(targetRec.playerId);
+      }
+
+      // Convert seat to bot
+      seat.isBot = true;
+      seat.username = `Bot ${seat.username?.replace(/^Bot\s+/i, "") ?? targetSeatIndex + 1}`;
+      seat.connected = true;
+
+      const botRecord: TnPlayerRecord = {
+        playerId: randomUUID(),
+        username: seat.username,
+        seatIndex: targetSeatIndex,
+        sessionToken: randomBytes(12).toString("hex"),
+        socketIds: new Set<string>(),
+        lastSeen: Date.now(),
+        avatar: seat.avatar,
+        isBot: true,
+      };
+      this.players.set(botRecord.playerId, botRecord);
+
+      this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
+      this.io.to(this.socketRoom()).emit("PLAYER_JOINED", { seatIndex: targetSeatIndex, username: seat.username });
+      this.clearFallbackTimer();
       this.broadcastState();
+      this.armBotIfNeeded();
       return;
     }
-    if (targetRec.playerId === this.hostPlayerId) {
-      return this.reject(requesterSocketId, "host cannot remove themselves");
-    }
 
-    // Detach and notify all sockets of target player
-    for (const sid of targetRec.socketIds) {
-      this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
-      this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
+    // In lobby: remove human player and free seat
+    if (targetRec) {
+      for (const sid of targetRec.socketIds) {
+        this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
+        this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
+      }
+      this.players.delete(targetRec.playerId);
     }
-    this.players.delete(targetRec.playerId);
     this.freeSeat(targetSeatIndex);
     this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
     this.broadcastState();
@@ -933,6 +983,8 @@ export class TwentyNineGameManager implements RoomLike {
       this.fallbackTimer = null;
     }
     this.fallbackDeadline = 0;
+    this.fallbackActingSeat = null;
+    this.fallbackIsOffline = false;
   }
 
   private clearBotTimer(): void {
@@ -943,27 +995,63 @@ export class TwentyNineGameManager implements RoomLike {
   }
 
   private armFallbackIfNeeded(): void {
-    this.clearFallbackTimer();
-    if (this.destroyed) return;
+    if (this.destroyed) {
+      this.clearFallbackTimer();
+      return;
+    }
     const phase = this.match.phase;
     // TRUMP_SETUP is included: a disconnected BID WINNER must never deadlock
     // the room (nobody else may act in this phase and no other timer runs).
-    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") return;
+    if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") {
+      this.clearFallbackTimer();
+      return;
+    }
     const acting = this.match.actingSeatIndex;
-    if (acting === null) return;
+    if (acting === null) {
+      this.clearFallbackTimer();
+      return;
+    }
     const rec = [...this.players.values()].find((r) => r.seatIndex === acting);
-    if (rec?.isBot) return; // bots arm their own think-delay timer instead
+    if (rec?.isBot) {
+      this.clearFallbackTimer();
+      return; // bots arm their own think-delay timer instead
+    }
 
-    const offline = !rec || rec.socketIds.size === 0;
-    const seconds = offline
-      ? Math.max(1, this.limits.tnOfflineFallbackSeconds)
-      : Math.max(1, this.limits.tnConnectedTurnSeconds ?? 25);
+    const isOffline = !rec || !this.pruneAndCheckConnected(rec);
+    const now = Date.now();
 
-    this.fallbackDeadline = Date.now() + seconds * 1000;
-    this.fallbackTimer = setTimeout(() => {
-      this.fallbackTimer = null;
-      this.fireOfflineFallback();
-    }, seconds * 1000 + 250);
+    // If acting seat changed or no active timer, start a fresh deadline
+    if (this.fallbackActingSeat !== acting || this.fallbackDeadline <= now || !this.fallbackTimer) {
+      if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+      this.fallbackActingSeat = acting;
+      this.fallbackIsOffline = isOffline;
+      const seconds = isOffline
+        ? Math.max(1, this.limits.tnOfflineFallbackSeconds)
+        : Math.max(1, this.limits.tnConnectedTurnSeconds ?? 25);
+
+      this.fallbackDeadline = now + seconds * 1000;
+      this.fallbackTimer = setTimeout(() => {
+        this.fallbackTimer = null;
+        this.fireOfflineFallback();
+      }, seconds * 1000 + 250);
+      return;
+    }
+
+    // Acting seat is unchanged:
+    // If player newly transitioned from connected to offline, clamp deadline to offline fallback grace
+    if (isOffline && !this.fallbackIsOffline) {
+      this.fallbackIsOffline = true;
+      const offlineMaxDeadline = now + Math.max(1, this.limits.tnOfflineFallbackSeconds) * 1000;
+      if (offlineMaxDeadline < this.fallbackDeadline) {
+        if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+        this.fallbackDeadline = offlineMaxDeadline;
+        const remainingMs = Math.max(250, this.fallbackDeadline - now);
+        this.fallbackTimer = setTimeout(() => {
+          this.fallbackTimer = null;
+          this.fireOfflineFallback();
+        }, remainingMs + 250);
+      }
+    }
   }
 
   /**
@@ -1031,7 +1119,7 @@ export class TwentyNineGameManager implements RoomLike {
       const seat = this.match.seats[i];
       if (!seat || seat.username === null) continue;
       const rec = [...this.players.values()].find((r) => r.seatIndex === i);
-      seat.connected = !!rec && (rec.isBot || rec.socketIds.size > 0);
+      seat.connected = !!rec && (rec.isBot || this.pruneAndCheckConnected(rec));
     }
     this.armFallbackIfNeeded();
     this.armBotIfNeeded();
@@ -1048,7 +1136,7 @@ export class TwentyNineGameManager implements RoomLike {
     });
     if (this.fallbackDeadline > 0 && this.match.actingSeatIndex !== null) {
       const actingRec = [...this.players.values()].find((r) => r.seatIndex === this.match.actingSeatIndex);
-      const isOffline = !actingRec || (!actingRec.isBot && actingRec.socketIds.size === 0);
+      const isOffline = !actingRec || (!actingRec.isBot && !this.pruneAndCheckConnected(actingRec));
       if (isOffline) {
         pub.offlineFallback = {
           seatIndex: this.match.actingSeatIndex,

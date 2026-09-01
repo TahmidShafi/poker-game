@@ -96,8 +96,8 @@ export function createPokerServer(overrides?: CreateServerOverrides, hooks: Game
     },
     transports: ["polling", "websocket"],
     allowUpgrades: true,
-    pingInterval: 25000,
-    pingTimeout: 60000,
+    pingInterval: 5000,
+    pingTimeout: 10000,
     connectTimeout: 45000,
   });
 

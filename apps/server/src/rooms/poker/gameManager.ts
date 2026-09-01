@@ -97,6 +97,17 @@ export class GameManager {
   private handNumber = 0;
 
   /** Millis since epoch when the room was created. */
+  /** Prunes dead/zombie sockets and returns true if player has active connections. */
+  private pruneAndCheckConnected(rec: PlayerRecord): boolean {
+    for (const sid of rec.socketIds) {
+      const s = this.io.sockets.sockets.get(sid);
+      if (!s || !s.connected) {
+        rec.socketIds.delete(sid);
+      }
+    }
+    return rec.socketIds.size > 0;
+  }
+
   creationTime(): number {
     return this.createdAt;
   }
@@ -238,8 +249,9 @@ export class GameManager {
     const existingPlayerId = this.findPlayerByUsername(name);
     if (existingPlayerId) {
       const rec = this.players.get(existingPlayerId)!;
-      const isDisconnected = rec.socketIds.size === 0;
-      if (isDisconnected || opts.sessionToken === rec.sessionToken) {
+      const isAlive = this.pruneAndCheckConnected(rec);
+      const isDisconnected = !isAlive;
+      if (isDisconnected || opts.sessionToken === rec.sessionToken || this.isHandRunning()) {
         rec.socketIds.add(opts.socketId);
         rec.lastSeen = Date.now();
         this.disconnectedSeats.delete(rec.seatIndex);
@@ -458,9 +470,6 @@ export class GameManager {
     if (requester.playerId !== this.hostPlayerId) {
       return this.reject(requesterSocketId, "only the host can remove players");
     }
-    if (this.handNumber > 0 || this.isHandRunning()) {
-      return this.reject(requesterSocketId, "cannot remove players during an active game");
-    }
     if (targetSeatIndex < 0 || targetSeatIndex >= this.table.seats.length) {
       return this.reject(requesterSocketId, "invalid seat index");
     }
@@ -493,7 +502,17 @@ export class GameManager {
       this.disconnectTimers.delete(targetSeatIndex);
     }
     this.disconnectedSeats.delete(targetSeatIndex);
-    this.freeSeat(targetSeatIndex);
+
+    if (this.isHandRunning() && isInHand(seat)) {
+      if (seat.status === "ACTIVE") this.forceFold(targetSeatIndex, "removed by host");
+      this.pendingSeatRemovals.add(targetSeatIndex);
+      if (seat.status !== "ALL_IN" && seat.status !== "FOLDED") {
+        seat.status = "DISCONNECTED";
+      }
+    } else {
+      this.freeSeat(targetSeatIndex);
+    }
+
     this.seatToPlayer.delete(targetSeatIndex);
     this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
     this.broadcastState();

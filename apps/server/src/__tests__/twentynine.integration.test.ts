@@ -1726,4 +1726,218 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
     creator.disconnect();
     p2New.disconnect();
   });
+
+  describe("host player removal, presence & monotonic fallback safeguards", () => {
+    it("host removes a player in the lobby, immediately freeing the seat", async () => {
+      const host = connect();
+      const hostAck = await emitAck(host, "CREATE_ROOM", {
+        username: "HostAlice",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      const p2 = connect();
+      const p2Logs = recorder(p2);
+      await emitAck(p2, "JOIN_ROOM", { roomCode, username: "PlayerBob" });
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      expect(room.match.seats[1]?.username).toBe("PlayerBob");
+
+      // Host removes PlayerBob (seat 1)
+      host.emit("REMOVE_PLAYER", { targetSeatIndex: 1 });
+      await sleep(100);
+
+      // Seat 1 is now free
+      expect(room.match.seats[1]?.username).toBeNull();
+
+      // Target player received PLAYER_REMOVED
+      const removedEvent = p2Logs.find((e) => e.ev === "PLAYER_REMOVED");
+      expect(removedEvent).toBeDefined();
+
+      // Another player can now take seat 1
+      const p3 = connect();
+      const p3Ack = await emitAck(p3, "JOIN_ROOM", { roomCode, username: "PlayerCharlie" });
+      expect(p3Ack.ok).toBe(true);
+      expect(p3Ack.seatIndex).toBe(1);
+
+      host.disconnect();
+      p2.disconnect();
+      p3.disconnect();
+    });
+
+    it("host removes a player during an active hand: converted to bot, bot acts and game continues", async () => {
+      const sockets = [connect(), connect(), connect(), connect()];
+      const hostAck = await emitAck(sockets[0]!, "CREATE_ROOM", {
+        username: "Host1",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      for (let i = 1; i < 4; i++) {
+        await emitAck(sockets[i]!, "JOIN_ROOM", { roomCode, username: `Player${i + 1}` });
+      }
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      // Wait for hand to start
+      await sleep(400);
+      expect(room.match.phase).toBe("BIDDING");
+
+      // Host removes Player 2 (seat 1) during active bidding
+      sockets[0]!.emit("REMOVE_PLAYER", { targetSeatIndex: 1 });
+      await sleep(150);
+
+      // Seat 1 is converted to a bot
+      expect(room.match.seats[1]?.isBot).toBe(true);
+      expect(room.match.seats[1]?.connected).toBe(true);
+
+      // If it is bot's turn to bid, bot will automatically act
+      if (room.match.actingSeatIndex === 1) {
+        await sleep(400);
+        expect(room.match.actingSeatIndex).not.toBe(1);
+      }
+
+      for (const s of sockets) s.disconnect();
+    });
+
+    it("non-host cannot remove players and host cannot remove self", async () => {
+      const host = connect();
+      const hostAck = await emitAck(host, "CREATE_ROOM", {
+        username: "HostAlpha",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      const p2 = connect();
+      const p2Logs = recorder(p2);
+      await emitAck(p2, "JOIN_ROOM", { roomCode, username: "GuestBeta" });
+
+      const hostLogs = recorder(host);
+
+      // Non-host attempts to remove host
+      p2.emit("REMOVE_PLAYER", { targetSeatIndex: 0 });
+      await sleep(100);
+      const rejNonHost = p2Logs.find((e) => e.ev === "ACTION_REJECTED");
+      expect(rejNonHost).toBeDefined();
+
+      // Host attempts to remove self
+      host.emit("REMOVE_PLAYER", { targetSeatIndex: 0 });
+      await sleep(100);
+      const rejHostSelf = hostLogs.find((e) => e.ev === "ACTION_REJECTED");
+      expect(rejHostSelf).toBeDefined();
+
+      host.disconnect();
+      p2.disconnect();
+    });
+
+    it("stale socket in socketIds is pruned when client rejoins with same username", async () => {
+      const host = connect();
+      const hostAck = await emitAck(host, "CREATE_ROOM", {
+        username: "Host1",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      const p2 = connect();
+      await emitAck(p2, "JOIN_ROOM", { roomCode, username: "Player2" });
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      const rec = [...room["players"].values()].find((p) => p.username === "Player2")!;
+      expect(rec.socketIds.size).toBe(1);
+
+      // Simulate dead socket: inject a fake dead socket ID into rec.socketIds
+      rec.socketIds.add("dead-socket-xyz-999");
+      expect(rec.socketIds.size).toBe(2);
+
+      // Disconnect p2 (real socket)
+      p2.disconnect();
+      await sleep(50);
+
+      // Now rec.socketIds still has "dead-socket-xyz-999" (simulating unannounced drop)
+      expect(rec.socketIds.has("dead-socket-xyz-999")).toBe(true);
+
+      // Client connects with new socket and rejoins using same roomCode + username "Player2"
+      const p2New = connect();
+      const rejoin = await emitAck(p2New, "JOIN_ROOM", { roomCode, username: "Player2" });
+      expect(rejoin.ok).toBe(true);
+      expect(rejoin.seatIndex).toBe(1);
+
+      // Stale socket was pruned, new socket attached
+      expect(rec.socketIds.has("dead-socket-xyz-999")).toBe(false);
+      expect(rec.socketIds.has(p2New.id!)).toBe(true);
+
+      host.disconnect();
+      p2New.disconnect();
+    });
+
+    it("old socket disconnect event arriving after new socket attaches does not disconnect the new socket", async () => {
+      const host = connect();
+      const hostAck = await emitAck(host, "CREATE_ROOM", {
+        username: "Host1",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      const s1 = connect();
+      const s1Ack = await emitAck(s1, "JOIN_ROOM", { roomCode, username: "MultiTabUser" });
+      expect(s1Ack.ok).toBe(true);
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      const rec = [...room["players"].values()].find((p) => p.username === "MultiTabUser")!;
+      expect(rec.socketIds.size).toBe(1);
+
+      // S2 connects and attaches with sessionToken
+      const s2 = connect();
+      const s2Ack = await emitAck(s2, "RECONNECT", { sessionToken: s1Ack.sessionToken! });
+      expect(s2Ack.ok).toBe(true);
+      expect(rec.socketIds.size).toBe(2);
+
+      // Now S1 disconnects later
+      s1.disconnect();
+      await sleep(100);
+
+      // S2 is still attached and player is still connected
+      expect(rec.socketIds.size).toBe(1);
+      expect(rec.socketIds.has(s2.id!)).toBe(true);
+      expect(room.match.seats[1]?.connected).toBe(true);
+
+      host.disconnect();
+      s2.disconnect();
+    });
+
+    it("multiple broadcasts during an active turn do not reset the monotonic fallback deadline", async () => {
+      const sockets = [connect(), connect(), connect(), connect()];
+      const hostAck = await emitAck(sockets[0]!, "CREATE_ROOM", {
+        username: "Host1",
+        gameType: "TWENTY_NINE",
+        startingCoins: 1000,
+      });
+      const roomCode = hostAck.roomCode!;
+
+      for (let i = 1; i < 4; i++) {
+        await emitAck(sockets[i]!, "JOIN_ROOM", { roomCode, username: `Player${i + 1}` });
+      }
+
+      const room = ps.registry.get(roomCode) as TwentyNineGameManager;
+      await sleep(400);
+      expect(room.match.phase).toBe("BIDDING");
+
+      const initialDeadline = room["fallbackDeadline"];
+      expect(initialDeadline).toBeGreaterThan(0);
+
+      // Trigger multiple intermediate broadcasts / syncs
+      room.broadcastState();
+      room.broadcastState();
+      room.broadcastState();
+
+      // Deadline must remain identical (not pushed into the future)
+      expect(room["fallbackDeadline"]).toBe(initialDeadline);
+
+      for (const s of sockets) s.disconnect();
+    });
+  });
 });

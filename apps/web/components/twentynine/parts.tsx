@@ -91,8 +91,8 @@ function SeatCardComponent({
           seat.isInactive ? "opacity-40 grayscale" : ""
         }`}
       >
-        {/* Host Remove Player Button in lobby */}
-        {canRemove && onRemove && isWaiting && !empty && !isMe && (
+        {/* Host Remove Player Button */}
+        {canRemove && onRemove && !empty && !isMe && (
           <button
             type="button"
             onClick={(e) => {
@@ -100,7 +100,7 @@ function SeatCardComponent({
               onRemove();
             }}
             className="absolute -top-1 -left-1 z-40 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-crimson hover:bg-red-500 text-[8px] sm:text-[9px] font-black text-white shadow-md ring-1 ring-white/40 cursor-pointer transition-transform hover:scale-110"
-            title="Remove player"
+            title={isWaiting ? "Remove player" : "Remove & replace with Bot"}
           >
             ✕
           </button>
