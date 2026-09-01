@@ -789,10 +789,12 @@ export class TwentyNineGameManager implements RoomLike {
       if (seat.batch1.length === 4 && !sent.has(`${rec.seatIndex}:1`)) {
         if (rec.socketIds.size > 0) {
           sent.add(`${rec.seatIndex}:1`);
+          const playedCount = 8 - seat.hand.length;
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
-              `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${round} seat=${rec.seatIndex} (${rec.username}) batch=1 ` +
-                `cards=${seat.batch1.length} handLen=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
+              `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} round=${round} ` +
+                `seat=${rec.seatIndex} (${rec.username}) batchNumber=1 batchLength=${seat.batch1.length} ` +
+                `authoritativeHandLength=${seat.hand.length} playedCount=${playedCount} phase=${this.match.phase} across=${rec.socketIds.size} sockets`
             );
           }
           this.emitToPlayer(rec, "YOUR_TN_HAND", {
@@ -805,10 +807,12 @@ export class TwentyNineGameManager implements RoomLike {
       if (seat.batch2.length === 4 && !sent.has(`${rec.seatIndex}:2`)) {
         if (rec.socketIds.size > 0) {
           sent.add(`${rec.seatIndex}:2`);
+          const playedCount = 8 - seat.hand.length;
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
-              `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${round} seat=${rec.seatIndex} (${rec.username}) batch=2 ` +
-                `cards=${seat.batch2.length} handLen=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
+              `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} round=${round} ` +
+                `seat=${rec.seatIndex} (${rec.username}) batchNumber=2 batchLength=${seat.batch2.length} ` +
+                `authoritativeHandLength=${seat.hand.length} playedCount=${playedCount} phase=${this.match.phase} across=${rec.socketIds.size} sockets`
             );
           }
           this.emitToPlayer(rec, "YOUR_TN_HAND", {
@@ -868,10 +872,13 @@ export class TwentyNineGameManager implements RoomLike {
     const seat = this.match.seats[rec.seatIndex];
     if (!seat) return;
 
+    const playedCount = 8 - seat.hand.length;
     if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
       console.log(
-        `[TN_SYNC ${this.roomCode}] handId=${this.roomCode}-H${this.match.roundNumber} seat=${rec.seatIndex} (${rec.username}) ` +
-          `snapshot batch=FULL_RECONNECT cards=${seat.hand.length} playedCount=${8 - seat.hand.length} across ${rec.socketIds.size} sockets`
+        `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} ` +
+          `round=${this.match.roundNumber} seat=${rec.seatIndex} (${rec.username}) snapshot batchNumber=FULL_RECONNECT ` +
+          `batchLength=${seat.hand.length} authoritativeHandLength=${seat.hand.length} playedCount=${playedCount} ` +
+          `phase=${this.match.phase} across=${rec.socketIds.size} sockets`
       );
     }
     const payload = {

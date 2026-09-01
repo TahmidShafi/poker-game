@@ -56,6 +56,7 @@ export interface TwentyNineState {
   /** Set when a hand completes normally; startHand() consumes it to rotate the dealer. */
   dealerAdvancePending: boolean;
   roundNumber: number; // increments at every deal (including redeals)
+  dealId: string; // unique immutable deal identifier for this specific hand/redeal
   deck: TnCard[];
   bids: TnBidState | null;
   bidderSeatIndex: number | null;
@@ -119,6 +120,7 @@ export function createMatch(opts: CreateMatchOptions): TwentyNineState {
     dealerSeatIndex: 0,
     dealerAdvancePending: false,
     roundNumber: 0,
+    dealId: `${opts.gameId}-init`,
     deck: [],
     bids: null,
     bidderSeatIndex: null,
@@ -200,6 +202,7 @@ function requireAllSeated(state: TwentyNineState): void {
 
 function resetHand(state: TwentyNineState, deckOverride?: TnCard[]): void {
   state.roundNumber += 1;
+  state.dealId = `${state.gameId}-D${state.roundNumber}-${Math.random().toString(36).slice(2, 8)}`;
   state.deck = deckOverride ? validatedDeck(deckOverride) : shuffleTnDeck(createTnDeck());
   for (const seat of state.seats) {
     seat.hand = [];

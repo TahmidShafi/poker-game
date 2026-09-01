@@ -2021,5 +2021,133 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
 
       for (const s of sockets) s.disconnect();
     });
+
+    it("end-to-end production regression: SEVENTH_CARD, card play, SYNC_HAND and reconnect preserve 4-card batches and snapshot hands", async () => {
+      const { seats, code } = await makeTnRoom(false);
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+      await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch1");
+
+      const bidderSeat = await simpleAuctionToTrumpSetup(seats);
+      const bidderClient = seats.find((s) => s.seatIndex === bidderSeat)!;
+
+      // Bidder declares SEVENTH_CARD
+      bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "SEVENTH_CARD" });
+
+      await pollUntil(
+        () => {
+          const st = latestOf(bidderClient.log);
+          return st?.phase === "SINGLE_HAND_DECISION" || st?.phase === "PLAYING";
+        },
+        8000,
+        "single hand or playing"
+      );
+
+      // Pass single hand
+      await skipSingleHandForAll(seats);
+      await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+      const room = ps.registry.get(code) as TwentyNineGameManager;
+      const initialDealId = room.match.dealId;
+      expect(initialDealId).toBeTruthy();
+
+      // Verify every seat received 4 cards in batch 1 and 4 cards in batch 2
+      for (const s of seats) {
+        expect(batchCardsOf(s, 1)).toHaveLength(4);
+        expect(batchCardsOf(s, 2)).toHaveLength(4);
+        expect(room.match.seats[s.seatIndex]!.batch1).toHaveLength(4);
+        expect(room.match.seats[s.seatIndex]!.batch2).toHaveLength(4);
+      }
+
+      // Leader plays 1 card
+      const leaderSeat = latestOf(seats[0]!.log)!.actingSeatIndex!;
+      const leaderClient = seats.find((s) => s.seatIndex === leaderSeat)!;
+      const playedCard = room.match.seats[leaderSeat]!.hand[0]!;
+      leaderClient.socket.emit("GAME29_PLAY_CARD", { card: playedCard });
+      await pollUntil(() => latestOf(seats[0]!.log)!.trick.length === 1, 4000, "1 card played");
+
+      // Leader hand is now 7 cards
+      expect(room.match.seats[leaderSeat]!.hand).toHaveLength(7);
+      // But immutable batch1 and batch2 STILL have 4 cards each
+      expect(room.match.seats[leaderSeat]!.batch1).toHaveLength(4);
+      expect(room.match.seats[leaderSeat]!.batch2).toHaveLength(4);
+
+      // Leader requests GAME29_SYNC_HAND
+      const leaderLogLenBefore = leaderClient.log.length;
+      leaderClient.socket.emit("GAME29_SYNC_HAND");
+      await pollUntil(
+        () => leaderClient.log.slice(leaderLogLenBefore).some((e) => e.ev === "YOUR_TN_HAND"),
+        4000,
+        "sync hand response"
+      );
+
+      const syncEv = leaderClient.log
+        .slice(leaderLogLenBefore)
+        .find((e) => e.ev === "YOUR_TN_HAND")!.data as { batch: string; cards: TnCard[] };
+      expect(syncEv.batch).toBe("FULL_RECONNECT");
+      expect(syncEv.cards).toHaveLength(7);
+      expect(syncEv.cards).not.toContainEqual(playedCard);
+
+      // Non-acting player disconnects and reconnects
+      const otherSeat = seats.find((s) => s.seatIndex !== latestOf(seats[0]!.log)!.actingSeatIndex)!;
+      otherSeat.socket.disconnect();
+
+      const re = connect();
+      const reLog = recorder(re);
+      const ack = await emitAck(re, "RECONNECT", { sessionToken: otherSeat.token });
+      expect(ack.ok).toBe(true);
+
+      await pollUntil(() => reLog.some((e) => e.ev === "YOUR_TN_HAND"), 4000, "reconnect hand");
+      const reHandEv = reLog.find((e) => e.ev === "YOUR_TN_HAND")!.data as { batch: string; cards: TnCard[] };
+      expect(reHandEv.batch).toBe("FULL_RECONNECT");
+      expect(reHandEv.cards).toHaveLength(8);
+
+      re.disconnect();
+      for (const s of seats) s.socket.disconnect();
+    });
+
+    it("dealId idempotency: the same dealId never emits batch1 or batch2 more than once through normal deal path", async () => {
+      const { seats, code } = await makeTnRoom(false);
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+      await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch1");
+
+      const room = ps.registry.get(code) as TwentyNineGameManager;
+      const dealId = room.match.dealId;
+      expect(dealId).toBeTruthy();
+
+      // Trigger syncHandDeliveries multiple times
+      room["syncHandDeliveries"]();
+      room["syncHandDeliveries"]();
+      room["syncHandDeliveries"]();
+
+      // Verify every client received batch 1 exactly ONCE
+      for (const s of seats) {
+        const batch1Events = s.log.filter(
+          (e) => e.ev === "YOUR_TN_HAND" && (e.data as { batch: number }).batch === 1
+        );
+        expect(batch1Events).toHaveLength(1);
+      }
+
+      // Progress through auction to trump setup
+      const bidderSeat = await simpleAuctionToTrumpSetup(seats);
+      const bidderClient = seats.find((s) => s.seatIndex === bidderSeat)!;
+      bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "CLUBS" });
+
+      await skipSingleHandForAll(seats);
+      await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+      // Trigger syncHandDeliveries multiple times again during play
+      room["syncHandDeliveries"]();
+      room["syncHandDeliveries"]();
+
+      // Verify every client received batch 2 exactly ONCE
+      for (const s of seats) {
+        const batch2Events = s.log.filter(
+          (e) => e.ev === "YOUR_TN_HAND" && (e.data as { batch: number }).batch === 2
+        );
+        expect(batch2Events).toHaveLength(1);
+      }
+
+      for (const s of seats) s.socket.disconnect();
+    });
   });
 });
