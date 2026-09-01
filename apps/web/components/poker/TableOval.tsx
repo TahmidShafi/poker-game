@@ -167,7 +167,7 @@ export function TableOval({
         compact={compact}
         turnDeadline={state.turnDeadline}
         totalMs={turnTimeMs}
-        canRemove={isHost && isLobby}
+        canRemove={isHost}
         onRemove={() => removePlayer(seatIndex)}
       />
     );

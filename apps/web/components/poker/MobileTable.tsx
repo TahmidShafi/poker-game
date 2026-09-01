@@ -117,10 +117,11 @@ export function MobileTable({
   state: PublicGameState;
   mySeat: number | null;
 }) {
-  const { me, myCards } = useGame();
+  const { me, myCards, removePlayer } = useGame();
   const landscape = useMediaQuery("(orientation: landscape)");
   const narrow = useMediaQuery("(max-width: 430px)");
   const totalMs = (me?.config?.turnTimeSeconds ?? 60) * 1000;
+  const isHost = mySeat !== null && state.hostSeatIndex === mySeat;
 
   const potTotal =
     state.pots.reduce((s, p) => s + p.amount, 0) ||
@@ -141,6 +142,8 @@ export function MobileTable({
       isMe={false}
       turnDeadline={state.turnDeadline}
       totalMs={totalMs}
+      canRemove={isHost}
+      onRemove={() => removePlayer(seat.seatIndex)}
     />
   );
 

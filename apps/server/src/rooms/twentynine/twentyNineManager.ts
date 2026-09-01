@@ -425,6 +425,9 @@ export class TwentyNineGameManager implements RoomLike {
     if (this.destroyed) return;
     const requester = this.findPlayerBySocket(requesterSocketId);
     if (!requester) return this.reject(requesterSocketId, "you are not in this room");
+    if (!this.hostPlayerId || !this.players.has(this.hostPlayerId)) {
+      this.reassignHost();
+    }
     if (requester.playerId !== this.hostPlayerId) {
       return this.reject(requesterSocketId, "only the host can remove players");
     }

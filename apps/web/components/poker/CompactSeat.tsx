@@ -22,12 +22,16 @@ export function CompactSeat({
   isMe,
   turnDeadline,
   totalMs,
+  canRemove,
+  onRemove,
 }: {
   seat: Seat;
   isActing: boolean;
   isMe: boolean;
   turnDeadline: number | null;
   totalMs: number;
+  canRemove?: boolean;
+  onRemove?: () => void;
 }) {
   const remaining = useCountdown(isActing ? turnDeadline : null, isActing);
   const secs = Math.ceil(remaining / 1000);
@@ -55,6 +59,20 @@ export function CompactSeat({
       } ${seat.status === "BUSTED" ? "opacity-60 grayscale" : ""}`}
     >
       <div className="relative">
+        {canRemove && onRemove && !isMe && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="absolute -top-1.5 -right-1.5 z-50 grid h-5.5 w-5.5 place-items-center rounded-full bg-crimson hover:bg-red-500 active:bg-red-700 text-[10px] font-black text-white shadow-[0_2px_8px_rgba(0,0,0,0.6)] ring-2 ring-white cursor-pointer transition-transform hover:scale-125 active:scale-90 pointer-events-auto"
+            title="Remove player"
+          >
+            ✕
+          </button>
+        )}
         {isActing && remaining > 0 ? (
           <TimerRing remainingMs={remaining} totalMs={totalMs}>
             {avatar}

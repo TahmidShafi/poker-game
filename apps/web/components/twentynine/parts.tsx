@@ -96,10 +96,11 @@ function SeatCardComponent({
           <button
             type="button"
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               onRemove();
             }}
-            className="absolute -top-1 -left-1 z-40 grid h-4 w-4 sm:h-5 sm:w-5 place-items-center rounded-full bg-crimson hover:bg-red-500 text-[8px] sm:text-[9px] font-black text-white shadow-md ring-1 ring-white/40 cursor-pointer transition-transform hover:scale-110"
+            className="absolute -top-1.5 -left-1.5 z-50 grid h-5.5 w-5.5 sm:h-6 sm:w-6 place-items-center rounded-full bg-crimson hover:bg-red-500 active:bg-red-700 text-[10px] sm:text-xs font-black text-white shadow-[0_2px_8px_rgba(0,0,0,0.6)] ring-2 ring-white cursor-pointer transition-transform hover:scale-125 active:scale-90 pointer-events-auto"
             title={isWaiting ? "Remove player" : "Remove & replace with Bot"}
           >
             ✕
