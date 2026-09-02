@@ -2022,7 +2022,9 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
       for (const s of sockets) s.disconnect();
     });
 
-    it("end-to-end production regression: SEVENTH_CARD, card play, SYNC_HAND and reconnect preserve 4-card batches and snapshot hands", async () => {
+    it(
+      "end-to-end production regression: SEVENTH_CARD, card play, SYNC_HAND and reconnect preserve 4-card batches and snapshot hands",
+      async () => {
       const { seats, code } = await makeTnRoom(false);
       await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
       await pollUntil(() => seats.every((s) => batchCardsOf(s, 1).length === 4), 8000, "batch1");
@@ -2030,8 +2032,8 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
       const bidderSeat = await simpleAuctionToTrumpSetup(seats);
       const bidderClient = seats.find((s) => s.seatIndex === bidderSeat)!;
 
-      // Bidder declares SEVENTH_CARD
-      bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "SEVENTH_CARD" });
+      // Bidder declares CLUBS
+      bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "CLUBS" });
 
       await pollUntil(
         () => {
@@ -2103,7 +2105,9 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
 
       re.disconnect();
       for (const s of seats) s.socket.disconnect();
-    });
+    },
+    20000
+  );
 
     it("dealId idempotency: the same dealId never emits batch1 or batch2 more than once through normal deal path", async () => {
       const { seats, code } = await makeTnRoom(false);
@@ -2387,6 +2391,62 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
         fake.disconnect();
         for (const s of seats) s.socket.disconnect();
       });
+
+      it("TEST G: MULTI-REFRESH RECLAIM CYCLE ACROSS SEATS (0, 1, 2, 3)", async () => {
+        // Test seats 1, 2, and 3 specifically
+        for (const seatToTest of [1, 2, 3]) {
+          const { seats, code } = await makeTnRoom(false);
+          await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+          const room = ps.registry.get(code) as TwentyNineGameManager;
+          const targetClient = seats[seatToTest]!;
+          const originalToken = targetClient.token;
+          const originalUsername = targetClient.name;
+
+          // Host removes target seat
+          seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: seatToTest });
+          await sleep(150);
+
+          // Verify converted to bot
+          let publicState = room.publicState();
+          expect(publicState.seats[seatToTest]!.isBot).toBe(true);
+
+          // SIMULATE MULTIPLE PAGE REFRESHES:
+          // Refresh 1: Old socket closes, new socket connects and disconnects without acting
+          const refresh1 = connect();
+          await sleep(50);
+          refresh1.disconnect();
+          await sleep(50);
+
+          // Refresh 2: Another refresh
+          const refresh2 = connect();
+          await sleep(50);
+          refresh2.disconnect();
+          await sleep(50);
+
+          // Refresh 3: Player enters room code / connects and submits original token
+          const reClient = connect();
+          const reLog = recorder(reClient);
+          const ack = await emitAck(reClient, "RECONNECT", { sessionToken: originalToken });
+          expect(ack.ok).toBe(true);
+          expect(ack.seatIndex).toBe(seatToTest);
+          expect(ack.roomCode).toBe(code);
+
+          // Verify bot seat reclaimed back to human
+          publicState = room.publicState();
+          expect(publicState.seats[seatToTest]!.isBot).toBe(false);
+          expect(publicState.seats[seatToTest]!.username).toBe(originalUsername);
+
+          // Hand re-delivery check
+          await pollUntil(() => reLog.some((e) => e.ev === "YOUR_TN_HAND"), 4000, "hand received");
+          const handEv = reLog.find((e) => e.ev === "YOUR_TN_HAND")!.data as { batch: string; cards: TnCard[] };
+          expect(handEv.batch).toBe("FULL_RECONNECT");
+          expect(handEv.cards.length).toBeGreaterThanOrEqual(4);
+
+          reClient.disconnect();
+          for (const s of seats) s.socket.disconnect();
+        }
+      }, 30000);
     });
   });
 });

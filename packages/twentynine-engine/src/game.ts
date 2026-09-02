@@ -796,8 +796,8 @@ export function playCard(state: TwentyNineState, seatIndex: number, card: TnCard
   if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
     console.log(
       `[CARD_REMOVE ${state.gameId}] seat=${seatIndex} card=${card.suit}:${card.rank} reason=PLAY_CARD ` +
-        `phase=${state.phase} round=${state.roundNumber} handLenBefore=${beforeLen} handLenAfter=${afterLen} ` +
-        `b1=${seat.batch1.length} b2=${seat.batch2.length}`
+      `phase=${state.phase} round=${state.roundNumber} handLenBefore=${beforeLen} handLenAfter=${afterLen} ` +
+      `b1=${seat.batch1.length} b2=${seat.batch2.length}`
     );
   }
   state.currentTrick.push({ seatIndex, card });
@@ -882,12 +882,12 @@ function completeTrick(state: TwentyNineState): void {
   }
 
   // Check B: Defenders defeated the bidder:
-  // If defenders have captured > (29 - requirement), bidder cannot reach the requirement.
-  if (state.capturedPoints[defendingTeam] > 29 - requirement) {
+  // If defenders have captured >= (29 - requirement), bidder cannot reach the requirement.
+  if (state.capturedPoints[defendingTeam] >= 29 - requirement) {
     finishHand(state, { scorePoints: 1, endReason: "EARLY_DEFEAT" });
     return;
   }
-  
+
   state.trickNumber += 1;
   state.ledSeatIndex = winner.seatIndex; // winner leads next
   state.actingSeatIndex = winner.seatIndex;
@@ -970,13 +970,13 @@ function finishHand(
       `ENGINE BUG: captured points sum to ${totals.A + totals.B}, expected exactly 29`
     );
   }
-  
+
   const bidder = state.bidderSeatIndex;
   if (bidder === null || state.bid === null) throw new Error("engine bug: finishing without a bid");
   const biddingTeam = tnTeamOfSeat(bidder);
   const defendingTeam = otherTeam(biddingTeam);
   const requirement = marriageAdjustedRequirement(state.bid, state.marriageDeclaredBy, biddingTeam);
-  
+
   let roundWinner: TnTeam;
   let bidderWon: boolean;
   if (endReason === "EARLY_DEFEAT") {
@@ -986,7 +986,7 @@ function finishHand(
     bidderWon = totals[biddingTeam] >= requirement;
     roundWinner = bidderWon ? biddingTeam : defendingTeam;
   }
-  
+
   if (bidderWon) {
     state.matchScore[biddingTeam] += scorePoints;
   } else {
@@ -997,7 +997,7 @@ function finishHand(
   state.dealerAdvancePending = true;
   state.ledSeatIndex = null;
   state.actingSeatIndex = null;
-  
+
   state.lastRoundSummary = {
     roundNumber: state.roundNumber,
     bid: state.bid,
@@ -1116,12 +1116,12 @@ export function toPublicTwentyNineState(
     marriageDeclaredBy: state.marriageDeclaredBy,
     bids: state.bids
       ? {
-          highestBid: state.bids.highestBid,
-          bidderSeatIndex: state.bids.bidderSeatIndex,
-          passedSeatIndexes: [...state.bids.passedSeatIndexes],
-          turnSeatIndex: state.bids.turnSeatIndex,
-          history: state.bids.history.map((h) => ({ ...h })),
-        }
+        highestBid: state.bids.highestBid,
+        bidderSeatIndex: state.bids.bidderSeatIndex,
+        passedSeatIndexes: [...state.bids.passedSeatIndexes],
+        turnSeatIndex: state.bids.turnSeatIndex,
+        history: state.bids.history.map((h) => ({ ...h })),
+      }
       : null,
     trick: state.currentTrick.map((p) => ({ seatIndex: p.seatIndex, card: { ...p.card } })),
     ledSeatIndex: state.ledSeatIndex,

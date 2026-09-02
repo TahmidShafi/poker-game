@@ -601,6 +601,89 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     };
   }, [pushToast, triggerCelebration, publishMyTnHand]);
 
+  // Restore mute preference.
+  useEffect(() => { setSoundOn(!isMuted()); }, []);
+
+  const bindAck = useCallback(
+    (socket: PokerSocket, ack: RoomAck) => {
+      if (ack.ok && ack.roomCode && (ack.sessionToken || meRef.current?.sessionToken)) {
+        const cleanCode = ack.roomCode.trim().toUpperCase();
+        const prevCode = meRef.current?.roomCode;
+        const currentToken = ack.sessionToken ?? meRef.current?.sessionToken;
+        if (currentToken) localStorage.setItem(TOKEN_KEY, currentToken);
+        localStorage.setItem(ROOM_KEY, cleanCode);
+        const effectiveGameType: GameType =
+          ack.gameType ??
+          ack.config?.gameType ??
+          (ack.tnState ? "TWENTY_NINE" : "POKER");
+        const newConfig: RoomConfig = {
+          ...(ack.config ?? {
+            startingCoins: 1000,
+            smallBlind: 10,
+            bigBlind: 20,
+            turnTimeSeconds: 60,
+          }),
+          gameType: effectiveGameType,
+        };
+        const newMe = {
+          roomCode: cleanCode,
+          seatIndex: ack.seatIndex!,
+          sessionToken: currentToken!,
+          config: newConfig,
+        };
+        meRef.current = newMe;
+        setMe(newMe);
+        if (ack.state) {
+          setState(ack.state);
+        } else if (effectiveGameType === "TWENTY_NINE") {
+          setState(null);
+        }
+        setMyCards(null);
+        setShowdown(null);
+        if (showdownTimer.current) {
+          clearTimeout(showdownTimer.current);
+          showdownTimer.current = null;
+        }
+        if (ack.tnState) {
+          setTnState(ack.tnState);
+          tnStateRef.current = ack.tnState;
+        } else if (effectiveGameType !== "TWENTY_NINE") {
+          setTnState(null);
+          tnStateRef.current = null;
+        }
+        // Only wipe out hand cards if changing to a different room
+        if (prevCode && prevCode !== cleanCode) {
+          setMyTnCards(null);
+          myTnHandRef.current = null;
+          tnPlayedRef.current = null;
+        }
+        setTnBidderPrivate(null);
+        setLastTnRound(null);
+        setTnResolvedTrick(null);
+        if (resolvedTrickTimer.current) {
+          clearTimeout(resolvedTrickTimer.current);
+          resolvedTrickTimer.current = null;
+        }
+        setSession(EMPTY_STATS);
+        setRecentHands([]);
+        if (effectiveGameType === "TWENTY_NINE") {
+          socket.emit("GAME29_SYNC_HAND");
+        }
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          if (url.searchParams.get("room")) {
+            url.searchParams.delete("room");
+            window.history.replaceState({}, "", url.pathname);
+          }
+        }
+      } else if (ack.error) {
+        pushToast(ack.error, "error");
+      }
+      return ack;
+    },
+    [pushToast]
+  );
+
   // Auto-reconnect via stored token whenever the socket comes online.
   useEffect(() => {
     if (status !== "online") {
@@ -609,6 +692,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
     const currentToken = meRef.current?.sessionToken ?? token;
+    
+    console.log("[TN_CLIENT_AUTH_INIT]");
+    console.log(`hasSessionToken=${!!currentToken}`);
+    console.log(`tokenLength=${currentToken?.length ?? 0}`);
+    console.log(`storedRoomCode=${typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null}`);
+    
     if (!currentToken) {
       setIsReconnecting(false);
       return;
@@ -631,27 +720,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       resolved = true;
       clearTimeout(fallbackTimer);
       setIsReconnecting(false);
-      if (ack.ok && ack.roomCode) {
-        const cleanCode = ack.roomCode.trim().toUpperCase();
-        localStorage.setItem(TOKEN_KEY, currentToken);
-        localStorage.setItem(ROOM_KEY, cleanCode);
-        const newMe = {
-          roomCode: cleanCode,
-          seatIndex: ack.seatIndex!,
-          sessionToken: currentToken,
-          config: ack.config,
-        };
-        meRef.current = newMe;
-        setMe(newMe);
-        setState(ack.state ?? null);
-        if (ack.tnState) {
-          setTnState(ack.tnState);
-          tnStateRef.current = ack.tnState;
-        }
-        // If Twenty-Nine, trigger hand sync immediately to recover cards if needed
-        if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
-          s.emit("GAME29_SYNC_HAND");
-        }
+      if (ack.ok) {
+        bindAck(s, ack);
       } else {
         const err = (ack.error ?? "").toLowerCase();
         // Only clear storage if the session/room is genuinely gone/closed
@@ -667,76 +737,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
       }
     });
-  }, [status]);
-
-  // Restore mute preference.
-  useEffect(() => { setSoundOn(!isMuted()); }, []);
-
-  const bindAck = useCallback(
-    (socket: PokerSocket, ack: RoomAck) => {
-      if (ack.ok && ack.roomCode && ack.sessionToken) {
-        const cleanCode = ack.roomCode.trim().toUpperCase();
-        const prevCode = meRef.current?.roomCode;
-        localStorage.setItem(TOKEN_KEY, ack.sessionToken);
-        localStorage.setItem(ROOM_KEY, cleanCode);
-        const newMe = {
-          roomCode: cleanCode,
-          seatIndex: ack.seatIndex!,
-          sessionToken: ack.sessionToken,
-          config: ack.config,
-        };
-        meRef.current = newMe;
-        setMe(newMe);
-        if (ack.state) {
-          setState(ack.state);
-        } else if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
-          setState(null);
-        }
-        setMyCards(null);
-        setShowdown(null);
-        if (showdownTimer.current) {
-          clearTimeout(showdownTimer.current);
-          showdownTimer.current = null;
-        }
-        if (ack.tnState) {
-          setTnState(ack.tnState);
-          tnStateRef.current = ack.tnState;
-        } else if (ack.config?.gameType !== "TWENTY_NINE" && ack.gameType !== "TWENTY_NINE") {
-          setTnState(null);
-          tnStateRef.current = null;
-        }
-        // Only wipe out hand cards if changing to a different room
-        if (prevCode && prevCode !== cleanCode) {
-          setMyTnCards(null);
-          myTnHandRef.current = null;
-          tnPlayedRef.current = null;
-        }
-        setTnBidderPrivate(null);
-        setLastTnRound(null);
-        setTnResolvedTrick(null);
-        if (resolvedTrickTimer.current) {
-          clearTimeout(resolvedTrickTimer.current);
-          resolvedTrickTimer.current = null;
-        }
-        setSession(EMPTY_STATS);
-        setRecentHands([]);
-        if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
-          socket.emit("GAME29_SYNC_HAND");
-        }
-        if (typeof window !== "undefined") {
-          const url = new URL(window.location.href);
-          if (url.searchParams.get("room")) {
-            url.searchParams.delete("room");
-            window.history.replaceState({}, "", url.pathname);
-          }
-        }
-      } else if (ack.error) {
-        pushToast(ack.error, "error");
-      }
-      return ack;
-    },
-    [pushToast]
-  );
+  }, [status, bindAck]);
 
   const createRoom = useCallback(
     (username: string, cfg: RoomConfig, avatar?: number, extra?: { vsBots?: boolean }) => {
@@ -767,6 +768,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         storedRoom && storedRoom.trim().toUpperCase() === cleanCode && storedToken
           ? storedToken
           : undefined;
+
+      console.log("[TN_CLIENT_REJOIN]");
+      console.log(`roomCode=${cleanCode}`);
+      console.log(`hasSessionToken=${!!sessionToken}`);
+      console.log(`tokenLength=${sessionToken?.length ?? 0}`);
+      console.log(`storedRoomCode=${storedRoom}`);
+      console.log(`action=${sessionToken ? "RECONNECT" : "JOIN_ROOM"}`);
 
       return new Promise<RoomAck>((resolve) => {
         if (sessionToken) {
@@ -800,26 +808,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setIsReconnecting(true);
     s.emit("RECONNECT", { sessionToken: token }, (ack) => {
       setIsReconnecting(false);
-      if (ack.ok && ack.roomCode) {
-        const cleanCode = ack.roomCode.trim().toUpperCase();
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(ROOM_KEY, cleanCode);
-        const newMe = {
-          roomCode: cleanCode,
-          seatIndex: ack.seatIndex!,
-          sessionToken: token,
-          config: ack.config,
-        };
-        meRef.current = newMe;
-        setMe(newMe);
-        setState(ack.state ?? null);
-        if (ack.tnState) {
-          setTnState(ack.tnState);
-          tnStateRef.current = ack.tnState;
-        }
-        if (ack.config?.gameType === "TWENTY_NINE" || ack.gameType === "TWENTY_NINE") {
-          s.emit("GAME29_SYNC_HAND");
-        }
+      if (ack.ok) {
+        bindAck(s, ack);
       } else {
         const err = (ack.error ?? "").toLowerCase();
         if (
@@ -834,7 +824,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
       }
     });
-  }, []);
+  }, [bindAck]);
 
   const leaveRoom = useCallback(() => {
     socketRef.current?.emit("LEAVE_ROOM");
@@ -950,7 +940,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setIncomingLoan(null);
   }, []);
 
-  const gameType: GameType = me?.config?.gameType ?? "POKER";
+  const gameType: GameType =
+    me?.config?.gameType ?? (tnState ? "TWENTY_NINE" : "POKER");
 
   const value: GameContextValue = useMemo(
     () => ({
