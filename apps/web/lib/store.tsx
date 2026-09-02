@@ -776,12 +776,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             if (ack.ok) {
               resolve(bindAck(s, ack));
             } else {
-              // If reconnect fails (e.g. invalid token, wrong game type), fallback to JOIN_ROOM
-              s.emit(
-                "JOIN_ROOM",
-                { username: cleanName, roomCode: cleanCode, avatar },
-                (joinAck) => resolve(bindAck(s, joinAck))
-              );
+              // If reconnect fails (e.g. invalid token, wrong game type), DO NOT fallback.
+              // Resolve the error so the UI shows it and prevents silent unauthenticated join.
+              resolve(bindAck(s, ack));
             }
           });
         } else {
