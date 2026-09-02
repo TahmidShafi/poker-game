@@ -2448,5 +2448,117 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
         }
       }, 30000);
     });
+  describe("twenty-nine: voluntary leave and syncHandDeliveries bugs regression", () => {
+    it("TEST 1: Voluntary leave during active game allows rejoin", async () => {
+      const { seats, code } = await makeTnRoom(false);
+      // Wait for game to start
+      await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+      
+      const p1 = seats[1]!;
+      const token = p1.token;
+      
+      // Voluntary leave
+      p1.socket.emit("LEAVE_ROOM");
+      await sleep(150);
+      
+      // Wait for bot conversion
+      const room = ps.registry.get(code) as TwentyNineGameManager;
+      expect(room.publicState().seats[1]!.isBot).toBe(true);
+      
+      // Rejoin with token
+      const reClient = connect();
+      const ack = await emitAck(reClient, "RECONNECT", { sessionToken: token });
+      expect(ack.ok).toBe(true);
+      expect(ack.seatIndex).toBe(1);
+      
+      // Clean up
+      for (const s of seats) s.socket.disconnect();
+      reClient.disconnect();
+    });
+
+    it("TEST 2: Voluntary leave in lobby frees the seat for rejoin", async () => {
+      // Create room but don't fill it
+      const host = connect();
+      const createAck = await emitAck(host, "CREATE_ROOM", {
+        username: "Host",
+        startingCoins: 1000,
+        gameType: "TWENTY_NINE",
+      });
+      expect(createAck.ok).toBe(true);
+      const code = createAck.roomCode!;
+
+      const p1 = connect();
+      const joinAck = await emitAck(p1, "JOIN_ROOM", { username: "P1", roomCode: code });
+      expect(joinAck.ok).toBe(true);
+      
+      const p1Token = joinAck.sessionToken!;
+      
+      // Voluntary leave
+      p1.emit("LEAVE_ROOM");
+      await sleep(150);
+      
+      // Rejoin with SAME username (since client clears token on voluntary leave)
+      const p1Rejoin = connect();
+      const reJoinAck = await emitAck(p1Rejoin, "JOIN_ROOM", { username: "P1", roomCode: code });
+      expect(reJoinAck.ok).toBe(true);
+      expect(reJoinAck.seatIndex).toBe(joinAck.seatIndex);
+      
+      host.disconnect();
+      p1.disconnect();
+      p1Rejoin.disconnect();
+    });
+
+    it("TEST 3,4,5: syncHandDeliveries races and FULL_RECONNECT recovery", async () => {
+      const host = connect();
+      const createAck = await emitAck(host, "CREATE_ROOM", {
+        username: "Host",
+        startingCoins: 1000,
+        gameType: "TWENTY_NINE",
+      });
+      const code = createAck.roomCode!;
+      
+      const p1 = connect();
+      await emitAck(p1, "JOIN_ROOM", { username: "P1", roomCode: code });
+      const p2 = connect();
+      await emitAck(p2, "JOIN_ROOM", { username: "P2", roomCode: code });
+      const p3 = connect();
+      await emitAck(p3, "JOIN_ROOM", { username: "P3", roomCode: code });
+      
+      // We start recording the host to see what packets arrive
+      const hostLog = recorder(host);
+      
+      // The game should auto-start
+      await pollUntil(() => latestOf(hostLog)?.phase === "BIDDING", 6000, "game start");
+      
+      // Check that YOUR_TN_HAND arrived
+      const handEvents = hostLog.filter(e => e.ev === "YOUR_TN_HAND");
+      expect(handEvents.length).toBeGreaterThan(0);
+      
+      // Now disconnect host to simulate a dropped packet / missed hand
+      host.disconnect();
+      await sleep(100);
+      
+      // Reconnect host
+      const hostRe = connect();
+      const hostReLog = recorder(hostRe);
+      
+      const reAck = await emitAck(hostRe, "RECONNECT", { sessionToken: createAck.sessionToken! });
+      expect(reAck.ok).toBe(true);
+      
+      // Immediately after RECONNECT, the server should send FULL_RECONNECT
+      await pollUntil(() => hostReLog.some(e => e.ev === "YOUR_TN_HAND"), 4000, "full reconnect hand");
+      const reHandEvents = hostReLog.filter(e => e.ev === "YOUR_TN_HAND");
+      
+      const fullReconnectEvent = reHandEvents.find(e => (e.data as any).batch === "FULL_RECONNECT");
+      expect(fullReconnectEvent).toBeDefined();
+      expect((fullReconnectEvent!.data as any).cards.length).toBe(4);
+      
+      hostRe.disconnect();
+      p1.disconnect();
+      p2.disconnect();
+      p3.disconnect();
+    });
   });
 });
+});
+

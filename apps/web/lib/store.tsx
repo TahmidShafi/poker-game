@@ -506,6 +506,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       evaluateHandSync("TN_STATE_RECEIVED");
     });
     socket.on("YOUR_TN_HAND", (payload) => {
+      const hand = myTnHandRef.current;
+      const mine = meRef.current;
+      console.log(`[TN_HAND_CLIENT] roomCode=${mine?.roomCode} seat=${mine?.seatIndex} event=YOUR_TN_HAND batch=${payload.batch} receivedCardCount=${payload.cards.length} currentClientHandCount=${hand?.cards.length ?? 0} tnStatePresent=${!!tnStateRef.current} socketId=${socket.id}`);
+      
       if (process.env.NODE_ENV !== "test" || process.env.NEXT_PUBLIC_TN_DEBUG === "1") {
         console.log(
           `[TN_SYNC] YOUR_TN_HAND received: batch=${payload.batch} handNumber=${payload.handNumber} cards=${payload.cards.length}`
@@ -668,6 +672,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setRecentHands([]);
         if (effectiveGameType === "TWENTY_NINE") {
           socket.emit("GAME29_SYNC_HAND");
+          
+          // BUG 2 FIX: Add a delayed safety net to check if cards arrived correctly
+          // just in case the TN_STATE and YOUR_TN_HAND raced or the initial sync was throttled.
+          setTimeout(() => {
+            evaluateHandSync("BIND_ACK_SAFETY_NET");
+          }, 500);
         }
         if (typeof window !== "undefined") {
           const url = new URL(window.location.href);
@@ -845,7 +855,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(celebrationTimer.current);
       celebrationTimer.current = null;
     }
-    localStorage.removeItem(TOKEN_KEY);
+    // BUG 1 FIX: Do NOT remove TOKEN_KEY on voluntary leave.
+    // If the game was active, the server converted this seat to a bot.
+    // Preserving the token allows the player to reclaim their bot seat by re-entering the room code.
     localStorage.removeItem(ROOM_KEY);
     meRef.current = null;
     setMe(null);

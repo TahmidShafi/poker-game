@@ -462,12 +462,30 @@ export class TwentyNineGameManager implements RoomLike {
       const seat = this.match.seats[rec.seatIndex];
       if (seat) {
         seat.connected = false;
-        seat.username = `${rec.username} (Left)`;
+        seat.isBot = true;
+        rec.originalUsername = rec.username;
+        rec.username = `Bot ${rec.seatIndex + 1}`;
+        seat.username = rec.username;
+        rec.isBot = true;
       }
+      
+      console.log(
+        `[BOT_REPLACE]\nroomCode=${this.roomCode}\nseat=${rec.seatIndex}\nplayerId=${rec.playerId}\nusername=${rec.originalUsername}`
+      );
+      
+      if (this.match.actingSeatIndex === rec.seatIndex) {
+        this.clearFallbackTimer();
+        this.turnGeneration += 1;
+        this.armBotIfNeeded();
+      }
+      
+      // We do NOT delete the player record from `this.players` when the round is running.
+      // This preserves the sessionToken so the original player can reclaim the bot seat.
     } else {
       this.freeSeat(rec.seatIndex);
+      this.players.delete(rec.playerId);
     }
-    this.players.delete(rec.playerId);
+    
     if (this.hostPlayerId === rec.playerId) {
       this.reassignHost();
     }
@@ -855,6 +873,9 @@ export class TwentyNineGameManager implements RoomLike {
         if (rec.socketIds.size > 0) {
           sent.add(`${rec.seatIndex}:1`);
           const playedCount = 8 - seat.hand.length;
+          
+          console.log(`[TN_HAND_SERVER] roomCode=${this.roomCode} seat=${rec.seatIndex} event=YOUR_TN_HAND batch=1 serverHandCount=${seat.hand.length} batchCount=${seat.batch1.length} socketCount=${rec.socketIds.size}`);
+          
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
               `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} round=${round} ` +
@@ -873,6 +894,9 @@ export class TwentyNineGameManager implements RoomLike {
         if (rec.socketIds.size > 0) {
           sent.add(`${rec.seatIndex}:2`);
           const playedCount = 8 - seat.hand.length;
+          
+          console.log(`[TN_HAND_SERVER] roomCode=${this.roomCode} seat=${rec.seatIndex} event=YOUR_TN_HAND batch=2 serverHandCount=${seat.hand.length} batchCount=${seat.batch2.length} socketCount=${rec.socketIds.size}`);
+          
           if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
             console.log(
               `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} round=${round} ` +
@@ -938,6 +962,9 @@ export class TwentyNineGameManager implements RoomLike {
     if (!seat) return;
 
     const playedCount = 8 - seat.hand.length;
+    
+    console.log(`[TN_HAND_SERVER] roomCode=${this.roomCode} seat=${rec.seatIndex} event=YOUR_TN_HAND batch=FULL_RECONNECT serverHandCount=${seat.hand.length} batchCount=${seat.hand.length} socketCount=${targetSocketId ? 1 : rec.socketIds.size}`);
+    
     if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
       console.log(
         `[TN_SYNC ${this.roomCode}] gameId=${this.match.gameId} roomCode=${this.roomCode} dealId=${this.match.dealId} ` +
@@ -1228,6 +1255,14 @@ export class TwentyNineGameManager implements RoomLike {
     } catch (err) {
       // A private-channel failure must never block the public broadcast.
       console.error(`[tn ${this.roomCode}] bidder private sync failed:`, (err as Error).message);
+    }
+    
+    // BUG 2 FIX: Sync private hand deliveries before emitting the public TN_STATE.
+    // This prevents a timing gap where TN_STATE arrives at the client before YOUR_TN_HAND.
+    try {
+      this.syncHandDeliveries();
+    } catch (err) {
+      console.error(`[tn ${this.roomCode}] hand sync failed:`, (err as Error).message);
     }
 
     const pub = toPublicTwentyNineState(this.match, {
