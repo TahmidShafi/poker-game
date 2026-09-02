@@ -2149,5 +2149,244 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
 
       for (const s of seats) s.socket.disconnect();
     });
+
+    describe("Active Game Reclaim Flow", () => {
+      it("TEST A: HOST REMOVE → ORIGINAL RECLAIM", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        const targetClient = seats[3]!;
+        const originalToken = targetClient.token;
+        const originalUsername = targetClient.name;
+        const originalPlayerId = [...room["players"].values()].find(p => p.seatIndex === 3)!.playerId;
+
+        // Host removes seat 3
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        await sleep(200);
+
+        // Seat 3 becomes BOT
+        const botRecord = [...room["players"].values()].find(p => p.seatIndex === 3)!;
+        expect(botRecord.isBot).toBe(true);
+        expect(botRecord.originalUsername).toBe(originalUsername);
+        expect(botRecord.playerId).toBe(originalPlayerId);
+        expect(botRecord.sessionToken).toBe(originalToken);
+
+        const st1 = latestOf(seats[0]!.log)!;
+        expect(st1.seats[3]!.isBot).toBe(true);
+
+        // Original player reconnects with same sessionToken
+        const re = connect();
+        const ack = await emitAck(re, "RECONNECT", { sessionToken: originalToken });
+        expect(ack.ok).toBe(true);
+        await sleep(200);
+
+        // Assert seat is human again, unchanged state
+        const st2 = latestOf(seats[0]!.log)!;
+        expect(st2.seats[3]!.isBot).toBe(false);
+        expect(st2.seats[3]!.username).toBe(originalUsername);
+        expect(st2.phase).toBe("BIDDING");
+        
+        const reclaimedRecord = [...room["players"].values()].find(p => p.seatIndex === 3)!;
+        expect(reclaimedRecord.isBot).toBe(false);
+        expect(reclaimedRecord.originalUsername).toBeUndefined();
+        expect(reclaimedRecord.playerId).toBe(originalPlayerId);
+        expect(room.match.seats[3]!.isBot).toBe(false);
+
+        re.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+
+      it("TEST B: WRONG PLAYER CANNOT RECLAIM", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+        // Host removes seat 3
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        await sleep(200);
+
+        // Another player attempts roomCode + original username
+        const fake = connect();
+        const ack = await emitAck(fake, "JOIN_ROOM", { roomCode: code, username: seats[3]!.name });
+        expect(ack.ok).toBe(false);
+        expect(ack.error).toMatch(/Seat is controlled by bot and requires original session token to reclaim/);
+
+        // Bot remains in control
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        const botRecord = [...room["players"].values()].find(p => p.seatIndex === 3)!;
+        expect(botRecord.isBot).toBe(true);
+
+        fake.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+
+      it("TEST C: RAPID RECLAIM", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+        const targetClient = seats[3]!;
+        const originalToken = targetClient.token;
+
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        await sleep(200);
+
+        // Rapid reconnects
+        const re1 = connect();
+        const re2 = connect();
+        const re3 = connect();
+        
+        const [ack1, ack2, ack3] = await Promise.all([
+          emitAck(re1, "RECONNECT", { sessionToken: originalToken }),
+          emitAck(re2, "RECONNECT", { sessionToken: originalToken }),
+          emitAck(re3, "RECONNECT", { sessionToken: originalToken }),
+        ]);
+        
+        expect(ack1.ok).toBe(true);
+        expect(ack2.ok).toBe(true);
+        expect(ack3.ok).toBe(true);
+        await sleep(200);
+
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        const reclaimedRecord = [...room["players"].values()].find(p => p.seatIndex === 3)!;
+        expect(reclaimedRecord.isBot).toBe(false);
+        // Socket.IO + GameManager attach logic keeps the sets, but there's exactly 1 owner record
+        const matchingRecords = [...room["players"].values()].filter(p => p.seatIndex === 3);
+        expect(matchingRecords).toHaveLength(1);
+
+        re1.disconnect(); re2.disconnect(); re3.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+
+      it("TEST D: RECLAIM DURING BOT TURN", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+        
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        
+        // Pass first 3 seats so it's seat 3's turn
+        for (let i = 0; i < 3; i++) {
+          seats[i]!.socket.emit("GAME29_BID", { bid: undefined });
+          await sleep(50);
+        }
+        
+        expect(room.match.actingSeatIndex).toBe(3);
+        
+        const targetClient = seats[3]!;
+        const originalToken = targetClient.token;
+
+        const genBefore = room["turnGeneration"];
+
+        // Host removes seat 3 (now bot's turn!)
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        
+        // Wait for the server to process the remove and arm the bot
+        await pollUntil(() => room["botTimer"] !== null, 2000, "bot armed");
+        
+        // PAUSE the bot timer so it CANNOT fire during our test assertions
+        const capturedTimer = room["botTimer"];
+        if (capturedTimer) clearTimeout(capturedTimer);
+
+        // Reclaim immediately
+        const re = connect();
+        await emitAck(re, "RECONNECT", { sessionToken: originalToken });
+        await sleep(20);
+
+        // Bot timer should be cleared and generation incremented
+        expect(room["botTimer"]).toBeNull();
+        expect(room["turnGeneration"]).toBeGreaterThan(genBefore);
+
+        expect(room.match.actingSeatIndex).toBeDefined(); // just ensure room is still valid
+        expect(room.match.seats[3]!.isBot).toBe(false);
+
+        re.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+
+      it("TEST E: RECLAIM AFTER GAME PROGRESS", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+        
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        
+        const bidderSeat = await simpleAuctionToTrumpSetup(seats);
+        const bidderClient = seats.find((s) => s.seatIndex === bidderSeat)!;
+        bidderClient.socket.emit("GAME29_DECLARE_TRUMP", { choice: "CLUBS" });
+
+        await skipSingleHandForAll(seats);
+        await pollUntil(() => latestOf(seats[0]!.log)!.phase === "PLAYING", 6000, "playing");
+
+        // Everyone plays 1 card (Trick 1 completes)
+        for (let i = 0; i < 4; i++) {
+          const s = seats.find(s => s.seatIndex === room.match.actingSeatIndex)!;
+          const card = room.match.seats[s.seatIndex]!.hand[0]!;
+          s.socket.emit("GAME29_PLAY_CARD", { card });
+          await sleep(50);
+        }
+
+        // Remove player 3
+        const targetClient = seats[3]!;
+        const originalToken = targetClient.token;
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        await sleep(200);
+
+        // Wait for bot to play at least one trick (if it gets a turn)
+        // We'll just let the bot play its turn if it gets one, or we can just verify hand sync
+        
+        // Reconnect
+        const re = connect();
+        const reLog = recorder(re);
+        const ack = await emitAck(re, "RECONNECT", { sessionToken: originalToken });
+        expect(ack.ok).toBe(true);
+
+        await pollUntil(() => reLog.some((e) => e.ev === "YOUR_TN_HAND"), 4000, "reconnect hand");
+        const reHandEv = reLog.find((e) => e.ev === "YOUR_TN_HAND")!.data as { batch: string; cards: TnCard[] };
+        
+        expect(reHandEv.batch).toBe("FULL_RECONNECT");
+        // Ensure no played cards are in the hand
+        expect(reHandEv.cards.length).toBeLessThanOrEqual(7);
+        const actualHand = room.match.seats[3]!.hand;
+        expect(reHandEv.cards).toHaveLength(actualHand.length);
+
+        re.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+
+      it("TEST F: TOKEN SECURITY", async () => {
+        const { seats, code } = await makeTnRoom(false);
+        await waitFor(seats[0]!, () => latestOf(seats[0]!.log), (st) => st.phase === "BIDDING");
+
+        const targetClient = seats[3]!;
+        const originalToken = targetClient.token;
+        const originalUsername = targetClient.name;
+
+        seats[0]!.socket.emit("REMOVE_PLAYER", { targetSeatIndex: 3 });
+        await sleep(200);
+
+        const fake = connect();
+        
+        // valid roomCode + wrong token → reject
+        const ack1 = await emitAck(fake, "RECONNECT", { sessionToken: "wrong_token" });
+        expect(ack1.ok).toBe(false);
+
+        // valid roomCode + username only → reject
+        const ack2 = await emitAck(fake, "JOIN_ROOM", { roomCode: code, username: originalUsername });
+        expect(ack2.ok).toBe(false);
+        expect(ack2.error).toMatch(/requires original session token/);
+
+        // bot username → reject
+        const room = ps.registry.get(code) as TwentyNineGameManager;
+        const botName = room.publicState().seats[3]!.username!;
+        const ack3 = await emitAck(fake, "JOIN_ROOM", { roomCode: code, username: botName });
+        expect(ack3.ok).toBe(false);
+        expect(ack3.error).toMatch(/requires original session token/);
+
+        // valid original sessionToken → reclaim succeeds
+        const ack4 = await emitAck(fake, "RECONNECT", { sessionToken: originalToken });
+        expect(ack4.ok).toBe(true);
+
+        fake.disconnect();
+        for (const s of seats) s.socket.disconnect();
+      });
+    });
   });
 });

@@ -10,6 +10,7 @@ import type {
   TnSeatView,
   TnSuit,
   TnTrumpChoice,
+  TnPhase,
 } from "@poker/shared-types";
 import { isTnTrumpChoice } from "@poker/shared-types";
 import { tnCardPoints, tnTeamOfSeat } from "@poker/shared-types";
@@ -53,6 +54,7 @@ interface TnPlayerRecord extends RoomPlayerRef {
   avatar?: number;
   /** Server-side bot seat (single-player mode); never owns a socket. */
   isBot?: boolean;
+  originalUsername?: string;
 }
 
 /** Pre-move values needed to detect and describe public side effects. */
@@ -247,6 +249,27 @@ export class TwentyNineGameManager implements RoomLike {
     if (opts.sessionToken) {
       const rec = this.findByToken(opts.sessionToken);
       if (rec) {
+        if (rec.isBot && rec.originalUsername) {
+          console.log(
+            `[BOT_RECLAIM]\nroomCode=${this.roomCode}\nseat=${rec.seatIndex}\nplayerId=${rec.playerId}\noldController=BOT\nnewSocketId=${opts.socketId}`
+          );
+          rec.isBot = false;
+          rec.username = rec.originalUsername;
+          delete rec.originalUsername;
+          
+          const seat = this.match.seats[rec.seatIndex];
+          if (seat) {
+            seat.isBot = false;
+            seat.username = rec.username;
+          }
+          
+          if (this.match.actingSeatIndex === rec.seatIndex) {
+            this.clearBotTimer();
+            this.turnGeneration += 1;
+            console.log(`[BOT_RECLAIM] turnGeneration incremented to ${this.turnGeneration} to invalidate stale bot callbacks`);
+          }
+        }
+        
         this.pruneAndCheckConnected(rec);
         rec.socketIds.add(opts.socketId);
         rec.lastSeen = Date.now();
@@ -275,7 +298,15 @@ export class TwentyNineGameManager implements RoomLike {
 
     // 2. Fresh join or re-attaching to existing seat by username.
     for (const rec of this.players.values()) {
-      if (rec.username.toLowerCase() === name.toLowerCase()) {
+      const nameLower = name.toLowerCase();
+      const recNameLower = rec.username.toLowerCase();
+      const recOrigLower = rec.originalUsername?.toLowerCase();
+      
+      if (recNameLower === nameLower || (rec.isBot && recOrigLower === nameLower)) {
+        if (rec.isBot) {
+           console.log(`[BOT_RECLAIM_REJECT]\nroomCode=${this.roomCode}\nseat=${rec.seatIndex}\nreason=SESSION_TOKEN_REQUIRED`);
+           return { ok: false, error: "Seat is controlled by bot and requires original session token to reclaim" };
+        }
         const seat = this.match.seats[rec.seatIndex];
         const isAlive = this.pruneAndCheckConnected(rec);
         const isDisconnected = !seat || !seat.connected || !isAlive;
@@ -348,6 +379,28 @@ export class TwentyNineGameManager implements RoomLike {
   attachSocket(playerId: string, socketId: string): void {
     const rec = this.players.get(playerId);
     if (!rec) return;
+
+    if (rec.isBot && rec.originalUsername) {
+      console.log(
+        `[BOT_RECLAIM]\nroomCode=${this.roomCode}\nseat=${rec.seatIndex}\nplayerId=${rec.playerId}\noldController=BOT\nnewSocketId=${socketId}`
+      );
+      rec.isBot = false;
+      rec.username = rec.originalUsername;
+      delete rec.originalUsername;
+      
+      const seat = this.match.seats[rec.seatIndex];
+      if (seat) {
+        seat.isBot = false;
+        seat.username = rec.username;
+      }
+      
+      if (this.match.actingSeatIndex === rec.seatIndex) {
+        this.clearBotTimer();
+        this.turnGeneration += 1;
+        console.log(`[BOT_RECLAIM] turnGeneration incremented to ${this.turnGeneration} to invalidate stale bot callbacks`);
+      }
+    }
+
     rec.socketIds.add(socketId);
     rec.lastSeen = Date.now();
     const seat = this.match.seats[rec.seatIndex];
@@ -465,25 +518,37 @@ export class TwentyNineGameManager implements RoomLike {
           this.io.to(sid).emit("PLAYER_REMOVED", { seatIndex: targetSeatIndex });
           this.io.sockets.sockets.get(sid)?.leave(this.socketRoom());
         }
-        this.players.delete(targetRec.playerId);
+        console.log(
+          `[BOT_REPLACE]\nroomCode=${this.roomCode}\nseat=${targetSeatIndex}\nplayerId=${targetRec.playerId}\nusername=${targetRec.username}`
+        );
+        targetRec.isBot = true;
+        targetRec.originalUsername = targetRec.username;
+        targetRec.username = `Bot ${targetRec.username.replace(/^Bot\s+/i, "")}`;
+        targetRec.socketIds.clear();
       }
 
       // Convert seat to bot
       seat.isBot = true;
-      seat.username = `Bot ${seat.username?.replace(/^Bot\s+/i, "") ?? targetSeatIndex + 1}`;
+      if (targetRec) {
+        seat.username = targetRec.username;
+      } else {
+        seat.username = `Bot ${seat.username?.replace(/^Bot\s+/i, "") ?? targetSeatIndex + 1}`;
+      }
       seat.connected = true;
 
-      const botRecord: TnPlayerRecord = {
-        playerId: randomUUID(),
-        username: seat.username,
-        seatIndex: targetSeatIndex,
-        sessionToken: randomBytes(12).toString("hex"),
-        socketIds: new Set<string>(),
-        lastSeen: Date.now(),
-        avatar: seat.avatar,
-        isBot: true,
-      };
-      this.players.set(botRecord.playerId, botRecord);
+      if (!targetRec) {
+        const botRecord: TnPlayerRecord = {
+          playerId: randomUUID(),
+          username: seat.username,
+          seatIndex: targetSeatIndex,
+          sessionToken: randomBytes(12).toString("hex"),
+          socketIds: new Set<string>(),
+          lastSeen: Date.now(),
+          avatar: seat.avatar,
+          isBot: true,
+        };
+        this.players.set(botRecord.playerId, botRecord);
+      }
 
       this.io.to(this.socketRoom()).emit("PLAYER_LEFT", { seatIndex: targetSeatIndex });
       this.io.to(this.socketRoom()).emit("PLAYER_JOINED", { seatIndex: targetSeatIndex, username: seat.username });
@@ -1246,19 +1311,25 @@ export class TwentyNineGameManager implements RoomLike {
       delay += process.env.NODE_ENV === "test" ? 50 : 2500;
     }
 
+    const gen = this.turnGeneration;
+
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
-      this.performBotMove(acting);
+      this.performBotMove(acting, gen, phase);
     }, delay);
     if (typeof this.botTimer.unref === "function") this.botTimer.unref();
   }
 
   /** Applies the bot brain's decision through the same pipeline as humans. */
-  private performBotMove(seatIndex: number): void {
+  private performBotMove(seatIndex: number, generation: number, expectedPhase: TnPhase): void {
     if (this.destroyed) return;
+    if (this.turnGeneration !== generation) return; // stale tick from before reclaim
     const phase = this.match.phase;
+    if (phase !== expectedPhase) return;
     if (phase !== "BIDDING" && phase !== "TRUMP_SETUP" && phase !== "SINGLE_HAND_DECISION" && phase !== "PLAYING") return;
     if (this.match.actingSeatIndex !== seatIndex) return; // stale tick
+    const rec = [...this.players.values()].find((r) => r.seatIndex === seatIndex);
+    if (!rec?.isBot) return; // controller type changed (reclaimed by human)
     try {
       const snap = Snapshot.of(this.match);
       let playedCard: TnCard | null = null;

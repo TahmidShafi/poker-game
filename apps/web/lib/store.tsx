@@ -582,8 +582,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socket.on("LOAN_REPAID", () => { pushToast("loan repaid", "info"); playChips(); });
     socket.on("PLAYER_REMOVED", (payload) => {
       if (meRef.current?.seatIndex === payload.seatIndex) {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(ROOM_KEY);
+        // Do NOT remove TOKEN_KEY/ROOM_KEY here. The sessionToken must survive
+        // so the player can reclaim their bot seat if they re-enter the room code.
         meRef.current = null;
         setMe(null);
         pushToast("You were removed from the room by the host", "info");
@@ -769,11 +769,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           : undefined;
 
       return new Promise<RoomAck>((resolve) => {
-        s.emit(
-          "JOIN_ROOM",
-          { username: cleanName, roomCode: cleanCode, avatar, sessionToken },
-          (ack) => resolve(bindAck(s, ack))
-        );
+        if (sessionToken) {
+          setIsReconnecting(true);
+          s.emit("RECONNECT", { sessionToken }, (ack) => {
+            setIsReconnecting(false);
+            if (ack.ok) {
+              resolve(bindAck(s, ack));
+            } else {
+              // If reconnect fails (e.g. invalid token, wrong game type), fallback to JOIN_ROOM
+              s.emit(
+                "JOIN_ROOM",
+                { username: cleanName, roomCode: cleanCode, avatar },
+                (joinAck) => resolve(bindAck(s, joinAck))
+              );
+            }
+          });
+        } else {
+          s.emit(
+            "JOIN_ROOM",
+            { username: cleanName, roomCode: cleanCode, avatar },
+            (ack) => resolve(bindAck(s, ack))
+          );
+        }
       });
     },
     [bindAck]
