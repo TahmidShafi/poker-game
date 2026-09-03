@@ -23,7 +23,7 @@ const REL_POS: Record<number, string> = {
 const TN_DEBUG_UI = process.env.NEXT_PUBLIC_TN_DEBUG === "1";
 
 function TwentyNineViewComponent() {
-  const { me, tnState, status, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots, tnSyncHand, removePlayer } = useGame();
+  const { me, tnState, status, isReconnecting, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots, tnSyncHand, removePlayer } = useGame();
   const [showRules, setShowRules] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -101,6 +101,14 @@ function TwentyNineViewComponent() {
           </button>
         </div>
       </header>
+
+      {/* Reconnecting Alert Banner */}
+      {(status !== "online" || isReconnecting) && (
+        <div className="mx-auto mt-2 flex w-full max-w-lg items-center justify-center gap-2 rounded-xl bg-amber-500/20 px-4 py-2 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider backdrop-blur-sm animate-pulse z-50 shadow-lg select-none">
+          <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+          <span>Connection interrupted · Reconnecting to table...</span>
+        </div>
+      )}
 
       {/* Mobile Live Round Progress HUD */}
       <div className="sm:hidden px-3 pt-2 w-full max-w-full">

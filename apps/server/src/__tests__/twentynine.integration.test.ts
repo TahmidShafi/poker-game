@@ -2672,8 +2672,122 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
       hostManual.disconnect();
       for (let i = 1; i < 4; i++) seats[i]!.socket.disconnect();
     }, 45000);
+
+    it("TEST 7: Idle time disconnect reproduction, rejection notification, and post-reconnect play pipeline", async () => {
+      const { seats, code } = await makeTnRoom(false);
+      const host = seats[0]!;
+      const hostToken = host.token;
+
+      // 1. Progress to BIDDING
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "BIDDING");
+
+      // 2. Simple auction: Seats 3, 2, 1 pass, Host bids 16 -> reaches TRUMP_SETUP
+      for (let g = 0; g < 25; g++) {
+        const st = latestOf(host.log);
+        if (!st || st.phase !== "BIDDING") break;
+        const turn = st.bids?.turnSeatIndex;
+        if (turn === null || turn === undefined) { await sleep(40); continue; }
+        const s = seats.find(x => x.seatIndex === turn)!;
+        if (turn === 0) {
+          s.socket.emit("GAME29_BID", { bid: 16 });
+        } else {
+          s.socket.emit("GAME29_BID", {}); // pass
+        }
+        await sleep(60);
+      }
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "TRUMP_SETUP");
+
+      // 3. Host declares trump
+      const hostCards = myCardsOf(host, 1);
+      const suit = dominantSuit(hostCards);
+      host.socket.emit("GAME29_DECLARE_TRUMP", { choice: suit });
+
+      // 4. Progress past SINGLE_HAND_DECISION to PLAYING
+      await skipSingleHandForAll(seats);
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "PLAYING", 10000);
+
+      // Verify all 4 players received batch 2 (8 cards total)
+      for (const s of seats) {
+        await pollUntil(() => myCardsOf(s, 1).length === 8, 6000, `seat ${s.seatIndex} 8 cards`);
+      }
+
+      // Trick 1 progression: Seat 3 leads, then Seat 2, then Seat 1
+      for (const sIndex of [3, 2, 1]) {
+        await pollUntil(() => latestOf(host.log)?.actingSeatIndex === sIndex, 5000, `acting seat ${sIndex}`);
+        const st = latestOf(host.log)!;
+        const seatActor = seats[sIndex]!;
+        const remaining = myCardsOf(seatActor, 1);
+        const legal = legalMirror(remaining, st.trick);
+        expect(legal.length).toBeGreaterThan(0);
+        seatActor.socket.emit("GAME29_PLAY_CARD", { card: legal[0]! });
+        await sleep(50);
+      }
+
+      // Now turn reaches Seat 0 (the Host)!
+      await pollUntil(() => latestOf(host.log)?.actingSeatIndex === 0, 5000, "host turn reached");
+      const hostTurnState = latestOf(host.log)!;
+      expect(hostTurnState.actingSeatIndex).toBe(0);
+      expect(hostTurnState.trick.length).toBe(3);
+
+      // 5. SIMULATE IDLE TIME FAILURE: Host socket experiences idle transport disconnect / ping timeout
+      host.socket.disconnect();
+      await sleep(150);
+
+      const room = ps.registry.get(code) as TwentyNineGameManager;
+      expect(room.publicState().seats[0]!.status).toBe("DISCONNECTED");
+
+      // 6. Attempt play on a fresh socket BEFORE authenticated RECONNECT:
+      // Must NOT fail silently: server must reject with ACTION_REJECTED
+      const freshSocket = connect();
+      const freshLog = recorder(freshSocket);
+
+      const cardAttempt = { rank: 11 as const, suit: "HEARTS" as const };
+      freshSocket.emit("GAME29_PLAY_CARD", { card: cardAttempt });
+
+      await pollUntil(
+        () => freshLog.some((e) => e.ev === "ACTION_REJECTED"),
+        5000,
+        "ACTION_REJECTED on unauthenticated socket"
+      );
+      const rej = freshLog.find((e) => e.ev === "ACTION_REJECTED")!;
+      expect(rej.data).toEqual(
+        expect.objectContaining({
+          reason: expect.stringContaining("reconnecting"),
+        })
+      );
+
+      // 7. Now execute authenticated RECONNECT with original sessionToken
+      const reAck = await emitAck(freshSocket, "RECONNECT", { sessionToken: hostToken });
+      expect(reAck.ok).toBe(true);
+      expect(reAck.seatIndex).toBe(0);
+      expect(room.publicState().seats[0]!.status).toBe("SEATED");
+
+      // Verify FULL_RECONNECT hand delivered
+      await pollUntil(() => freshLog.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "reconnect hand");
+      const fullHandEv = freshLog.find((e) => e.ev === "YOUR_TN_HAND")!;
+      const fullHandData = fullHandEv.data as { batch: string; cards: TnCard[] };
+      expect(fullHandData.batch).toBe("FULL_RECONNECT");
+      expect(fullHandData.cards.length).toBe(8); // trick 1 not completed yet
+
+      // 8. Now play legal card on authenticated socket
+      const legal = legalMirror(fullHandData.cards, hostTurnState.trick);
+      expect(legal.length).toBeGreaterThan(0);
+      const cardToPlay = legal[0]!;
+
+      freshSocket.emit("GAME29_PLAY_CARD", { card: cardToPlay });
+
+      // Settle trick completion and verify trick finished
+      await sleep(200);
+
+      // Verify hand cards decreased to 7 on the server
+      expect(room.match.seats[0]!.hand.length).toBe(7);
+
+      freshSocket.disconnect();
+      for (let i = 1; i < 4; i++) seats[i]!.socket.disconnect();
+    }, 45000);
   });
 });
 });
+
 
 

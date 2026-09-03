@@ -149,6 +149,7 @@ export interface GameContextValue {
   tnSingleHandDecision: (declare: boolean) => void;
   tnFillBots: () => void;
   tnSyncHand: () => void;
+  isHandSynced?: boolean;
 }
 
 // Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
@@ -164,6 +165,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [isReconnecting, setIsReconnecting] = useState<boolean>(
     () => typeof window !== "undefined" && Boolean(localStorage.getItem(TOKEN_KEY))
   );
+  const [isHandSynced, setIsHandSynced] = useState<boolean>(true);
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false);
 
   useEffect(() => {
@@ -348,9 +350,95 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const socket = createSocket();
     socketRef.current = socket;
 
-    socket.on("connect", () => setStatus("online"));
-    socket.on("disconnect", () => setStatus("offline"));
-    socket.on("connect_error", () => setStatus("offline"));
+    socket.on("connect", () => {
+      console.log("[TN_SOCKET_CONNECT]", {
+        socketId: socket.id,
+        transport: socket.io?.engine?.transport?.name,
+        timestamp: Date.now(),
+      });
+      setStatus("online");
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.log("[TN_SOCKET_DISCONNECT]", {
+        reason,
+        socketId: socket.id,
+        timestamp: Date.now(),
+      });
+      setStatus("offline");
+      setIsReconnecting(true);
+      setIsHandSynced(false);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.log("[TN_SOCKET_CONNECT_ERROR]", {
+        message: err.message,
+        socketId: socket.id,
+        transport: socket.io?.engine?.transport?.name,
+        timestamp: Date.now(),
+      });
+      setStatus("offline");
+      setIsReconnecting(true);
+      setIsHandSynced(false);
+    });
+
+    socket.io.on("reconnect_attempt", (attempt) => {
+      console.log("[TN_SOCKET_RECONNECT_ATTEMPT]", { attempt, timestamp: Date.now() });
+      setIsReconnecting(true);
+      setIsHandSynced(false);
+    });
+
+    socket.io.on("reconnect", (attempt) => {
+      console.log("[TN_SOCKET_RECONNECT]", {
+        attempt,
+        newSocketId: socket.id,
+        timestamp: Date.now(),
+      });
+    });
+
+    socket.io.on("reconnect_error", (err) => {
+      console.log("[TN_SOCKET_RECONNECT_ERROR]", {
+        message: (err as Error).message,
+        timestamp: Date.now(),
+      });
+    });
+
+    socket.io.on("reconnect_failed", () => {
+      console.log("[TN_SOCKET_RECONNECT_FAILED]", { timestamp: Date.now() });
+    });
+
+    // Engine-level heartbeat / ping-pong monitoring
+    const setupEngineHeartbeat = () => {
+      const engine = socket.io?.engine;
+      if (!engine) return;
+
+      engine.on("packet", (packet: { type: string; data?: unknown }) => {
+        if (packet.type === "pong") {
+          console.log("[TN_SOCKET_HEARTBEAT_PONG]", {
+            socketId: socket.id,
+            timestamp: Date.now(),
+          });
+        }
+      });
+
+      engine.on("packetCreate", (packet: { type: string; data?: unknown }) => {
+        if (packet.type === "ping") {
+          console.log("[TN_SOCKET_HEARTBEAT_PING]", {
+            socketId: socket.id,
+            timestamp: Date.now(),
+          });
+        }
+      });
+    };
+
+    setupEngineHeartbeat();
+    socket.io.on("open", setupEngineHeartbeat);
+    (socket.io.engine as unknown as { on?: (ev: string, cb: () => void) => void })?.on?.("upgrade", setupEngineHeartbeat);
+
+    socket.on("ACTION_REJECTED", (data: { reason: string }) => {
+      console.warn("[TN_ACTION_REJECTED]", data);
+      pushToast(data.reason, "error");
+    });
 
     socket.on("GAME_STATE", (s) => {
       setState(s);
@@ -532,6 +620,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         };
       }
       publishMyTnHand();
+      setIsHandSynced(true);
     });
     socket.on("TN_BIDDER_PRIVATE", (p) => {
       setTnBidderPrivate(p);
@@ -944,28 +1033,50 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const tnPlayCardFn = useCallback((card: TnCard) => {
     void unlockAudio();
+    const s = socketRef.current;
+    const isConnected = s?.connected ?? false;
+
     console.log("[TN_PLAY_REQUEST]", {
       card,
       seatIndex: meRef.current?.seatIndex,
       phase: tnStateRef.current?.phase,
       actingSeat: tnStateRef.current?.actingSeatIndex,
-      connected: socketRef.current?.connected,
-      socketId: socketRef.current?.id,
+      connected: isConnected,
+      socketId: s?.id,
+      isReconnecting,
+      status,
+      isHandSynced,
     });
     console.log("[TN_STATE_COMPARISON]", {
       reactSeatIndex: me?.seatIndex,
       meRefSeatIndex: meRef.current?.seatIndex,
       tnActingSeat: tnStateRef.current?.actingSeatIndex,
       tnPhase: tnStateRef.current?.phase,
-      socketConnected: socketRef.current?.connected,
-      socketId: socketRef.current?.id,
+      socketConnected: isConnected,
+      socketId: s?.id,
+      isReconnecting,
+      status,
     });
+
+    if (!isConnected || isReconnecting) {
+      console.warn("[TN_PLAY_BLOCKED_OFFLINE]", {
+        card,
+        connected: isConnected,
+        isReconnecting,
+        status,
+        socketId: s?.id,
+      });
+      pushToast("Connection lost. Reconnecting to table before playing...", "error");
+      return;
+    }
+
     console.log("[TN_PLAY_EMIT]", {
       event: "GAME29_PLAY_CARD",
       payload: { card },
+      socketId: s?.id,
     });
-    socketRef.current?.emit("GAME29_PLAY_CARD", { card });
-  }, [me]);
+    s?.emit("GAME29_PLAY_CARD", { card });
+  }, [me, isReconnecting, status, isHandSynced, pushToast]);
   const tnSingleHandDecisionFn = useCallback((declare: boolean) => {
     void unlockAudio();
     socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
@@ -998,6 +1109,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       serverUrl: SERVER_URL,
       status,
       isReconnecting,
+      isHandSynced,
       audioUnlocked,
       unlockAudio,
       me,
@@ -1043,7 +1155,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnSyncHand: tnSyncHandFn,
     }),
     [
-      status, isReconnecting, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
+      status, isReconnecting, isHandSynced, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
       myCards, showdown, clearShowdown, toast, pushToast, incomingLoan, dismissIncomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,

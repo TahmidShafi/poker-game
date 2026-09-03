@@ -15,12 +15,14 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
 }
 
 function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
-  const { me, meRef, myTnCards, tnPlayCard, tnBidderPrivate } = useGame();
+  const { me, meRef, myTnCards, tnPlayCard, tnBidderPrivate, status, isReconnecting, isHandSynced, pushToast } = useGame();
   const mySeat = me?.seatIndex ?? meRef?.current?.seatIndex ?? null;
   const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
   const seventhCard = isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR" ? tnBidderPrivate.indicatorCard : null;
 
-  // Cards are clickable EXACTLY when it is my turn in the PLAYING phase.
+  const isConnectionReady = status === "online" && !isReconnecting && (isHandSynced ?? true);
+
+  // Cards are clickable EXACTLY when it is my turn in the PLAYING phase and connection is ready.
   // During bidding/trump-setup the fan stays visible but inert (never
   // "enabled-looking"), so a click can never fire an out-of-phase action.
   const playing = state.phase === "PLAYING";
@@ -40,7 +42,7 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
     <div className="flex items-end justify-center -space-x-2.5 sm:space-x-1.5 px-2">
       {myTnCards.map((c, idx) => {
         const isLegal = legalKeys.has(`${c.rank}${c.suit}`);
-        const clickable = myTurn && isLegal;
+        const clickable = isConnectionReady && myTurn && isLegal;
         const disabled = !clickable;
         const isSeventh = seventhCard && c.suit === seventhCard.suit && c.rank === seventhCard.rank;
 
@@ -52,6 +54,7 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
           phase: state.phase,
           isMyTurn: myTurn,
           canPlayCard: isLegal,
+          isConnectionReady,
           disabled,
           handLength: myTnCards.length,
         });
@@ -61,6 +64,16 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
             key={`${c.rank}${c.suit}`}
             disabled={disabled}
             onClick={() => {
+              if (!isConnectionReady) {
+                console.warn("[TN_CARD_CLICK_BLOCKED]", {
+                  card: c,
+                  status,
+                  isReconnecting,
+                  isHandSynced,
+                });
+                pushToast("Connection lost. Reconnecting to table before playing...", "error");
+                return;
+              }
               console.log("[TN_CARD_CLICK]", {
                 card: c,
                 reactSeatIndex: me?.seatIndex,
@@ -74,10 +87,12 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
             }}
             className={`relative transition-all ${
               clickable ? "hover:-translate-y-3 cursor-pointer hover:z-30 active:scale-95" : ""
-            } ${myTurn && !isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
+            } ${!isConnectionReady ? "opacity-40 grayscale" : myTurn && !isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
             style={{ zIndex: idx }}
             title={
-              clickable
+              !isConnectionReady
+                ? "reconnecting to table..."
+                : clickable
                 ? "play this card"
                 : myTurn
                 ? "not legal — follow suit"

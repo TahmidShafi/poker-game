@@ -100,6 +100,24 @@ export function registerSocketHandlers(
   }
 
   io.on("connection", (socket: SocketType) => {
+    console.log("[TN_SERVER_CONNECT]", {
+      socketId: socket.id,
+      transport: (socket.conn as unknown as { transport?: { name?: string } })?.transport?.name,
+      timestamp: Date.now(),
+    });
+
+    (socket.conn as unknown as { on?: (ev: string, cb: (p: { type: string }) => void) => void })?.on?.("packet", (p) => {
+      if (p.type === "ping") {
+        console.log("[TN_SERVER_HEARTBEAT_PING]", { socketId: socket.id, timestamp: Date.now() });
+      }
+    });
+
+    (socket.conn as unknown as { on?: (ev: string, cb: (p: { type: string }) => void) => void })?.on?.("packetCreate", (p) => {
+      if (p.type === "pong") {
+        console.log("[TN_SERVER_HEARTBEAT_PONG]", { socketId: socket.id, timestamp: Date.now() });
+      }
+    });
+
     // ---- CREATE_ROOM -----------------------------------------------------
     socket.on("CREATE_ROOM", (payload, ack) => {
       if (typeof payload !== "object" || payload === null || !isNonEmptyString(payload.username)) {
@@ -382,6 +400,7 @@ export function registerSocketHandlers(
 
       if (!tn) {
         console.log("[TN_PLAY_REJECTED]", { socketId: socket.id, reason: "you are not in a 29 room" });
+        socket.emit("ACTION_REJECTED", { reason: "you are not in a 29 room - table reconnecting" });
         return;
       }
       if (
@@ -436,8 +455,17 @@ export function registerSocketHandlers(
     });
 
     // ---- DISCONNECT ----------------------------------------------------------
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
       const room = findRoomOf(registry, socket.id);
+      const rec = room?.findPlayerBySocket(socket.id);
+      console.log("[TN_SERVER_DISCONNECT]", {
+        socketId: socket.id,
+        reason,
+        roomCode: room?.roomCode,
+        seatIndex: rec?.seatIndex,
+        playerId: rec?.playerId,
+        timestamp: Date.now(),
+      });
       if (room) room.disconnectSocket(socket.id);
     });
   });
