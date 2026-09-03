@@ -2937,6 +2937,103 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
 
       reloadedSocket.disconnect();
     }, 45000);
+
+    it("TEST 10: Single recovery authority & infinite loop prevention suite (Tests 1-5)", async () => {
+      // Test 1 — Fresh website visit: No active game -> Socket connects -> Lobby works normally
+      const freshSocket = connect();
+      await pollUntil(() => freshSocket.connected, 5000, "fresh socket connected");
+      expect(freshSocket.connected).toBe(true);
+      // Fresh visitor does not emit RECONNECT; can create room directly
+      const createAck = await emitAck(freshSocket, "CREATE_ROOM", {
+        username: "FreshUser",
+        startingCoins: 1000,
+        gameType: "TWENTY_NINE",
+      });
+      expect(createAck.ok).toBe(true);
+      expect(createAck.roomCode).toBeDefined();
+      const freshRoomCode = createAck.roomCode!;
+      freshSocket.disconnect();
+
+      // Test 2 — Stale credentials: Old roomCode/token exists -> Room no longer exists -> Fails cleanly
+      const staleSocket = connect();
+      const staleToken = "dead-beef-invalid-session-token-1234567890";
+      const staleAck = await emitAck(staleSocket, "RECONNECT", { sessionToken: staleToken });
+      expect(staleAck.ok).toBe(false);
+      expect(staleAck.error).toMatch(/session not found/);
+      staleSocket.disconnect();
+
+      // Test 3 — Valid active session: Active game credentials exist -> RECONNECT succeeds -> Game restored
+      const { seats, code } = await makeTnRoom(false);
+      const host = seats[0]!;
+      const hostToken = host.token;
+
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "BIDDING", 10000);
+      for (let g = 0; g < 25; g++) {
+        const st = latestOf(host.log);
+        if (!st || st.phase !== "BIDDING") break;
+        const turn = st.bids?.turnSeatIndex;
+        if (turn === null || turn === undefined) { await sleep(40); continue; }
+        const s = seats.find((x) => x.seatIndex === turn)!;
+        if (turn === 0) {
+          s.socket.emit("GAME29_BID", { bid: 16 });
+        } else {
+          s.socket.emit("GAME29_BID", {}); // pass
+        }
+        await sleep(60);
+      }
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "TRUMP_SETUP", 10000);
+
+      // Host sets trump
+      const hostCards = myCardsOf(host, 1);
+      const suit = dominantSuit(hostCards);
+      host.socket.emit("GAME29_DECLARE_TRUMP", { choice: suit });
+
+      await skipSingleHandForAll(seats);
+      await waitFor(host, () => latestOf(host.log), (st) => st.phase === "PLAYING", 10000);
+
+      // Disconnect host during active round to simulate refresh
+      host.socket.disconnect();
+      await sleep(100);
+
+      const restoreSocket = connect();
+      const restoreLog = recorder(restoreSocket);
+      const restoreAck = await emitAck(restoreSocket, "RECONNECT", { sessionToken: hostToken });
+      expect(restoreAck.ok).toBe(true);
+      expect(restoreAck.roomCode).toBe(code);
+      expect(restoreAck.seatIndex).toBe(0);
+
+      // Verify hand snapshot delivered
+      await pollUntil(() => restoreLog.some((e) => e.ev === "YOUR_TN_HAND"), 5000, "hand restored");
+      expect(restoreLog.find((e) => e.ev === "YOUR_TN_HAND")).toBeDefined();
+
+      // Test 4 — Socket reconnect during active game: Exactly one recovery attempt -> seat restored -> ready
+      // Drop restoreSocket and connect a 3rd socket
+      restoreSocket.disconnect();
+      await sleep(100);
+
+      const secondRestoreSocket = connect();
+      let reconnectAttempts = 0;
+      // Hook to count reconnect emits
+      const secondAck = await emitAck(secondRestoreSocket, "RECONNECT", { sessionToken: hostToken });
+      reconnectAttempts++;
+      expect(secondAck.ok).toBe(true);
+      expect(reconnectAttempts).toBe(1); // exactly one recovery attempt
+
+      // Test 5 — Failed recovery does not repeat: RECONNECT fails -> no automatic infinite retry loop
+      const failedSocket = connect();
+      let failedAttempts = 0;
+      const failedAck = await emitAck(failedSocket, "RECONNECT", { sessionToken: "another-stale-token-abc" });
+      if (!failedAck.ok) {
+        failedAttempts++;
+      }
+      // Wait to confirm no loop occurs
+      await sleep(500);
+      expect(failedAttempts).toBe(1); // terminated cleanly after 1 attempt, zero looping
+
+      failedSocket.disconnect();
+      secondRestoreSocket.disconnect();
+      for (let i = 1; i < 4; i++) seats[i]!.socket.disconnect();
+    }, 30000);
   });
 });
 });

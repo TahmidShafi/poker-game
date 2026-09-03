@@ -103,7 +103,7 @@ function TwentyNineViewComponent() {
       </header>
 
       {/* Reconnecting Alert Banner */}
-      {(status !== "online" || isReconnecting || (gameSessionStatus && gameSessionStatus !== "READY")) && (
+      {(status !== "online" || isReconnecting || (gameSessionStatus && gameSessionStatus !== "READY" && gameSessionStatus !== "IDLE")) && (
         <div className="mx-auto mt-2 flex w-full max-w-lg items-center justify-center gap-2 rounded-xl bg-amber-500/20 px-4 py-2 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider backdrop-blur-sm animate-pulse z-50 shadow-lg select-none">
           <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
           <span>

@@ -154,12 +154,14 @@ export interface GameContextValue {
 }
 
 export type GameSessionStatus =
+  | "IDLE"
   | "OFFLINE"
   | "CONNECTING"
   | "SOCKET_CONNECTED"
   | "RECLAIMING_SESSION"
   | "SYNCING_GAME_STATE"
-  | "READY";
+  | "READY"
+  | "RECOVERY_FAILED";
 
 // Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
 // supply a mock value without touching the socket lifecycle.
@@ -171,17 +173,29 @@ const ROOM_KEY = "poker.roomCode";
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<PokerSocket | null>(null);
   const [status, setStatus] = useState<ConnStatus>("connecting");
-  const [isReconnecting, setIsReconnecting] = useState<boolean>(
-    () => typeof window !== "undefined" && Boolean(localStorage.getItem(TOKEN_KEY))
-  );
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const token = localStorage.getItem(TOKEN_KEY);
+    const room = localStorage.getItem(ROOM_KEY);
+    return Boolean(token && room);
+  });
   const [isHandSynced, setIsHandSynced] = useState<boolean>(true);
-  const [gameSessionStatus, setGameSessionStatus] = useState<GameSessionStatus>(() =>
-    typeof window !== "undefined" && Boolean(localStorage.getItem(TOKEN_KEY))
-      ? "CONNECTING"
-      : "OFFLINE"
-  );
+  const [gameSessionStatus, setGameSessionStatus] = useState<GameSessionStatus>(() => {
+    if (typeof window === "undefined") return "IDLE";
+    const token = localStorage.getItem(TOKEN_KEY);
+    const room = localStorage.getItem(ROOM_KEY);
+    return Boolean(token && room) ? "CONNECTING" : "IDLE";
+  });
+  const gameSessionStatusRef = useRef<GameSessionStatus>(gameSessionStatus);
+  useEffect(() => {
+    gameSessionStatusRef.current = gameSessionStatus;
+  }, [gameSessionStatus]);
+
+  const recoveryInProgressRef = useRef<boolean>(false);
+  const recoveryAttemptIdRef = useRef<number>(0);
+  const lastRecoveredSocketIdRef = useRef<string | null>(null);
   const previousSocketIdRef = useRef<string | null>(null);
-  const triggerSessionRecoveryRef = useRef<(s?: PokerSocket | null) => void>(() => {});
+  const triggerSessionRecoveryRef = useRef<(s?: PokerSocket | null, source?: string) => void>(() => {});
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false);
 
   useEffect(() => {
@@ -385,7 +399,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       previousSocketIdRef.current = newId ?? null;
       setStatus("online");
       setGameSessionStatus("SOCKET_CONNECTED");
-      triggerSessionRecoveryRef.current?.(socket);
+      triggerSessionRecoveryRef.current?.(socket, "SOCKET_CONNECT");
     });
 
     socket.on("disconnect", (reason) => {
@@ -395,9 +409,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now(),
       });
       setStatus("offline");
-      setIsReconnecting(true);
+      setIsReconnecting(Boolean(meRef.current));
       setIsHandSynced(false);
       setGameSessionStatus("OFFLINE");
+      recoveryInProgressRef.current = false;
     });
 
     socket.on("connect_error", (err) => {
@@ -408,9 +423,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now(),
       });
       setStatus("offline");
-      setIsReconnecting(true);
+      setIsReconnecting(Boolean(meRef.current));
       setIsHandSynced(false);
-      setGameSessionStatus("CONNECTING");
+      setGameSessionStatus("OFFLINE");
+      recoveryInProgressRef.current = false;
     });
 
     socket.io.on("reconnect_attempt", (attempt) => {
@@ -419,7 +435,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         socketId: socket.id,
         timestamp: Date.now(),
       });
-      setIsReconnecting(true);
+      setIsReconnecting(Boolean(meRef.current));
       setIsHandSynced(false);
       setGameSessionStatus("CONNECTING");
     });
@@ -868,36 +884,72 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 
   const triggerSessionRecovery = useCallback(
-    (s?: PokerSocket | null) => {
+    (s?: PokerSocket | null, source = "UNKNOWN") => {
       const sock = s ?? socketRef.current;
-      if (!sock || !sock.connected) return;
-
+      const socketId = sock?.id ?? null;
+      const prevSocketId = previousSocketIdRef.current;
       const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      const room = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null;
       const currentToken = meRef.current?.sessionToken ?? token;
-      const storedRoomCode = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : (meRef.current?.roomCode ?? null);
+      const storedRoomCode = meRef.current?.roomCode ?? room;
 
-      console.log("[TN_SESSION_RECOVERY_START]", {
-        socketId: sock.id,
-        hasToken: !!currentToken,
+      const attemptId = recoveryAttemptIdRef.current + 1;
+
+      console.log("[TN_RECOVERY_TRIGGER]", {
+        source,
+        socketId,
+        previousSocketId: prevSocketId,
         roomCode: storedRoomCode,
-        seatIndex: meRef.current?.seatIndex,
-        isReconnecting: true,
-        sessionStatus: "RECLAIMING_SESSION",
+        hasToken: !!currentToken,
+        currentGameSessionStatus: gameSessionStatusRef.current,
+        recoveryInProgress: recoveryInProgressRef.current,
+        recoveryAttemptId: attemptId,
         timestamp: Date.now(),
       });
 
-      if (!currentToken) {
-        setIsReconnecting(false);
-        setGameSessionStatus("READY");
+      if (!sock || !sock.connected) {
+        console.log("[TN_RECOVERY_SKIP]", { reason: "socket not connected", socketId, source });
         return;
       }
 
-      console.log("[TN_SESSION_RECOVERY_TOKEN_FOUND]", {
-        socketId: sock.id,
-        tokenLength: currentToken.length,
-        roomCode: storedRoomCode,
-        timestamp: Date.now(),
-      });
+      // Single authority lock: Do NOT allow multiple concurrent recoveries
+      if (recoveryInProgressRef.current) {
+        console.log("[TN_RECOVERY_SKIP]", {
+          reason: "recovery already in progress",
+          currentAttemptId: recoveryAttemptIdRef.current,
+          source,
+        });
+        return;
+      }
+
+      // Exactly once per connection generation check for automatic connect triggers
+      if (lastRecoveredSocketIdRef.current === sock.id && source === "SOCKET_CONNECT") {
+        console.log("[TN_RECOVERY_SKIP]", {
+          reason: "already attempted for this socket.id",
+          socketId: sock.id,
+          source,
+        });
+        return;
+      }
+
+      // Case A — Normal website/lobby entry:
+      // No active game session to recover (no token, or no roomCode and not in an active room)
+      if (!currentToken || (!storedRoomCode && !meRef.current)) {
+        console.log("[TN_RECOVERY_TERMINATE]", {
+          reason: "no active game session to recover (Case A)",
+          hasToken: !!currentToken,
+          hasRoom: !!storedRoomCode,
+          source,
+        });
+        setIsReconnecting(false);
+        setGameSessionStatus("IDLE");
+        return;
+      }
+
+      // Case B or C: Begin recovery attempt
+      recoveryInProgressRef.current = true;
+      recoveryAttemptIdRef.current = attemptId;
+      lastRecoveredSocketIdRef.current = sock.id ?? null;
 
       setGameSessionStatus("RECLAIMING_SESSION");
       setIsReconnecting(true);
@@ -906,22 +958,39 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         socketId: sock.id,
         roomCode: storedRoomCode,
         seatIndex: meRef.current?.seatIndex,
+        attemptId,
+        source,
         timestamp: Date.now(),
       });
 
       let resolved = false;
       const fallbackTimer = setTimeout(() => {
-        if (!resolved) {
+        if (!resolved && recoveryAttemptIdRef.current === attemptId) {
           resolved = true;
+          recoveryInProgressRef.current = false;
           setIsReconnecting(false);
-          setGameSessionStatus("READY");
+          setGameSessionStatus("RECOVERY_FAILED");
+          console.warn("[TN_RECOVERY_TIMEOUT]", { attemptId, socketId: sock.id });
+          setTimeout(() => {
+            if (gameSessionStatusRef.current === "RECOVERY_FAILED") {
+              setGameSessionStatus("IDLE");
+            }
+          }, 100);
         }
       }, 8000);
 
       sock.emit("RECONNECT", { sessionToken: currentToken }, (ack) => {
-        if (resolved) return;
+        // Discard stale acknowledgements
+        if (resolved || recoveryAttemptIdRef.current !== attemptId) {
+          console.log("[TN_RECOVERY_STALE_ACK_IGNORED]", {
+            attemptId,
+            currentAttemptId: recoveryAttemptIdRef.current,
+          });
+          return;
+        }
         resolved = true;
         clearTimeout(fallbackTimer);
+        recoveryInProgressRef.current = false;
 
         console.log("[TN_SESSION_RECONNECT_ACK]", {
           ok: ack.ok,
@@ -931,10 +1000,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           gameType: ack.gameType,
           phase: ack.tnState?.phase,
           socketId: sock.id,
+          attemptId,
           timestamp: Date.now(),
         });
 
         if (ack.ok) {
+          // Case B — Valid active game recovery
           setGameSessionStatus("SYNCING_GAME_STATE");
           console.log("[TN_SESSION_SYNC_STATE]", {
             socketId: sock.id,
@@ -945,13 +1016,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           });
           bindAck(sock, ack);
         } else {
+          // Case C — Recovery fails (room not found, session expired, invalid token)
+          console.log("[TN_RECOVERY_FAILED_TERMINATING]", {
+            error: ack.error,
+            attemptId,
+            socketId: sock.id,
+          });
+
           setIsReconnecting(false);
-          setGameSessionStatus("OFFLINE");
-          if (ack.error && ack.error.includes("session not found")) {
-            pushToast("Session expired or table closed", "info");
-            meRef.current = null;
-            setMe(null);
+          setGameSessionStatus("RECOVERY_FAILED");
+
+          // Clean up stale invalid credentials so future visits go straight to Lobby
+          if (typeof window !== "undefined") {
+            localStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem(ROOM_KEY);
           }
+          meRef.current = null;
+          setMe(null);
+
+          pushToast("Previous session expired or table closed", "info");
+
+          // Clean terminal transition to IDLE
+          setGameSessionStatus("IDLE");
         }
       });
     },
@@ -959,21 +1045,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 
   triggerSessionRecoveryRef.current = triggerSessionRecovery;
-
-  // Safety trigger: if socket is online but gameSessionStatus remains disconnected with token:
-  useEffect(() => {
-    if (
-      status === "online" &&
-      (gameSessionStatus === "OFFLINE" ||
-        gameSessionStatus === "CONNECTING" ||
-        gameSessionStatus === "SOCKET_CONNECTED")
-    ) {
-      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
-      if (token || meRef.current?.sessionToken) {
-        triggerSessionRecovery();
-      }
-    }
-  }, [status, gameSessionStatus, triggerSessionRecovery]);
 
   const createRoom = useCallback(
     (username: string, cfg: RoomConfig, avatar?: number, extra?: { vsBots?: boolean }) => {
@@ -1043,19 +1114,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const tryReconnect = useCallback((token: string) => {
     void unlockAudio();
-    const s = socketRef.current;
-    if (!s) return;
-    setIsReconnecting(true);
-    s.emit("RECONNECT", { sessionToken: token }, (ack) => {
-      setIsReconnecting(false);
-      if (ack.ok) {
-        bindAck(s, ack);
-      } else {
-        meRef.current = null;
-        setMe(null);
-      }
-    });
-  }, [bindAck]);
+    if (token && typeof window !== "undefined") {
+      localStorage.setItem(TOKEN_KEY, token);
+    }
+    triggerSessionRecoveryRef.current?.(socketRef.current, "MANUAL_RECONNECT");
+  }, []);
 
   const leaveRoom = useCallback(() => {
     socketRef.current?.emit("LEAVE_ROOM");
@@ -1189,7 +1252,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now(),
       });
       pushToast("Reconnecting to game. Please wait...", "info");
-      triggerSessionRecoveryRef.current?.(s);
+      triggerSessionRecoveryRef.current?.(s, "PLAY_BLOCKED");
       return;
     }
 
