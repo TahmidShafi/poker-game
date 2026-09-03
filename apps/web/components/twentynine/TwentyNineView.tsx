@@ -174,7 +174,7 @@ function TwentyNineViewComponent() {
             return (
               <div
                 key={s.seatIndex}
-                className={`absolute ${REL_POS[rel]} z-40 pointer-events-auto`}
+                className={`absolute ${REL_POS[rel]} z-20 pointer-events-auto`}
               >
                 <SeatCard
                   seat={s}
@@ -194,7 +194,7 @@ function TwentyNineViewComponent() {
       </main>
 
       {/* Bid + hand live in the fixed dock */}
-      <footer className="fixed inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3 w-full max-w-full pointer-events-none">
+      <footer className="fixed inset-x-0 bottom-0 z-40 space-y-2 bg-gradient-to-t from-room via-room/95 to-transparent pb-4 pt-3 w-full max-w-full pointer-events-none">
         {TN_DEBUG_UI && (
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 text-[9.5px] uppercase tracking-widest text-white/25 pointer-events-auto">
             <span>J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7 · points J3 9·2 A·1 10·1 · last trick +1</span>

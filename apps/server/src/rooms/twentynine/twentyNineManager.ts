@@ -732,12 +732,16 @@ export class TwentyNineGameManager implements RoomLike {
   ): void {
     if (this.destroyed) return;
     const rec = this.findPlayerBySocket(socketId);
-    if (!rec) return this.reject(socketId, "you are not seated in a room");
+    if (!rec) {
+      console.log(`[TN_PLAY_REJECTED] room=${this.roomCode} socketId=${socketId} reason=not_seated`);
+      return this.reject(socketId, "you are not seated in a room");
+    }
 
     const snap = Snapshot.of(this.match);
     try {
       fn(rec.seatIndex);
     } catch (err) {
+      console.log(`[TN_PLAY_REJECTED] room=${this.roomCode} seat=${rec.seatIndex} reason=${(err as Error).message}`);
       console.log(`[tn ${this.roomCode}] rejected move by seat ${rec.seatIndex}: ${(err as Error).message}`);
       return this.reject(socketId, (err as Error).message);
     }

@@ -172,15 +172,44 @@ export function registerSocketHandlers(
 
     // ---- RECONNECT ---------------------------------------------------------
     socket.on("RECONNECT", (payload, ack) => {
+      const token = typeof payload === "object" && payload !== null && typeof payload.sessionToken === "string" ? payload.sessionToken : "";
+      console.log("[TN_RECONNECT_ATTEMPT]", {
+        tokenPresent: !!token,
+        tokenLength: token.length,
+        socketId: socket.id,
+      });
+
       if (typeof payload !== "object" || payload === null || !isNonEmptyString(payload.sessionToken)) {
+        console.log("[TN_RECONNECT_FAILED]", { reason: "invalid RECONNECT payload", socketId: socket.id });
         return ack?.({ ok: false, error: "invalid RECONNECT payload" });
       }
       const room = registry.findByToken(payload.sessionToken);
-      if (!room) return ack?.({ ok: false, error: "session not found - the table may have closed" });
-      const rec = room.findByToken(payload.sessionToken)!;
+      const rec = room?.findByToken(payload.sessionToken);
+
+      console.log("[TN_RECONNECT_LOOKUP]", {
+        roomFound: !!room,
+        playerFound: !!rec,
+        seatIndex: rec?.seatIndex,
+        isBot: (rec as { isBot?: boolean })?.isBot,
+        socketCount: (rec as { socketIds?: Set<string> })?.socketIds?.size,
+      });
+
+      if (!room || !rec) {
+        console.log("[TN_RECONNECT_FAILED]", { reason: "session not found - the table may have closed", socketId: socket.id });
+        return ack?.({ ok: false, error: "session not found - the table may have closed" });
+      }
+
       socket.join(room.socketRoom());
       room.attachSocket(rec.playerId, socket.id);
       room.broadcastState();
+
+      console.log("[TN_RECONNECT_SUCCESS]", {
+        roomCode: room.roomCode,
+        seatIndex: rec.seatIndex,
+        playerId: rec.playerId,
+        socketId: socket.id,
+      });
+
       return ack?.({
         ok: true,
         roomCode: room.roomCode,
@@ -339,8 +368,22 @@ export function registerSocketHandlers(
     });
 
     socket.on("GAME29_PLAY_CARD", (payload) => {
-      const tn = tnRoomOf();
-      if (!tn) return;
+      const room = findRoomOf(registry, socket.id);
+      const tn = asTnRoom(room);
+      const rec = room?.findPlayerBySocket(socket.id);
+
+      console.log("[TN_PLAY_RECEIVED]", {
+        socketId: socket.id,
+        roomCode: room?.roomCode,
+        playerId: rec?.playerId,
+        seatIndex: rec?.seatIndex,
+        card: (payload as { card?: unknown })?.card,
+      });
+
+      if (!tn) {
+        console.log("[TN_PLAY_REJECTED]", { socketId: socket.id, reason: "you are not in a 29 room" });
+        return;
+      }
       if (
         typeof payload !== "object" ||
         payload === null ||
@@ -351,8 +394,17 @@ export function registerSocketHandlers(
         (payload.card as TnCard).rank < 7 ||
         (payload.card as TnCard).rank > 14
       ) {
+        console.log("[TN_PLAY_REJECTED]", { socketId: socket.id, reason: "malformed card payload" });
         return tn.reject(socket.id, "malformed card payload");
       }
+
+      console.log("[TN_PLAY_PROCESS]", {
+        socketId: socket.id,
+        roomCode: tn.roomCode,
+        seatIndex: rec?.seatIndex,
+        card: payload.card,
+      });
+
       tn.game29PlayCard(socket.id, { suit: (payload.card as TnCard).suit, rank: (payload.card as TnCard).rank });
     });
 

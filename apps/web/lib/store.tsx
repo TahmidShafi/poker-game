@@ -139,6 +139,7 @@ export interface GameContextValue {
   respondLoan: (requestId: string, approve: boolean) => void;
   repayLoan: (creditorSeatIndex: number, amount: number) => void;
   removePlayer: (targetSeatIndex: number) => void;
+  meRef?: React.MutableRefObject<Me | null>;
   // ---- Twenty-Nine actions ----
   tnBid: (bid?: number) => void;
   tnDeclareTrump: (choice: TnSuit | "SEVENTH_CARD" | "JOKER") => void;
@@ -655,13 +656,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           setTnState(null);
           tnStateRef.current = null;
         }
-        // Only wipe out hand cards if changing to a different room
+        // Only wipe out hand cards and private bidder info if changing to a different room
         if (prevCode && prevCode !== cleanCode) {
           setMyTnCards(null);
           myTnHandRef.current = null;
           tnPlayedRef.current = null;
+          setTnBidderPrivate(null);
         }
-        setTnBidderPrivate(null);
         setLastTnRound(null);
         setTnResolvedTrick(null);
         if (resolvedTrickTimer.current) {
@@ -670,6 +671,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
         setSession(EMPTY_STATS);
         setRecentHands([]);
+        console.log("[TN_BIND_ACK]", {
+          meRestored: true,
+          seatIndex: newMe.seatIndex,
+          gameType: effectiveGameType,
+          hasTnState: !!ack.tnState,
+        });
         if (effectiveGameType === "TWENTY_NINE") {
           socket.emit("GAME29_SYNC_HAND");
           
@@ -697,16 +704,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Auto-reconnect via stored token whenever the socket comes online.
   useEffect(() => {
     if (status !== "online") {
-      if (status === "offline") setIsReconnecting(false);
       return;
     }
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
     const currentToken = meRef.current?.sessionToken ?? token;
+    const storedRoomCode = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null;
     
-    console.log("[TN_CLIENT_AUTH_INIT]");
-    console.log(`hasSessionToken=${!!currentToken}`);
-    console.log(`tokenLength=${currentToken?.length ?? 0}`);
-    console.log(`storedRoomCode=${typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null}`);
+    console.log("[TN_CLIENT_AUTH_INIT]", {
+      storedRoomCode,
+      storedTokenExists: !!currentToken,
+      tokenLength: currentToken?.length ?? 0,
+      socketConnected: socketRef.current?.connected ?? false,
+    });
     
     if (!currentToken) {
       setIsReconnecting(false);
@@ -725,26 +734,40 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     }, 6000);
 
+    console.log("[TN_CLIENT_RECONNECT_ATTEMPT]", {
+      roomCode: storedRoomCode,
+      tokenExists: !!currentToken,
+      tokenLength: currentToken.length,
+      socketConnected: s.connected,
+    });
+
+    console.log("[TN_CLIENT_RECONNECT_EMIT]", {
+      roomCode: storedRoomCode,
+      tokenLength: currentToken.length,
+    });
+
     s.emit("RECONNECT", { sessionToken: currentToken }, (ack) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(fallbackTimer);
       setIsReconnecting(false);
+      console.log("[TN_CLIENT_RECONNECT_ACK]", {
+        ok: ack.ok,
+        error: ack.error,
+        roomCode: ack.roomCode,
+        seatIndex: ack.seatIndex,
+        gameType: ack.gameType,
+        phase: ack.tnState?.phase,
+        hasTnState: !!ack.tnState,
+        hasHand: !!ack.tnState,
+      });
       if (ack.ok) {
         bindAck(s, ack);
       } else {
-        const err = (ack.error ?? "").toLowerCase();
-        // Only clear storage if the session/room is genuinely gone/closed
-        if (
-          err.includes("session not found") ||
-          err.includes("no longer exists") ||
-          err.includes("table may have closed")
-        ) {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(ROOM_KEY);
-          meRef.current = null;
-          setMe(null);
-        }
+        // Do NOT destructively wipe localStorage tokens on a failed attempt;
+        // preserving credentials allows user to retry or reclaim their seat.
+        meRef.current = null;
+        setMe(null);
       }
     });
   }, [status, bindAck]);
@@ -773,18 +796,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const cleanName = username.trim();
       const storedRoom = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null;
       const storedToken = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
-      // Only attach sessionToken if it is from the EXACT same room code
+      // Attach sessionToken if it matches this room, or if storedRoom is not set
       const sessionToken =
-        storedRoom && storedRoom.trim().toUpperCase() === cleanCode && storedToken
+        storedToken && (!storedRoom || storedRoom.trim().toUpperCase() === cleanCode)
           ? storedToken
           : undefined;
 
-      console.log("[TN_CLIENT_REJOIN]");
-      console.log(`roomCode=${cleanCode}`);
-      console.log(`hasSessionToken=${!!sessionToken}`);
-      console.log(`tokenLength=${sessionToken?.length ?? 0}`);
-      console.log(`storedRoomCode=${storedRoom}`);
-      console.log(`action=${sessionToken ? "RECONNECT" : "JOIN_ROOM"}`);
+      console.log("[TN_CLIENT_REJOIN]", {
+        roomCode: cleanCode,
+        hasSessionToken: !!sessionToken,
+        tokenLength: sessionToken?.length ?? 0,
+        storedRoomCode: storedRoom,
+        action: sessionToken ? "RECONNECT" : "JOIN_ROOM",
+      });
 
       return new Promise<RoomAck>((resolve) => {
         if (sessionToken) {
@@ -794,15 +818,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             if (ack.ok) {
               resolve(bindAck(s, ack));
             } else {
-              // If reconnect fails (e.g. invalid token, wrong game type), DO NOT fallback.
-              // Resolve the error so the UI shows it and prevents silent unauthenticated join.
-              resolve(bindAck(s, ack));
+              // If RECONNECT with token failed, fall back to JOIN_ROOM with sessionToken
+              s.emit(
+                "JOIN_ROOM",
+                { username: cleanName, roomCode: cleanCode, avatar, sessionToken },
+                (joinAck) => resolve(bindAck(s, joinAck))
+              );
             }
           });
         } else {
           s.emit(
             "JOIN_ROOM",
-            { username: cleanName, roomCode: cleanCode, avatar },
+            { username: cleanName, roomCode: cleanCode, avatar, sessionToken: storedToken ?? undefined },
             (ack) => resolve(bindAck(s, ack))
           );
         }
@@ -821,17 +848,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (ack.ok) {
         bindAck(s, ack);
       } else {
-        const err = (ack.error ?? "").toLowerCase();
-        if (
-          err.includes("session not found") ||
-          err.includes("no longer exists") ||
-          err.includes("table may have closed")
-        ) {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(ROOM_KEY);
-          meRef.current = null;
-          setMe(null);
-        }
+        meRef.current = null;
+        setMe(null);
       }
     });
   }, [bindAck]);
@@ -926,8 +944,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const tnPlayCardFn = useCallback((card: TnCard) => {
     void unlockAudio();
+    console.log("[TN_PLAY_REQUEST]", {
+      card,
+      seatIndex: meRef.current?.seatIndex,
+      phase: tnStateRef.current?.phase,
+      actingSeat: tnStateRef.current?.actingSeatIndex,
+      connected: socketRef.current?.connected,
+      socketId: socketRef.current?.id,
+    });
+    console.log("[TN_STATE_COMPARISON]", {
+      reactSeatIndex: me?.seatIndex,
+      meRefSeatIndex: meRef.current?.seatIndex,
+      tnActingSeat: tnStateRef.current?.actingSeatIndex,
+      tnPhase: tnStateRef.current?.phase,
+      socketConnected: socketRef.current?.connected,
+      socketId: socketRef.current?.id,
+    });
+    console.log("[TN_PLAY_EMIT]", {
+      event: "GAME29_PLAY_CARD",
+      payload: { card },
+    });
     socketRef.current?.emit("GAME29_PLAY_CARD", { card });
-  }, []);
+  }, [me]);
   const tnSingleHandDecisionFn = useCallback((declare: boolean) => {
     void unlockAudio();
     socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
@@ -963,6 +1001,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       audioUnlocked,
       unlockAudio,
       me,
+      meRef,
       state,
       gameType,
       tnState,

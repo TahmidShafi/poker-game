@@ -15,8 +15,8 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
 }
 
 function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
-  const { me, myTnCards, tnPlayCard, tnBidderPrivate } = useGame();
-  const mySeat = me?.seatIndex ?? null;
+  const { me, meRef, myTnCards, tnPlayCard, tnBidderPrivate } = useGame();
+  const mySeat = me?.seatIndex ?? meRef?.current?.seatIndex ?? null;
   const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
   const seventhCard = isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR" ? tnBidderPrivate.indicatorCard : null;
 
@@ -41,13 +41,37 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
       {myTnCards.map((c, idx) => {
         const isLegal = legalKeys.has(`${c.rank}${c.suit}`);
         const clickable = myTurn && isLegal;
+        const disabled = !clickable;
         const isSeventh = seventhCard && c.suit === seventhCard.suit && c.rank === seventhCard.rank;
+
+        console.log("[TN_CARD_INTERACTION]", {
+          card: `${c.rank}${c.suit}`,
+          reactSeatIndex: me?.seatIndex,
+          meRefSeatIndex: meRef?.current?.seatIndex,
+          actingSeat: state.actingSeatIndex,
+          phase: state.phase,
+          isMyTurn: myTurn,
+          canPlayCard: isLegal,
+          disabled,
+          handLength: myTnCards.length,
+        });
 
         return (
           <button
             key={`${c.rank}${c.suit}`}
-            disabled={!clickable}
-            onClick={() => tnPlayCard(c)}
+            disabled={disabled}
+            onClick={() => {
+              console.log("[TN_CARD_CLICK]", {
+                card: c,
+                reactSeatIndex: me?.seatIndex,
+                refSeatIndex: meRef?.current?.seatIndex,
+                phase: state.phase,
+                actingSeat: state.actingSeatIndex,
+                isMyTurn: myTurn,
+                handLength: myTnCards.length,
+              });
+              tnPlayCard(c);
+            }}
             className={`relative transition-all ${
               clickable ? "hover:-translate-y-3 cursor-pointer hover:z-30 active:scale-95" : ""
             } ${myTurn && !isLegal ? "opacity-35 saturate-50" : ""} disabled:cursor-not-allowed`}
