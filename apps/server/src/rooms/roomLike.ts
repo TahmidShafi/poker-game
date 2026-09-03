@@ -32,6 +32,7 @@ export interface RoomLike {
   isDestroyed(): boolean;
   /** Millis epoch of the last moment a socket was attached (idle sweeper). */
   lastActivityAt(): number;
+  lastDisconnectTime?(): number;
   creationTime(): number;
   socketRoom(): string;
 

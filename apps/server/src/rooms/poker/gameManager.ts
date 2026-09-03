@@ -185,6 +185,12 @@ export class GameManager {
     }
   }
 
+  private lastSocketDisconnectAt = 0;
+
+  lastDisconnectTime(): number {
+    return this.lastSocketDisconnectAt;
+  }
+
   /** Timestamp of the last moment any socket was attached to the room. */
   lastActivityAt(): number {
     let latest = 0;
@@ -330,6 +336,7 @@ export class GameManager {
     if (!rec) return;
     rec.socketIds.add(socketId);
     rec.lastSeen = Date.now();
+    this.lastSocketDisconnectAt = 0;
     this.disconnectedSeats.delete(rec.seatIndex);
     const timer = this.disconnectTimers.get(rec.seatIndex);
     if (timer) {
@@ -378,6 +385,16 @@ export class GameManager {
     if (!rec) return;
     rec.socketIds.delete(socketId);
     rec.lastSeen = Date.now();
+    let anyConnected = false;
+    for (const p of this.players.values()) {
+      if (p.socketIds.size > 0) {
+        anyConnected = true;
+        break;
+      }
+    }
+    if (!anyConnected) {
+      this.lastSocketDisconnectAt = Date.now();
+    }
     if (rec.socketIds.size > 0) return; // other tabs still connected
 
     if (this.handNumber === 0 && !this.isHandRunning()) {

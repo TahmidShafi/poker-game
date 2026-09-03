@@ -100,7 +100,7 @@ export function registerSocketHandlers(
   }
 
   io.on("connection", (socket: SocketType) => {
-    console.log("[TN_SERVER_CONNECT]", {
+    console.log("[TN_SERVER_SOCKET_CONNECTED]", {
       socketId: socket.id,
       transport: (socket.conn as unknown as { transport?: { name?: string } })?.transport?.name,
       timestamp: Date.now(),
@@ -192,40 +192,53 @@ export function registerSocketHandlers(
     socket.on("RECONNECT", (payload, ack) => {
       const token = typeof payload === "object" && payload !== null && typeof payload.sessionToken === "string" ? payload.sessionToken : "";
       console.log("[TN_RECONNECT_ATTEMPT]", {
+        socketId: socket.id,
         tokenPresent: !!token,
         tokenLength: token.length,
-        socketId: socket.id,
+        timestamp: Date.now(),
       });
 
       if (typeof payload !== "object" || payload === null || !isNonEmptyString(payload.sessionToken)) {
-        console.log("[TN_RECONNECT_FAILED]", { reason: "invalid RECONNECT payload", socketId: socket.id });
+        console.log("[TN_RECONNECT_FAILED]", { reason: "invalid RECONNECT payload", socketId: socket.id, timestamp: Date.now() });
         return ack?.({ ok: false, error: "invalid RECONNECT payload" });
       }
       const room = registry.findByToken(payload.sessionToken);
       const rec = room?.findByToken(payload.sessionToken);
 
-      console.log("[TN_RECONNECT_LOOKUP]", {
+      console.log("[TN_RECONNECT_TOKEN_LOOKUP]", {
+        socketId: socket.id,
         roomFound: !!room,
         playerFound: !!rec,
         seatIndex: rec?.seatIndex,
         isBot: (rec as { isBot?: boolean })?.isBot,
         socketCount: (rec as { socketIds?: Set<string> })?.socketIds?.size,
+        timestamp: Date.now(),
       });
 
       if (!room || !rec) {
-        console.log("[TN_RECONNECT_FAILED]", { reason: "session not found - the table may have closed", socketId: socket.id });
+        console.log("[TN_RECONNECT_FAILED]", { reason: "session not found - the table may have closed", socketId: socket.id, timestamp: Date.now() });
         return ack?.({ ok: false, error: "session not found - the table may have closed" });
       }
+
+      console.log("[TN_RECONNECT_PLAYER_FOUND]", {
+        socketId: socket.id,
+        roomCode: room.roomCode,
+        seatIndex: rec.seatIndex,
+        playerId: rec.playerId,
+        timestamp: Date.now(),
+      });
 
       socket.join(room.socketRoom());
       room.attachSocket(rec.playerId, socket.id);
       room.broadcastState();
 
-      console.log("[TN_RECONNECT_SUCCESS]", {
+      console.log("[TN_RECONNECT_STATE_SENT]", {
+        socketId: socket.id,
         roomCode: room.roomCode,
         seatIndex: rec.seatIndex,
-        playerId: rec.playerId,
-        socketId: socket.id,
+        gameType: room.gameType,
+        phase: room.gameType === "TWENTY_NINE" ? (room as TwentyNineGameManager).publicState().phase : undefined,
+        timestamp: Date.now(),
       });
 
       return ack?.({
@@ -458,7 +471,7 @@ export function registerSocketHandlers(
     socket.on("disconnect", (reason) => {
       const room = findRoomOf(registry, socket.id);
       const rec = room?.findPlayerBySocket(socket.id);
-      console.log("[TN_SERVER_DISCONNECT]", {
+      console.log("[TN_SERVER_SOCKET_DISCONNECTED]", {
         socketId: socket.id,
         reason,
         roomCode: room?.roomCode,

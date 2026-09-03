@@ -140,6 +140,9 @@ export default function TnPreviewPage() {
     return {
       serverUrl: "http://localhost:4000",
       status: "online",
+      gameSessionStatus: "READY",
+      isReconnecting: false,
+      isHandSynced: true,
       me: { roomCode: state.roomCode ?? "MD86GA", seatIndex: 0, sessionToken: "preview", config: state ? { startingCoins: 1000, smallBlind: 10, bigBlind: 20, turnTimeSeconds: 60, gameType: "TWENTY_NINE" } : undefined },
       state: null,
       gameType: "TWENTY_NINE",

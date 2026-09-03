@@ -150,7 +150,16 @@ export interface GameContextValue {
   tnFillBots: () => void;
   tnSyncHand: () => void;
   isHandSynced?: boolean;
+  gameSessionStatus?: GameSessionStatus;
 }
+
+export type GameSessionStatus =
+  | "OFFLINE"
+  | "CONNECTING"
+  | "SOCKET_CONNECTED"
+  | "RECLAIMING_SESSION"
+  | "SYNCING_GAME_STATE"
+  | "READY";
 
 // Exported so dev-only tooling (e.g. the /dev/tn-preview visual harness) can
 // supply a mock value without touching the socket lifecycle.
@@ -166,6 +175,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     () => typeof window !== "undefined" && Boolean(localStorage.getItem(TOKEN_KEY))
   );
   const [isHandSynced, setIsHandSynced] = useState<boolean>(true);
+  const [gameSessionStatus, setGameSessionStatus] = useState<GameSessionStatus>(() =>
+    typeof window !== "undefined" && Boolean(localStorage.getItem(TOKEN_KEY))
+      ? "CONNECTING"
+      : "OFFLINE"
+  );
+  const previousSocketIdRef = useRef<string | null>(null);
+  const triggerSessionRecoveryRef = useRef<(s?: PokerSocket | null) => void>(() => {});
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false);
 
   useEffect(() => {
@@ -351,12 +367,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = socket;
 
     socket.on("connect", () => {
+      const prevId = previousSocketIdRef.current;
+      const newId = socket.id;
       console.log("[TN_SOCKET_CONNECT]", {
-        socketId: socket.id,
-        transport: socket.io?.engine?.transport?.name,
+        socketId: newId,
+        previousSocketId: prevId,
+        transport: (socket.io?.engine as unknown as { transport?: { name?: string } })?.transport?.name,
         timestamp: Date.now(),
       });
+      if (prevId && prevId !== newId) {
+        console.log("[TN_SOCKET_NEW_ID]", {
+          previousSocketId: prevId,
+          newSocketId: newId,
+          timestamp: Date.now(),
+        });
+      }
+      previousSocketIdRef.current = newId ?? null;
       setStatus("online");
+      setGameSessionStatus("SOCKET_CONNECTED");
+      triggerSessionRecoveryRef.current?.(socket);
     });
 
     socket.on("disconnect", (reason) => {
@@ -368,24 +397,31 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setStatus("offline");
       setIsReconnecting(true);
       setIsHandSynced(false);
+      setGameSessionStatus("OFFLINE");
     });
 
     socket.on("connect_error", (err) => {
       console.log("[TN_SOCKET_CONNECT_ERROR]", {
         message: err.message,
         socketId: socket.id,
-        transport: socket.io?.engine?.transport?.name,
+        transport: (socket.io?.engine as unknown as { transport?: { name?: string } })?.transport?.name,
         timestamp: Date.now(),
       });
       setStatus("offline");
       setIsReconnecting(true);
       setIsHandSynced(false);
+      setGameSessionStatus("CONNECTING");
     });
 
     socket.io.on("reconnect_attempt", (attempt) => {
-      console.log("[TN_SOCKET_RECONNECT_ATTEMPT]", { attempt, timestamp: Date.now() });
+      console.log("[TN_SOCKET_RECONNECTING]", {
+        attempt,
+        socketId: socket.id,
+        timestamp: Date.now(),
+      });
       setIsReconnecting(true);
       setIsHandSynced(false);
+      setGameSessionStatus("CONNECTING");
     });
 
     socket.io.on("reconnect", (attempt) => {
@@ -621,6 +657,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
       publishMyTnHand();
       setIsHandSynced(true);
+      setIsReconnecting(false);
+      setGameSessionStatus("READY");
+      console.log("[TN_SESSION_HAND_RESTORED]", {
+        batch: payload.batch,
+        cardCount: payload.cards.length,
+        socketId: socket.id,
+        roomCode: meRef.current?.roomCode,
+        seatIndex: meRef.current?.seatIndex,
+        timestamp: Date.now(),
+      });
+      console.log("[TN_SESSION_READY]", {
+        socketId: socket.id,
+        roomCode: meRef.current?.roomCode,
+        seatIndex: meRef.current?.seatIndex,
+        timestamp: Date.now(),
+      });
     });
     socket.on("TN_BIDDER_PRIVATE", (p) => {
       setTnBidderPrivate(p);
@@ -767,13 +819,38 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           hasTnState: !!ack.tnState,
         });
         if (effectiveGameType === "TWENTY_NINE") {
-          socket.emit("GAME29_SYNC_HAND");
-          
-          // BUG 2 FIX: Add a delayed safety net to check if cards arrived correctly
-          // just in case the TN_STATE and YOUR_TN_HAND raced or the initial sync was throttled.
-          setTimeout(() => {
-            evaluateHandSync("BIND_ACK_SAFETY_NET");
-          }, 500);
+          if (ack.tnState?.phase === "WAITING_FOR_PLAYERS") {
+            setIsHandSynced(true);
+            setIsReconnecting(false);
+            setGameSessionStatus("READY");
+            console.log("[TN_SESSION_READY]", {
+              socketId: socket.id,
+              roomCode: cleanCode,
+              seatIndex: newMe.seatIndex,
+              phase: "WAITING_FOR_PLAYERS",
+              timestamp: Date.now(),
+            });
+          } else {
+            socket.emit("GAME29_SYNC_HAND");
+            setTimeout(() => {
+              evaluateHandSync("BIND_ACK_SAFETY_NET");
+              if (myTnHandRef.current && myTnHandRef.current.cards.length > 0) {
+                setGameSessionStatus("READY");
+                setIsReconnecting(false);
+              }
+            }, 500);
+          }
+        } else if (effectiveGameType === "POKER") {
+          setIsHandSynced(true);
+          setIsReconnecting(false);
+          setGameSessionStatus("READY");
+          console.log("[TN_SESSION_READY]", {
+            socketId: socket.id,
+            roomCode: cleanCode,
+            seatIndex: newMe.seatIndex,
+            gameType: "POKER",
+            timestamp: Date.now(),
+          });
         }
         if (typeof window !== "undefined") {
           const url = new URL(window.location.href);
@@ -790,76 +867,113 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     [pushToast]
   );
 
-  // Auto-reconnect via stored token whenever the socket comes online.
-  useEffect(() => {
-    if (status !== "online") {
-      return;
-    }
-    const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
-    const currentToken = meRef.current?.sessionToken ?? token;
-    const storedRoomCode = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : null;
-    
-    console.log("[TN_CLIENT_AUTH_INIT]", {
-      storedRoomCode,
-      storedTokenExists: !!currentToken,
-      tokenLength: currentToken?.length ?? 0,
-      socketConnected: socketRef.current?.connected ?? false,
-    });
-    
-    if (!currentToken) {
-      setIsReconnecting(false);
-      return;
-    }
+  const triggerSessionRecovery = useCallback(
+    (s?: PokerSocket | null) => {
+      const sock = s ?? socketRef.current;
+      if (!sock || !sock.connected) return;
 
-    const s = socketRef.current;
-    if (!s) return;
+      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      const currentToken = meRef.current?.sessionToken ?? token;
+      const storedRoomCode = typeof window !== "undefined" ? localStorage.getItem(ROOM_KEY) : (meRef.current?.roomCode ?? null);
 
-    setIsReconnecting(true);
-    let resolved = false;
-    const fallbackTimer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        setIsReconnecting(false);
-      }
-    }, 6000);
-
-    console.log("[TN_CLIENT_RECONNECT_ATTEMPT]", {
-      roomCode: storedRoomCode,
-      tokenExists: !!currentToken,
-      tokenLength: currentToken.length,
-      socketConnected: s.connected,
-    });
-
-    console.log("[TN_CLIENT_RECONNECT_EMIT]", {
-      roomCode: storedRoomCode,
-      tokenLength: currentToken.length,
-    });
-
-    s.emit("RECONNECT", { sessionToken: currentToken }, (ack) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(fallbackTimer);
-      setIsReconnecting(false);
-      console.log("[TN_CLIENT_RECONNECT_ACK]", {
-        ok: ack.ok,
-        error: ack.error,
-        roomCode: ack.roomCode,
-        seatIndex: ack.seatIndex,
-        gameType: ack.gameType,
-        phase: ack.tnState?.phase,
-        hasTnState: !!ack.tnState,
-        hasHand: !!ack.tnState,
+      console.log("[TN_SESSION_RECOVERY_START]", {
+        socketId: sock.id,
+        hasToken: !!currentToken,
+        roomCode: storedRoomCode,
+        seatIndex: meRef.current?.seatIndex,
+        isReconnecting: true,
+        sessionStatus: "RECLAIMING_SESSION",
+        timestamp: Date.now(),
       });
-      if (ack.ok) {
-        bindAck(s, ack);
-      } else {
-        // Do NOT destructively wipe localStorage tokens on a failed attempt;
-        // preserving credentials allows user to retry or reclaim their seat.
-        meRef.current = null;
-        setMe(null);
+
+      if (!currentToken) {
+        setIsReconnecting(false);
+        setGameSessionStatus("READY");
+        return;
       }
-    });
-  }, [status, bindAck]);
+
+      console.log("[TN_SESSION_RECOVERY_TOKEN_FOUND]", {
+        socketId: sock.id,
+        tokenLength: currentToken.length,
+        roomCode: storedRoomCode,
+        timestamp: Date.now(),
+      });
+
+      setGameSessionStatus("RECLAIMING_SESSION");
+      setIsReconnecting(true);
+
+      console.log("[TN_SESSION_RECONNECT_EMIT]", {
+        socketId: sock.id,
+        roomCode: storedRoomCode,
+        seatIndex: meRef.current?.seatIndex,
+        timestamp: Date.now(),
+      });
+
+      let resolved = false;
+      const fallbackTimer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          setIsReconnecting(false);
+          setGameSessionStatus("READY");
+        }
+      }, 8000);
+
+      sock.emit("RECONNECT", { sessionToken: currentToken }, (ack) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(fallbackTimer);
+
+        console.log("[TN_SESSION_RECONNECT_ACK]", {
+          ok: ack.ok,
+          error: ack.error,
+          roomCode: ack.roomCode,
+          seatIndex: ack.seatIndex,
+          gameType: ack.gameType,
+          phase: ack.tnState?.phase,
+          socketId: sock.id,
+          timestamp: Date.now(),
+        });
+
+        if (ack.ok) {
+          setGameSessionStatus("SYNCING_GAME_STATE");
+          console.log("[TN_SESSION_SYNC_STATE]", {
+            socketId: sock.id,
+            roomCode: ack.roomCode,
+            seatIndex: ack.seatIndex,
+            phase: ack.tnState?.phase,
+            timestamp: Date.now(),
+          });
+          bindAck(sock, ack);
+        } else {
+          setIsReconnecting(false);
+          setGameSessionStatus("OFFLINE");
+          if (ack.error && ack.error.includes("session not found")) {
+            pushToast("Session expired or table closed", "info");
+            meRef.current = null;
+            setMe(null);
+          }
+        }
+      });
+    },
+    [bindAck, pushToast]
+  );
+
+  triggerSessionRecoveryRef.current = triggerSessionRecovery;
+
+  // Safety trigger: if socket is online but gameSessionStatus remains disconnected with token:
+  useEffect(() => {
+    if (
+      status === "online" &&
+      (gameSessionStatus === "OFFLINE" ||
+        gameSessionStatus === "CONNECTING" ||
+        gameSessionStatus === "SOCKET_CONNECTED")
+    ) {
+      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      if (token || meRef.current?.sessionToken) {
+        triggerSessionRecovery();
+      }
+    }
+  }, [status, gameSessionStatus, triggerSessionRecovery]);
 
   const createRoom = useCallback(
     (username: string, cfg: RoomConfig, avatar?: number, extra?: { vsBots?: boolean }) => {
@@ -968,6 +1082,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(ROOM_KEY);
     meRef.current = null;
     setMe(null);
+    setGameSessionStatus("READY");
+    setIsReconnecting(false);
     setState(null);
     setMyCards(null);
     setShowdown(null);
@@ -1035,6 +1151,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     void unlockAudio();
     const s = socketRef.current;
     const isConnected = s?.connected ?? false;
+    const isReady = gameSessionStatus === "READY";
 
     console.log("[TN_PLAY_REQUEST]", {
       card,
@@ -1045,7 +1162,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       socketId: s?.id,
       isReconnecting,
       status,
+      gameSessionStatus,
       isHandSynced,
+      timestamp: Date.now(),
     });
     console.log("[TN_STATE_COMPARISON]", {
       reactSeatIndex: me?.seatIndex,
@@ -1056,27 +1175,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       socketId: s?.id,
       isReconnecting,
       status,
+      gameSessionStatus,
     });
 
-    if (!isConnected || isReconnecting) {
-      console.warn("[TN_PLAY_BLOCKED_OFFLINE]", {
+    if (!s || !isConnected || !isReady || !meRef.current) {
+      console.warn("[TN_PLAY_BLOCKED_NOT_READY]", {
         card,
         connected: isConnected,
-        isReconnecting,
-        status,
+        gameSessionStatus,
+        seatIndex: meRef.current?.seatIndex,
         socketId: s?.id,
+        isReconnecting,
+        timestamp: Date.now(),
       });
-      pushToast("Connection lost. Reconnecting to table before playing...", "error");
+      pushToast("Reconnecting to game. Please wait...", "info");
+      triggerSessionRecoveryRef.current?.(s);
       return;
     }
 
     console.log("[TN_PLAY_EMIT]", {
-      event: "GAME29_PLAY_CARD",
-      payload: { card },
-      socketId: s?.id,
+      card,
+      socketId: s.id,
+      roomCode: meRef.current.roomCode,
+      seatIndex: meRef.current.seatIndex,
+      timestamp: Date.now(),
     });
-    s?.emit("GAME29_PLAY_CARD", { card });
-  }, [me, isReconnecting, status, isHandSynced, pushToast]);
+    s.emit("GAME29_PLAY_CARD", { card });
+  }, [gameSessionStatus, me, isReconnecting, status, isHandSynced, pushToast]);
   const tnSingleHandDecisionFn = useCallback((declare: boolean) => {
     void unlockAudio();
     socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
@@ -1110,6 +1235,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       status,
       isReconnecting,
       isHandSynced,
+      gameSessionStatus,
       audioUnlocked,
       unlockAudio,
       me,
@@ -1155,7 +1281,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnSyncHand: tnSyncHandFn,
     }),
     [
-      status, isReconnecting, isHandSynced, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
+      status, isReconnecting, isHandSynced, gameSessionStatus, audioUnlocked, me, state, gameType, tnState, tnResolvedTrick, myTnCards, tnBidderPrivate, lastTnRound,
       myCards, showdown, clearShowdown, toast, pushToast, incomingLoan, dismissIncomingLoan,
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,

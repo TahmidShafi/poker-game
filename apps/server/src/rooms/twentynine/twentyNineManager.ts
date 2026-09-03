@@ -216,6 +216,12 @@ export class TwentyNineGameManager implements RoomLike {
     }
   }
 
+  private lastSocketDisconnectAt = 0;
+
+  lastDisconnectTime(): number {
+    return this.lastSocketDisconnectAt;
+  }
+
   lastActivityAt(): number {
     let latest = 0;
     for (const p of this.players.values()) {
@@ -403,8 +409,19 @@ export class TwentyNineGameManager implements RoomLike {
 
     rec.socketIds.add(socketId);
     rec.lastSeen = Date.now();
+    this.lastSocketDisconnectAt = 0;
     const seat = this.match.seats[rec.seatIndex];
     if (seat) seat.connected = true;
+
+    console.log("[TN_RECONNECT_SOCKET_ATTACHED]", {
+      socketId,
+      roomCode: this.roomCode,
+      seatIndex: rec.seatIndex,
+      playerId: rec.playerId,
+      socketCount: rec.socketIds.size,
+      timestamp: Date.now(),
+    });
+
     if (process.env.NODE_ENV !== "test" || process.env.TN_DEBUG === "1") {
       console.log(`[TN_SYNC ${this.roomCode}] socket attached: ${socketId} for ${rec.username} (seat ${rec.seatIndex})`);
     }
@@ -434,6 +451,16 @@ export class TwentyNineGameManager implements RoomLike {
     if (!rec) return;
     rec.socketIds.delete(socketId);
     rec.lastSeen = Date.now();
+    let anyConnected = false;
+    for (const p of this.players.values()) {
+      if (p.socketIds.size > 0) {
+        anyConnected = true;
+        break;
+      }
+    }
+    if (!anyConnected) {
+      this.lastSocketDisconnectAt = Date.now();
+    }
     if (rec.socketIds.size > 0) return; // other tabs still connected
     const seat = this.match.seats[rec.seatIndex];
     if (seat) seat.connected = false;
@@ -982,6 +1009,14 @@ export class TwentyNineGameManager implements RoomLike {
       batch: "FULL_RECONNECT" as const,
       cards: seat.hand.map((c) => ({ ...c })),
     };
+    console.log("[TN_RECONNECT_HAND_SENT]", {
+      socketId: targetSocketId,
+      roomCode: this.roomCode,
+      seatIndex: rec.seatIndex,
+      cardCount: seat.hand.length,
+      batch: "FULL_RECONNECT",
+      timestamp: Date.now(),
+    });
     if (targetSocketId) {
       this.io.to(targetSocketId).emit("YOUR_TN_HAND", payload);
     } else {

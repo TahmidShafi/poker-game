@@ -15,12 +15,12 @@ export function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"
 }
 
 function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
-  const { me, meRef, myTnCards, tnPlayCard, tnBidderPrivate, status, isReconnecting, isHandSynced, pushToast } = useGame();
+  const { me, meRef, myTnCards, tnPlayCard, tnBidderPrivate, status, isReconnecting, isHandSynced, gameSessionStatus, pushToast } = useGame();
   const mySeat = me?.seatIndex ?? meRef?.current?.seatIndex ?? null;
   const isBidder = mySeat !== null && state.bidderSeatIndex === mySeat;
   const seventhCard = isBidder && tnBidderPrivate?.kind === "SEVENTH_INDICATOR" ? tnBidderPrivate.indicatorCard : null;
 
-  const isConnectionReady = status === "online" && !isReconnecting && (isHandSynced ?? true);
+  const isConnectionReady = status === "online" && !isReconnecting && (isHandSynced ?? true) && (gameSessionStatus === "READY");
 
   // Cards are clickable EXACTLY when it is my turn in the PLAYING phase and connection is ready.
   // During bidding/trump-setup the fan stays visible but inert (never
@@ -55,6 +55,7 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
           isMyTurn: myTurn,
           canPlayCard: isLegal,
           isConnectionReady,
+          gameSessionStatus,
           disabled,
           handLength: myTnCards.length,
         });
@@ -69,9 +70,10 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
                   card: c,
                   status,
                   isReconnecting,
+                  gameSessionStatus,
                   isHandSynced,
                 });
-                pushToast("Connection lost. Reconnecting to table before playing...", "error");
+                pushToast("Reconnecting to game. Please wait...", "info");
                 return;
               }
               console.log("[TN_CARD_CLICK]", {
@@ -91,7 +93,7 @@ function HandFanComponent({ state }: { state: PublicTwentyNineState }) {
             style={{ zIndex: idx }}
             title={
               !isConnectionReady
-                ? "reconnecting to table..."
+                ? "reconnecting to game..."
                 : clickable
                 ? "play this card"
                 : myTurn

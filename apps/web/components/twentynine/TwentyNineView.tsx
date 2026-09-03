@@ -23,7 +23,7 @@ const REL_POS: Record<number, string> = {
 const TN_DEBUG_UI = process.env.NEXT_PUBLIC_TN_DEBUG === "1";
 
 function TwentyNineViewComponent() {
-  const { me, tnState, status, isReconnecting, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots, tnSyncHand, removePlayer } = useGame();
+  const { me, tnState, status, isReconnecting, gameSessionStatus, serverUrl, leaveRoom, soundOn, toggleSound, tnFillBots, tnSyncHand, removePlayer } = useGame();
   const [showRules, setShowRules] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -103,10 +103,16 @@ function TwentyNineViewComponent() {
       </header>
 
       {/* Reconnecting Alert Banner */}
-      {(status !== "online" || isReconnecting) && (
+      {(status !== "online" || isReconnecting || (gameSessionStatus && gameSessionStatus !== "READY")) && (
         <div className="mx-auto mt-2 flex w-full max-w-lg items-center justify-center gap-2 rounded-xl bg-amber-500/20 px-4 py-2 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase tracking-wider backdrop-blur-sm animate-pulse z-50 shadow-lg select-none">
           <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
-          <span>Connection interrupted · Reconnecting to table...</span>
+          <span>
+            {gameSessionStatus === "RECLAIMING_SESSION"
+              ? "Reclaiming game seat..."
+              : gameSessionStatus === "SYNCING_GAME_STATE"
+              ? "Syncing cards and game state..."
+              : "Connection interrupted · Reconnecting to table..."}
+          </span>
         </div>
       )}
 

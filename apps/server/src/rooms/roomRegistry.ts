@@ -99,8 +99,13 @@ export class RoomRegistry {
         continue;
       }
       const last = room.lastActivityAt();
-      const referenceTime = last > 0 ? last : room.creationTime();
-      if (now - referenceTime > this.config.limits.emptyRoomTtlMs) {
+      if (last > 0) {
+        // Active sockets connected
+        continue;
+      }
+      const disconnectTime = room.lastDisconnectTime?.() ?? 0;
+      const referenceTime = disconnectTime > 0 ? disconnectTime : room.creationTime();
+      if (now - referenceTime >= this.config.limits.emptyRoomTtlMs) {
         this.removeRoom(code);
       }
     }
