@@ -4,7 +4,6 @@ import {
   createMatch,
   moveOptionsForSeat,
   playCard,
-  respondSingleHand,
   startHand,
   TwentyNineState,
 } from "../game";
@@ -71,17 +70,6 @@ export function driveBidding(state: TwentyNineState, winnerSeat: number, bid: nu
   }
 }
 
-/** Skips Single Hand for all 4 players sequentially. */
-export function passSingleHandForAll(state: TwentyNineState): void {
-  let guard = 0;
-  while (state.phase === TnPhase.SINGLE_HAND_DECISION) {
-    guard++;
-    if (guard > 8) throw new Error("passSingleHandForAll did not terminate");
-    const acting = state.actingSeatIndex;
-    if (acting === null) throw new Error("no acting seat during SINGLE_HAND_DECISION");
-    respondSingleHand(state, acting, false);
-  }
-}
 
 /** Autoplays tricks with the lowest legal card each turn until the hand leaves PLAYING. */
 export function autoPlayHand(state: TwentyNineState): void {

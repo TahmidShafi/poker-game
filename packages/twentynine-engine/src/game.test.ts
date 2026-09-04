@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { TnCard, TnSuit, TnPhase } from "@poker/shared-types";
 import {
+  applyBid,
   callTrump,
+  createMatch,
   declareMarriage,
   declareTrumpPlan,
   getBidderPrivatePayload,
   lowestLegalCard,
+  moveOptionsForSeat,
   playCard,
-  respondSingleHand,
   startHand,
   toPublicTwentyNineState,
   TwentyNineState,
 } from "./game";
-import { autoPlayHand, cardAt, driveBidding, makeMatch, orderedDeck, passSingleHandForAll, slotIndices } from "./testing/helpers";
+import { autoPlayHand, cardAt, driveBidding, makeMatch, orderedDeck, slotIndices } from "./testing/helpers";
 
 function started(): TwentyNineState {
   const state = makeMatch();
@@ -66,8 +68,6 @@ describe("SUIT choice: full scripted hand", () => {
     expect(getBidderPrivatePayload(state)).toEqual({ kind: "CHOOSE_TRUMP", handNumber: 1 });
     declareTrumpPlan(state, 3, "SPADES");
     expect(state.trumpStyle).toBe("SUIT");
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    passSingleHandForAll(state);
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.actingSeatIndex).toBe(3); // leader = seat after dealer
 
@@ -105,7 +105,6 @@ describe("SUIT choice: full scripted hand", () => {
     const state = started();
     driveBidding(state, 3, 16);
     declareTrumpPlan(state, 3, "SPADES");
-    passSingleHandForAll(state);
     autoPlayHand(state);
     startHand(state);
     expect(state.dealerSeatIndex).toBe(3);
@@ -117,7 +116,6 @@ describe("SUIT choice: full scripted hand", () => {
     startHand(state, { deck: orderedDeck() });
     driveBidding(state, 3, 16);
     declareTrumpPlan(state, 3, "SPADES");
-    passSingleHandForAll(state);
     autoPlayHand(state);
     expect(state.phase).toBe(TnPhase.MATCH_OVER);
     expect(state.winnerTeam).not.toBeNull();
@@ -180,7 +178,6 @@ describe("trump reveal rules during play", () => {
     startHand(state, { deck: callDeck() });
     driveBidding(state, 1, 16); // auction starts seat3: pass, pass, bid, pass
     declareTrumpPlan(state, 1, "SPADES");
-    passSingleHandForAll(state);
     expect(state.actingSeatIndex).toBe(3);
 
     playCard(state, 3, S(8));
@@ -208,7 +205,6 @@ describe("trump reveal rules during play", () => {
     const state = started();
     driveBidding(state, 3, 16);
     declareTrumpPlan(state, 3, "SPADES");
-    passSingleHandForAll(state);
     expect(() => playCard(state, 2, S(8))).toThrow(/not your turn/);
     playCard(state, 3, S(7));
     expect(() => playCard(state, 3, S(11))).toThrow(/not your turn/);
@@ -219,7 +215,6 @@ describe("trump reveal rules during play", () => {
     const state = started();
     driveBidding(state, 3, 16);
     declareTrumpPlan(state, 3, "DIAMONDS");
-    passSingleHandForAll(state);
     playCard(state, 3, S(7)); // P3 leads S7; P2 holds S8,SQ
     expect(() => playCard(state, 2, { rank: 8, suit: "HEARTS" })).toThrow(/follow suit/);
   });
@@ -253,8 +248,6 @@ describe("SEVENTH_CARD choice", () => {
     driveBidding(state, 2, 18);
     expect(state.phase).toBe(TnPhase.TRUMP_SETUP);
     declareTrumpPlan(state, 2, "SEVENTH_CARD");
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    passSingleHandForAll(state);
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.trumpStyle).toBe("SEVENTH_CARD");
     const indicator = pick("CLUBS", 14);
@@ -400,7 +393,6 @@ describe("SEVENTH_CARD choice", () => {
     startHand(state, { deck });
     driveBidding(state, 2, 18);
     declareTrumpPlan(state, 2, "SEVENTH_CARD");
-    passSingleHandForAll(state);
     const indicator = state.indicatorCard!;
     expect(indicator).toEqual(pick("HEARTS", 13));
     expect(state.trumpSuit).toBe("HEARTS");
@@ -427,7 +419,6 @@ describe("JOKER choice", () => {
     driveBidding(state, 3, 19);
     expect(state.phase).toBe(TnPhase.TRUMP_SETUP);
     declareTrumpPlan(state, 3, "JOKER");
-    passSingleHandForAll(state);
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.trumpSuit).toBeNull();
     // Hidden initially to everyone
@@ -487,7 +478,6 @@ describe("marriage (K+Q of the active suit)", () => {
     expect(state.bidderSeatIndex).toBe(2);
     expect(state.phase).toBe(TnPhase.TRUMP_SETUP);
     declareTrumpPlan(state, 2, "HEARTS");
-    passSingleHandForAll(state);
     expect(state.phase).toBe(TnPhase.PLAYING);
     expect(state.trumpStyle).toBe("SUIT");
 
@@ -552,7 +542,6 @@ describe("marriage (K+Q of the active suit)", () => {
     driveBidding(state, 2, 20);
     expect(state.bidderSeatIndex).toBe(2);
     declareTrumpPlan(state, 2, "CLUBS");
-    passSingleHandForAll(state);
     const p3Hand = state.seats[3]!.hand;
     const lead = [...p3Hand].sort((a, b) => a.rank - b.rank)[0]!;
     playCard(state, 3, lead);
@@ -567,7 +556,6 @@ describe("marriage (K+Q of the active suit)", () => {
     startHand(state, { deck: marriageDeck() });
     driveBidding(state, 2, 18);
     declareTrumpPlan(state, 2, "HEARTS");
-    passSingleHandForAll(state);
 
     expect(state.marriageDeclaredBy).toBeNull();
     // P3 leads Clubs or Diamonds (P2 has only Hearts and Spades)
@@ -588,7 +576,6 @@ describe("marriage (K+Q of the active suit)", () => {
     startHand(state, { deck: marriageDeck() });
     driveBidding(state, 2, 18);
     declareTrumpPlan(state, 2, "HEARTS");
-    passSingleHandForAll(state);
 
     // Suppose P2 played HK before trump was revealed in an earlier trick:
     const p2Hand = state.seats[2]!.hand;
@@ -613,139 +600,12 @@ describe("offline-fallback helper", () => {
     const state = started();
     driveBidding(state, 3, 16);
     declareTrumpPlan(state, 3, "SPADES");
-    passSingleHandForAll(state);
     playCard(state, 3, S(7));
     expect(lowestLegalCard(state, 2)).toEqual({ rank: 8, suit: "SPADES" });
   });
 });
 
-describe("Single Hand mode", () => {
-  it("offers Single Hand decision anti-clockwise after batch 2, and advances on pass", () => {
-    const state = started();
-    driveBidding(state, 3, 17);
-    declareTrumpPlan(state, 3, "SPADES");
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    expect(state.actingSeatIndex).toBe(3); // dealer = 0, so next is 3
 
-    // P3 skips
-    respondSingleHand(state, 3, false);
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    expect(state.actingSeatIndex).toBe(2);
-
-    // P2 skips
-    respondSingleHand(state, 2, false);
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    expect(state.actingSeatIndex).toBe(1);
-
-    // P1 skips
-    respondSingleHand(state, 1, false);
-    expect(state.phase).toBe(TnPhase.SINGLE_HAND_DECISION);
-    expect(state.actingSeatIndex).toBe(0);
-
-    // P0 skips -> all 4 skipped -> normal PLAYING starts with dealer+1 (seat 3) leading
-    respondSingleHand(state, 0, false);
-    expect(state.phase).toBe(TnPhase.PLAYING);
-    expect(state.isSingleHand).toBe(false);
-    expect(state.actingSeatIndex).toBe(3);
-    expect(state.ledSeatIndex).toBe(3);
-  });
-
-  it("starts Single Hand immediately on declare, marks partner inactive, leads trick 1, disables trump", () => {
-    const state = started();
-    driveBidding(state, 3, 17);
-    declareTrumpPlan(state, 3, "SPADES");
-
-    // P3 declares Single Hand!
-    respondSingleHand(state, 3, true);
-    expect(state.phase).toBe(TnPhase.PLAYING);
-    expect(state.isSingleHand).toBe(true);
-    expect(state.singleHandSeatIndex).toBe(3);
-    expect(state.inactiveSeatIndex).toBe(1); // partner of 3 is 1 (Team B)
-    expect(state.trumpStyle).toBeNull();
-    expect(state.trumpSuit).toBeNull();
-    expect(state.ledSeatIndex).toBe(3);
-    expect(state.actingSeatIndex).toBe(3);
-
-    const pub = toPublicTwentyNineState(state);
-    expect(pub.isSingleHand).toBe(true);
-    expect(pub.singleHandSeatIndex).toBe(3);
-    expect(pub.inactiveSeatIndex).toBe(1);
-    expect(pub.seats[1]!.isInactive).toBe(true);
-    expect(pub.seats[3]!.isInactive).toBe(false);
-    expect(pub.trump.state).toBe("NOT_SET");
-
-    // Inactive partner cannot play
-    expect(() => playCard(state, 1, S(9))).toThrow(/not your turn/);
-  });
-
-  it("plays 3-card tricks in anti-clockwise order skipping partner and fails immediately on trick loss", () => {
-    const state = started();
-    driveBidding(state, 3, 17);
-    declareTrumpPlan(state, 3, "SPADES");
-    respondSingleHand(state, 3, true); // P3 declares Single Hand (P1 is inactive)
-
-    // P3 plays S7
-    playCard(state, 3, S(7));
-    // Turn advances to P2 (active opponent)
-    expect(state.actingSeatIndex).toBe(2);
-    playCard(state, 2, S(8));
-    // Turn advances skipping P1 (inactive partner) to P0 (active opponent)
-    expect(state.actingSeatIndex).toBe(0);
-    playCard(state, 0, S(10));
-
-    // Trick 1 completed with 3 plays!
-    // P0 played S10 which beats S8 and S7.
-    // Since Single Hand player (P3) lost the trick -> Immediate Failure!
-    expect(state.phase).toBe(TnPhase.ROUND_SCORED);
-    expect(state.lastRoundSummary?.endReason).toBe("SINGLE_HAND_FAIL");
-    expect(state.lastRoundSummary?.winnerTeam).toBe("A"); // opposing team won
-    expect(state.lastRoundSummary?.scoreAwarded).toBe(-3); // caller -3 points
-    expect(state.matchScore.A).toBe(0);
-    expect(state.matchScore.B).toBe(-3);
-  });
-
-  it("awards +3 to Single Hand player's team on winning all 8 tricks (SINGLE_HAND_WIN)", () => {
-    // Custom deck where P3 holds all top cards (all Jacks and 9s across suits)
-    const base = orderedDeck();
-    const byKey = new Map(base.map((card) => [`${card.suit}${card.rank}`, card]));
-    const pick = (suit: TnSuit, rank: TnCard["rank"]): TnCard => {
-      const card = byKey.get(`${suit}${rank}`);
-      if (!card) throw new Error(`missing ${suit}${rank}`);
-      return card;
-    };
-    const deck: TnCard[] = new Array(32);
-    // Give P3 (seat 3, p=0) SJ, S9, HJ, H9, DJ, D9, CJ, C9 (8 sure winners in 29!)
-    deck[0] = pick("SPADES", 11); // SJ
-    deck[4] = pick("SPADES", 9);  // S9
-    deck[8] = pick("HEARTS", 11); // HJ
-    deck[12] = pick("HEARTS", 9); // H9
-    deck[16] = pick("DIAMONDS", 11); // DJ
-    deck[20] = pick("DIAMONDS", 9);  // D9
-    deck[24] = pick("CLUBS", 11); // CJ
-    deck[28] = pick("CLUBS", 9);  // C9
-
-    // Fill remaining seats with lower cards
-    const used = new Set(deck.filter(Boolean).map((x) => `${x!.suit}${x!.rank}`));
-    const rest = orderedDeck().filter((x) => !used.has(`${x.suit}${x.rank}`));
-    for (let i = 0; i < 32; i++) if (!deck[i]) deck[i] = rest.shift()!;
-
-    const state = makeMatch();
-    startHand(state, { deck });
-    driveBidding(state, 3, 16);
-    declareTrumpPlan(state, 3, "SPADES");
-    respondSingleHand(state, 3, true); // P3 declares Single Hand
-
-    // Autoplay all 8 tricks
-    autoPlayHand(state);
-
-    expect(state.phase).toBe(TnPhase.ROUND_SCORED);
-    expect(state.lastRoundSummary?.endReason).toBe("SINGLE_HAND_WIN");
-    expect(state.lastRoundSummary?.winnerTeam).toBe("B"); // P3 is team B
-    expect(state.lastRoundSummary?.scoreAwarded).toBe(3); // team +3 points
-    expect(state.matchScore.B).toBe(3);
-    expect(state.matchScore.A).toBe(0);
-  });
-});
 
 describe("early round completion & full board requirements", () => {
   it("ends early with EARLY_BID_REACHED once bidder reaches required points when full board is no longer possible", () => {
@@ -791,7 +651,6 @@ describe("early round completion & full board requirements", () => {
     startHand(state, { deck });
     driveBidding(state, 3, 18); // Team B bids 18
     declareTrumpPlan(state, 3, "CLUBS");
-    passSingleHandForAll(state);
 
     // Trick 1:
     playCard(state, 3, pick("SPADES", 7));
@@ -870,7 +729,6 @@ describe("early round completion & full board requirements", () => {
     startHand(state, { deck });
     driveBidding(state, 3, 18);
     declareTrumpPlan(state, 3, "SPADES");
-    passSingleHandForAll(state);
 
     // Tricks 1, 2, 3: Team B wins all tricks and reaches 18 points.
     // But since defenders have 0 tricks, full board is still possible! Hand continues in PLAYING.
@@ -940,7 +798,6 @@ describe("early round completion & full board requirements", () => {
     startHand(state, { deck });
     driveBidding(state, 3, 20); // Bid 20
     declareTrumpPlan(state, 3, "CLUBS");
-    passSingleHandForAll(state);
 
     // Trick 1:
     playCard(state, 3, pick("SPADES", 7));

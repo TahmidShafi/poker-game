@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useGame } from "../../lib/store";
 import { SeatCard, TrickArea, TrumpBanner, seatRel } from "./parts";
-import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress, SingleHandPrompt } from "./panels";
+import { ActionPills, BiddingPanel, HandFan, TurnStatus, LiveRoundProgress } from "./panels";
 import { MatchOverBanner, RoundBanner, RulesModal, TrumpPickerModal, SeventhCardModal } from "./modals";
 import { PhysicalScoreBoard } from "./ScoreCard";
 
@@ -235,7 +235,6 @@ function TwentyNineViewComponent() {
         </div>
       </footer>
 
-      <SingleHandPrompt state={tnState} />
       <TrumpPickerModal />
       <SeventhCardModal />
       <RoundBanner />

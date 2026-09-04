@@ -146,7 +146,6 @@ export interface GameContextValue {
   tnCallTrump: () => void;
   tnDeclareMarriage: (suit: TnSuit) => void;
   tnPlayCard: (card: TnCard) => void;
-  tnSingleHandDecision: (declare: boolean) => void;
   tnFillBots: () => void;
   tnSyncHand: () => void;
   isHandSynced?: boolean;
@@ -301,13 +300,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const isGameActive =
       state.phase === "BIDDING" ||
       state.phase === "TRUMP_SETUP" ||
-      state.phase === "SINGLE_HAND_DECISION" ||
       state.phase === "PLAYING";
 
     if (!isGameActive) return;
 
     const mySeatView = state.seats.find((st) => st.seatIndex === mine.seatIndex);
-    if (!mySeatView || mySeatView.username === null || mySeatView.isInactive) return;
+    if (!mySeatView || mySeatView.username === null) return;
 
     const serverCardsCount = mySeatView.cardsRemaining;
     if (serverCardsCount <= 0) return;
@@ -1265,10 +1263,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
     s.emit("GAME29_PLAY_CARD", { card });
   }, [gameSessionStatus, me, isReconnecting, status, isHandSynced, pushToast]);
-  const tnSingleHandDecisionFn = useCallback((declare: boolean) => {
-    void unlockAudio();
-    socketRef.current?.emit("GAME29_SINGLE_HAND_DECISION", { declare });
-  }, []);
   const tnFillBotsFn = useCallback(() => {
     void unlockAudio();
     socketRef.current?.emit("GAME29_FILL_BOTS");
@@ -1339,7 +1333,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       tnCallTrump: tnCallTrumpFn,
       tnDeclareMarriage: tnDeclareMarriageFn,
       tnPlayCard: tnPlayCardFn,
-      tnSingleHandDecision: tnSingleHandDecisionFn,
       tnFillBots: tnFillBotsFn,
       tnSyncHand: tnSyncHandFn,
     }),
@@ -1349,7 +1342,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       session, recentHands, timeline, celebration, clearCelebration, soundOn, toggleSound,
       createRoom, joinRoom, tryReconnect, leaveRoom, act, setPreactionFn,
       requestLoanFn, respondLoanFn, repayLoanFn, removePlayerFn,
-      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnSingleHandDecisionFn, tnFillBotsFn, tnSyncHandFn,
+      tnBidFn, tnDeclareTrumpFn, tnCallTrumpFn, tnDeclareMarriageFn, tnPlayCardFn, tnFillBotsFn, tnSyncHandFn,
     ]
   );
 

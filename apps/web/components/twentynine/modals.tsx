@@ -338,15 +338,7 @@ function RoundBannerComponent() {
     ? `${summary.scoreAwarded ?? -1} Match Point${Math.abs(summary.scoreAwarded ?? 1) > 1 ? "s" : ""}`
     : `Opponent ${summary.scoreAwarded ?? -1} Match Points`;
 
-  if (summary.endReason === "SINGLE_HAND_WIN") {
-    title = iWon ? "👑 SINGLE HAND SUCCESS!" : "👑 OPPONENT SINGLE HAND SUCCESS";
-    subtitle = "Single Hand player won all 8 tricks!";
-    pointsAwardedText = iWon ? "+3 Match Points" : "Opponent +3 Match Points";
-  } else if (summary.endReason === "SINGLE_HAND_FAIL") {
-    title = iWon ? "🛡️ SINGLE HAND DEFEATED!" : "❌ SINGLE HAND FAILED";
-    subtitle = "Single hand attempt failed. Caller's team loses 3 points.";
-    pointsAwardedText = iWon ? "Opponent -3 Match Points" : "-3 Match Points";
-  } else if (summary.endReason === "FULL_BOARD") {
+  if (summary.endReason === "FULL_BOARD") {
     title = "🌟 FULL BOARD!";
     subtitle = "All 8 tricks won by bidding team!";
     pointsAwardedText = "+2 Match Points";

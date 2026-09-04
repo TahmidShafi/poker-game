@@ -45,7 +45,7 @@ function AvatarStripComponent({
 
   return (
     <div className="w-full min-w-0">
-      <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">
         Pick your look
       </div>
       <div className="scrollbar-none w-full min-w-0 flex gap-1.5 sm:gap-2 overflow-x-auto px-0.5 pb-1 touch-pan-x overscroll-x-contain">
@@ -56,8 +56,10 @@ function AvatarStripComponent({
             aria-label={`Avatar ${n}`}
             onClick={() => onChange(value === n ? null : n)}
             style={{ animationDelay: `${idx * 35}ms` }}
-            className={`shrink-0 animate-popChip rounded-full transition-transform active:scale-95 ${
-              value === n ? "ring-2 ring-gold shadow-glowGold" : "ring-1 ring-white/15 hover:ring-white/40"
+            className={`shrink-0 animate-popChip rounded-full transition-all active:scale-95 ${
+              value === n
+                ? "ring-2 ring-[#F4C95D] shadow-[0_0_16px_rgba(212,175,55,0.45)] scale-105"
+                : "ring-1 ring-[#94A3B8]/25 hover:ring-[#F4C95D]/50 hover:scale-102"
             }`}
           >
             <span className="block h-10 w-10 sm:h-12 sm:w-12">

@@ -92,8 +92,10 @@ function CodeBoxesComponent({
             }
           }}
           onFocus={(e) => e.currentTarget.select()}
-          className={`h-10 sm:h-12 w-full min-w-0 px-0 rounded-xl bg-black/35 text-center text-sm sm:text-lg font-black tabnum ring-1 transition-colors focus:outline-none focus:ring-gold/60 ${
-            invalid ? "text-crimson ring-crimson/60" : "ring-white/12"
+          className={`h-10 sm:h-12 w-full min-w-0 px-0 rounded-xl bg-[#0E1624] text-center text-sm sm:text-lg font-black tabnum border transition-all focus:outline-none ${
+            invalid
+              ? "border-[#B91C1C] text-[#B91C1C] ring-2 ring-[#B91C1C]/40 shadow-[0_0_14px_rgba(185,28,28,0.35)]"
+              : "border-[#94A3B8]/20 text-[#F8FAFC] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/30 focus:shadow-[0_0_12px_rgba(212,175,55,0.25)]"
           }`}
         />
       ))}

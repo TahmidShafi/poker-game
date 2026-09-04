@@ -369,7 +369,7 @@ function ActionPillsComponent({ state }: { state: PublicTwentyNineState }) {
     myTnCards !== null &&
     !myTnCards.some((c) => c.suit === state.trick[0]!.card.suit);
 
-  if (!myTnCards || state.phase !== "PLAYING" || state.isSingleHand || !canCall) return null;
+  if (!myTnCards || state.phase !== "PLAYING" || !canCall) return null;
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -385,53 +385,7 @@ function ActionPillsComponent({ state }: { state: PublicTwentyNineState }) {
 
 export const ActionPills = React.memo(ActionPillsComponent);
 
-/**
- * Single Hand Decision Prompt: clean tray with Single Hand Call title and buttons.
- */
-function SingleHandPromptComponent({ state }: { state: PublicTwentyNineState }) {
-  const { me, tnSingleHandDecision } = useGame();
-  const mySeat = me?.seatIndex ?? null;
 
-  if (state.phase !== "SINGLE_HAND_DECISION") return null;
-
-  const acting = state.actingSeatIndex;
-  const isMyTurn = mySeat !== null && acting === mySeat;
-  const actor = acting !== null ? state.seats[acting] : null;
-  const actorName = actor?.username ?? (acting !== null ? `Seat ${acting}` : "Unknown");
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 select-none">
-      <div className="w-full max-w-sm rounded-2xl bg-slate-950/95 p-5 border border-amber-400/40 shadow-2xl text-center">
-        <h3 className="text-lg font-black uppercase tracking-wider text-amber-300">
-          Single Hand Call
-        </h3>
-
-        {isMyTurn ? (
-          <div className="mt-4 flex gap-2.5 justify-center">
-            <button
-              onClick={() => tnSingleHandDecision(true)}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              Single Hand
-            </button>
-            <button
-              onClick={() => tnSingleHandDecision(false)}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/15 transition-colors cursor-pointer"
-            >
-              Skip
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 py-2.5 px-4 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-white/70">
-            Waiting for <span className="text-amber-300 font-bold">{actorName}</span>…
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export const SingleHandPrompt = React.memo(SingleHandPromptComponent);
 
 /** 
  * Live Round Progress Table
@@ -442,60 +396,6 @@ function LiveRoundProgressComponent({ state }: { state: PublicTwentyNineState })
   const { me } = useGame();
   const mySeat = me?.seatIndex ?? null;
   const myTeam = mySeat !== null ? (mySeat % 2 === 0 ? "A" : "B") : null;
-
-  // Single Hand HUD Display
-  if (state.isSingleHand && state.singleHandSeatIndex !== null && state.singleHandSeatIndex !== undefined) {
-    const singleSeat = state.singleHandSeatIndex;
-    const isMeSingle = mySeat === singleSeat;
-    const singleTeam = singleSeat % 2 === 0 ? "A" : "B";
-    const isMyTeamSingle = myTeam === singleTeam;
-    const singleTricks = state.tricksWon[singleTeam];
-    const opponentTeam = singleTeam === "A" ? "B" : "A";
-    const opponentTricks = state.tricksWon[opponentTeam];
-
-    return (
-      <>
-        {/* Mobile compact HUD */}
-        <div className="sm:hidden flex items-center justify-between w-full max-w-sm mx-auto rounded-xl bg-amber-950/80 px-3 py-1.5 backdrop-blur-md ring-1 ring-amber-400/40 text-[10.5px] font-mono select-none">
-          <div className="flex items-center gap-1.5 font-bold text-amber-300">
-            👑 SOLO: {singleTricks}/8 TRICKS
-          </div>
-          <div className="text-[10px] font-bold text-white/70">
-            {isMyTeamSingle ? (isMeSingle ? "YOU SOLO" : "PARTNER SOLO") : "OPPONENT SOLO"}
-          </div>
-        </div>
-
-        {/* Desktop full floating card */}
-        <div className="hidden sm:flex w-60 flex-col overflow-hidden rounded-2xl bg-slate-950/85 p-4 shadow-panel backdrop-blur-md ring-1 ring-amber-400/30 font-mono select-none">
-          <div className="mb-2 text-center text-[10.5px] font-black uppercase tracking-widest text-amber-300 flex items-center justify-center gap-1">
-            <span>👑</span> SINGLE HAND MODE
-          </div>
-          <div className="text-[10px] text-center text-white/60 mb-3">
-            {isMeSingle ? "You are playing solo" : isMyTeamSingle ? "Partner playing solo" : `Seat ${singleSeat} playing solo`}
-          </div>
-          <div className="flex justify-between items-center bg-white/5 rounded-xl p-2.5 border border-white/10 text-xs">
-            <span className="font-bold text-white/70">Tricks Won:</span>
-            <span className="font-black text-amber-300 text-sm">{singleTricks} / 8</span>
-          </div>
-          <div className="mt-3 text-center">
-            {opponentTricks > 0 ? (
-              <span className="rounded-full bg-rose-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-rose-300 ring-1 ring-rose-500/50">
-                FAILED
-              </span>
-            ) : singleTricks === 8 ? (
-              <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-300 ring-1 ring-emerald-500/50">
-                SUCCESS (+3)
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-300 ring-1 ring-amber-500/50 animate-pulse">
-                MUST WIN ALL 8
-              </span>
-            )}
-          </div>
-        </div>
-      </>
-    );
-  }
 
   const bidderSeat = state.bidderSeatIndex ?? state.bids?.bidderSeatIndex ?? state.lastRoundSummary?.bidderSeatIndex ?? null;
   const bid = state.bid ?? state.bids?.highestBid ?? state.lastRoundSummary?.bid ?? null;

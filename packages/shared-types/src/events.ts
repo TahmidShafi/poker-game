@@ -10,7 +10,6 @@ import {
   TnDeclareMarriagePayload,
   TnDeclareTrumpPayload,
   TnPlayCardPayload,
-  TnSingleHandDecisionPayload,
   TnRoundSummary,
   TnSuit,
   TnTeam,
@@ -100,7 +99,6 @@ export interface ClientToServerEvents {
   GAME29_CALL_TRUMP: (payload: TnCallTrumpPayload) => void;
   GAME29_DECLARE_MARRIAGE: (payload: TnDeclareMarriagePayload) => void;
   GAME29_PLAY_CARD: (payload: TnPlayCardPayload) => void;
-  GAME29_SINGLE_HAND_DECISION: (payload: TnSingleHandDecisionPayload) => void;
   GAME29_FILL_BOTS: () => void;
   GAME29_SYNC_HAND: () => void;
   // ---- Host seat management ----

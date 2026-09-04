@@ -86,7 +86,7 @@ function JoinScreenComponent() {
   const canSubmit = nameOk && (tab === "create" || code.length === 6) && !busy;
 
   return (
-    <div className="relative min-h-dvh w-full max-w-full overflow-x-hidden overflow-y-auto bg-room pb-10 sm:pb-8">
+    <div className="relative min-h-dvh w-full max-w-full overflow-x-hidden overflow-y-auto royal-casino-bg pb-10 sm:pb-8 text-[#F8FAFC]">
       {/* ================= floating cards layer (strictly overflow-clipped) ================= */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden select-none">
         {/* desktop hero cards */}
@@ -130,36 +130,56 @@ function JoinScreenComponent() {
       <div className="relative z-10 mx-auto grid min-h-dvh w-full max-w-6xl items-center gap-6 sm:gap-10 px-3 sm:px-4 py-4 sm:py-8 dt:grid-cols-[1.05fr_420px]">
         {/* Hero (desktop only) */}
         <section className="hidden dt:block">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-[0.2em] uppercase bg-[#B91C1C]/15 text-[#F4C95D] border border-[#D4AF37]/35 shadow-sm mb-3">
+            <span className="text-[#B91C1C]">♦</span> Royal Casino Edition <span className="text-[#B91C1C]">♦</span>
+          </div>
           <Brand />
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/50">
+          <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#94A3B8]">
             Deal your friends in. One room code is all it takes — full No-Limit
             Hold&apos;em with turn timers, side pots and player loans.
           </p>
-          <ul className="mt-5 space-y-1.5 text-xs text-white/45">
-            <li>♠ server-authoritative dealing &amp; showdown</li>
-            <li>♦ hidden cards never leave the server pre-showdown</li>
-            <li>♣ virtual chips only — zero stakes, all bragging rights</li>
+          <ul className="mt-5 space-y-2 text-xs font-medium text-[#94A3B8]">
+            <li className="flex items-center gap-2">
+              <span className="text-[#F4C95D] text-sm">♠</span>
+              <span>server-authoritative dealing &amp; showdown</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-[#B91C1C] text-sm">♦</span>
+              <span>hidden cards never leave the server pre-showdown</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-[#F4C95D] text-sm">♣</span>
+              <span>virtual chips only — zero stakes, all bragging rights</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-[#B91C1C] text-sm">♥</span>
+              <span>real-time turn timers, side pots &amp; player loans</span>
+            </li>
           </ul>
         </section>
 
         {/* Action card */}
-        <section className="glass mx-auto w-full max-w-[calc(100vw-24px)] sm:max-w-md min-w-0 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 shadow-panel animate-riseFade my-auto">
-          <div className="dt:hidden mb-2">
+        <section className="royal-card mx-auto w-full max-w-[calc(100vw-24px)] sm:max-w-md min-w-0 rounded-2xl sm:rounded-3xl p-4 sm:p-6 animate-riseFade my-auto">
+          <div className="h-[2px] w-full rounded-full royal-card-accent-line mb-3 opacity-90" />
+          <div className="dt:hidden mb-3">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-[0.2em] uppercase bg-[#B91C1C]/15 text-[#F4C95D] border border-[#D4AF37]/30 mb-2">
+              <span className="text-[#B91C1C]">♦</span> Royal Casino <span className="text-[#B91C1C]">♦</span>
+            </div>
             <Brand compact />
           </div>
 
-          <div className="mt-3 sm:mt-4 space-y-3 sm:space-y-3.5 w-full min-w-0">
+          <div className="mt-2 space-y-3 sm:space-y-3.5 w-full min-w-0">
             <AvatarStrip value={avatar} onChange={setAvatar} />
 
             <label className="block w-full min-w-0">
               <span className="mb-1 flex items-baseline justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Username</span>
-                <span className={`text-[10px] tabnum ${nameOk ? "text-white/30" : "text-crimson"}`}>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#94A3B8]">Username</span>
+                <span className={`text-[10px] tabnum ${nameOk ? "text-[#94A3B8]/60" : "text-[#B91C1C] font-semibold"}`}>
                   {username.trim().length}/16
                 </span>
               </span>
               <input
-                className="w-full min-w-0 rounded-xl bg-black/35 px-3.5 py-2.5 text-sm ring-1 ring-white/12 focus:outline-none focus:ring-gold/50 placeholder:text-white/30"
+                className="w-full min-w-0 rounded-xl bg-[#0E1624] px-3.5 py-2.5 text-sm border border-[#94A3B8]/20 text-[#F8FAFC] focus:outline-none focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/30 placeholder:text-[#94A3B8]/40 transition-all"
                 placeholder="What should the table call you?"
                 maxLength={16}
                 value={username}
@@ -168,15 +188,23 @@ function JoinScreenComponent() {
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-black/30 p-1 text-sm font-semibold w-full min-w-0">
+            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[#0E1624] p-1 text-sm font-semibold w-full min-w-0 border border-[#94A3B8]/15">
               <button
-                className={`rounded-xl py-2 px-1 text-center truncate transition-colors ${tab === "join" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
+                className={`rounded-xl py-2 px-1 text-center truncate transition-all ${
+                  tab === "join"
+                    ? "bg-gradient-to-r from-[#D4AF37]/20 to-[#F4C95D]/15 text-[#F4C95D] border border-[#D4AF37]/40 shadow-sm"
+                    : "text-[#94A3B8] hover:text-[#F8FAFC]"
+                }`}
                 onClick={() => setTab("join")}
               >
                 Join room
               </button>
               <button
-                className={`rounded-xl py-2 px-1 text-center truncate transition-colors ${tab === "create" ? "bg-gold/20 text-gold" : "text-white/55 hover:text-white"}`}
+                className={`rounded-xl py-2 px-1 text-center truncate transition-all ${
+                  tab === "create"
+                    ? "bg-gradient-to-r from-[#D4AF37]/20 to-[#F4C95D]/15 text-[#F4C95D] border border-[#D4AF37]/40 shadow-sm"
+                    : "text-[#94A3B8] hover:text-[#F8FAFC]"
+                }`}
                 onClick={() => setTab("create")}
               >
                 Create room
@@ -188,37 +216,37 @@ function JoinScreenComponent() {
                 <button
                   type="button"
                   onClick={() => setGame("POKER")}
-                  className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
+                  className={`rounded-2xl p-2.5 sm:p-3 text-left border transition-all min-w-0 ${
                     game === "POKER"
-                      ? "bg-gold/15 ring-gold/60"
-                      : "bg-black/30 ring-white/10 hover:ring-white/25"
+                      ? "bg-gradient-to-br from-[#D4AF37]/15 to-[#162033] border-[#D4AF37]/70 shadow-[0_0_12px_rgba(212,175,55,0.18)]"
+                      : "bg-[#0E1624] border-[#94A3B8]/20 hover:border-[#D4AF37]/35"
                   }`}
                 >
-                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "POKER" ? "text-gold" : "text-white/70"}`}>
+                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "POKER" ? "text-[#F4C95D]" : "text-[#94A3B8]"}`}>
                     ♠ Texas Hold&apos;em
                   </span>
-                  <span className="block text-[9px] sm:text-[9.5px] text-white/40 leading-tight">blinds, side pots & loans</span>
+                  <span className="block text-[9px] sm:text-[9.5px] text-[#94A3B8]/70 leading-tight">blinds, side pots &amp; loans</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setGame("TWENTY_NINE")}
-                  className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
+                  className={`rounded-2xl p-2.5 sm:p-3 text-left border transition-all min-w-0 ${
                     game === "TWENTY_NINE"
-                      ? "bg-gold/15 ring-gold/60"
-                      : "bg-black/30 ring-white/10 hover:ring-white/25"
+                      ? "bg-gradient-to-br from-[#D4AF37]/15 to-[#162033] border-[#D4AF37]/70 shadow-[0_0_12px_rgba(212,175,55,0.18)]"
+                      : "bg-[#0E1624] border-[#94A3B8]/20 hover:border-[#D4AF37]/35"
                   }`}
                 >
-                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "TWENTY_NINE" ? "text-gold" : "text-white/70"}`}>
-                    ♦ Twenty-Nine
+                  <span className={`block text-xs sm:text-sm font-black truncate ${game === "TWENTY_NINE" ? "text-[#F4C95D]" : "text-[#94A3B8]"}`}>
+                    <span className="text-[#B91C1C]">♦</span> Twenty-Nine
                   </span>
-                  <span className="block text-[9px] sm:text-[9.5px] text-white/40 leading-tight">4 players · teams · trump</span>
+                  <span className="block text-[9px] sm:text-[9.5px] text-[#94A3B8]/70 leading-tight">4 players · teams · trump</span>
                 </button>
               </div>
             )}
 
             {tab === "join" ? (
               <div className="space-y-2 w-full min-w-0">
-                <span className="block text-center text-[10px] font-bold uppercase tracking-[0.25em] text-white/40">
+                <span className="block text-center text-[10px] font-bold uppercase tracking-[0.25em] text-[#94A3B8]">
                   Room code
                 </span>
                 <CodeBoxes
@@ -239,19 +267,19 @@ function JoinScreenComponent() {
                     key={opt.bots ? "bots" : "friends"}
                     type="button"
                     onClick={() => setTnVsBots(opt.bots)}
-                    className={`rounded-2xl p-2.5 sm:p-3 text-left ring-1 transition-all min-w-0 ${
+                    className={`rounded-2xl p-2.5 sm:p-3 text-left border transition-all min-w-0 ${
                       tnVsBots === opt.bots
-                        ? "bg-gold/15 ring-gold/60"
-                        : "bg-black/30 ring-white/10 hover:ring-white/25"
+                        ? "bg-gradient-to-br from-[#D4AF37]/15 to-[#162033] border-[#D4AF37]/70 shadow-[0_0_12px_rgba(212,175,55,0.18)]"
+                        : "bg-[#0E1624] border-[#94A3B8]/20 hover:border-[#D4AF37]/35"
                     }`}
                   >
-                    <span className={`block text-xs sm:text-sm font-black truncate ${tnVsBots === opt.bots ? "text-gold" : "text-white/70"}`}>
+                    <span className={`block text-xs sm:text-sm font-black truncate ${tnVsBots === opt.bots ? "text-[#F4C95D]" : "text-[#94A3B8]"}`}>
                       {opt.icon} {opt.title}
                     </span>
-                    <span className="block text-[9px] sm:text-[9.5px] leading-tight text-white/40 truncate">{opt.hint}</span>
+                    <span className="block text-[9px] sm:text-[9.5px] leading-tight text-[#94A3B8]/70 truncate">{opt.hint}</span>
                   </button>
                 ))}
-                <p className="col-span-2 text-center text-[10px] text-white/35">
+                <p className="col-span-2 text-center text-[10px] text-[#94A3B8]/60">
                   First team to 6 rounds wins · no turn timers
                 </p>
               </div>
@@ -262,7 +290,7 @@ function JoinScreenComponent() {
             <button
               disabled={!canSubmit}
               onClick={submit}
-              className="w-full rounded-xl bg-gold py-3 text-sm font-black tracking-wide text-ink shadow-glowGold transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none min-w-0 cursor-pointer"
+              className="w-full rounded-xl bg-gradient-to-r from-[#F4C95D] to-[#D4AF37] py-3 text-sm font-black tracking-wide text-[#0B1220] shadow-[0_0_22px_rgba(212,175,55,0.38),0_4px_14px_rgba(0,0,0,0.4)] transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none min-w-0 cursor-pointer"
             >
               {busy
                 ? "Connecting…"
@@ -278,13 +306,13 @@ function JoinScreenComponent() {
             </button>
 
             <div className="flex flex-wrap items-center justify-between gap-1 pt-1 w-full min-w-0">
-              <p className="text-[10px] text-white/30">
+              <p className="text-[10px] text-[#94A3B8]/60">
                 Virtual chips only — no real-money gambling.
               </p>
-              <span className="flex items-center gap-1.5 text-[10px] text-white/30" title={status}>
+              <span className="flex items-center gap-1.5 text-[10px] text-[#94A3B8]" title={status}>
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    status === "online" ? "bg-emerald-400" : status === "connecting" ? "bg-amber-400" : "bg-crimson"
+                    status === "online" ? "bg-emerald-400" : status === "connecting" ? "bg-amber-400" : "bg-[#B91C1C]"
                   }`}
                 />
                 {status}
@@ -311,7 +339,7 @@ function rememberIdentity(name: string, avatar: number | null): void {
 const Brand = React.memo(function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 sm:gap-3">
-      <span className={`grid place-items-center rounded-2xl bg-gradient-to-br from-gold to-goldDim text-ink shadow-glowGold ${
+      <span className={`grid place-items-center rounded-2xl bg-gradient-to-br from-[#F4C95D] to-[#D4AF37] text-[#0B1220] shadow-[0_0_20px_rgba(212,175,55,0.35)] ${
         compact ? "h-10 w-10 rounded-xl" : "h-12 w-12"
       }`}>
         <svg viewBox="0 0 24 24" className={`${compact ? "h-5 w-5" : "h-6 w-6"}`} fill="currentColor" aria-hidden>
@@ -319,11 +347,11 @@ const Brand = React.memo(function Brand({ compact = false }: { compact?: boolean
         </svg>
       </span>
       <div className="leading-none">
-        <h1 className={`${compact ? "text-2xl" : "text-3xl"} font-black tracking-tight`}>
-          Hold<span className="text-gold">&apos;em</span> Club
+        <h1 className={`${compact ? "text-2xl" : "text-3xl"} font-black tracking-tight text-[#F8FAFC]`}>
+          Hold<span className="text-[#F4C95D]">&apos;em</span> Club
         </h1>
         {!compact && (
-          <p className="mt-1.5 text-[11px] uppercase tracking-[0.3em] text-white/40">
+          <p className="mt-1.5 text-[11px] uppercase tracking-[0.3em] text-[#94A3B8]">
             private poker tables · virtual chips
           </p>
         )}

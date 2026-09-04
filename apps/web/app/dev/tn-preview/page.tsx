@@ -180,7 +180,6 @@ export default function TnPreviewPage() {
       tnCallTrump: noop,
       tnDeclareMarriage: noop,
       tnPlayCard: noop,
-      tnSingleHandDecision: noop,
       tnFillBots: noop,
       tnSyncHand: noop,
     };

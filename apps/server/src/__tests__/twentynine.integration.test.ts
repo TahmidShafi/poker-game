@@ -251,30 +251,9 @@ async function simpleAuctionToTrumpSetup(seats: Seat[], bid = 16): Promise<numbe
 }
 
 async function skipSingleHandForAll(
-  seats: { seatIndex: number; socket: Socket; log?: LogEntry[] }[]
+  _seats?: { seatIndex: number; socket: Socket; log?: LogEntry[] }[]
 ): Promise<void> {
-  const connected = seats.find((s) => s.socket.connected) ?? seats[0];
-  if (!connected || !connected.log) return;
-
-  await waitFor(
-    null,
-    () => latestOf(connected.log!),
-    (st) => st.phase === "SINGLE_HAND_DECISION" || st.phase === "PLAYING",
-    8000
-  ).catch(() => null);
-
-  for (let guard = 0; guard < 25; guard++) {
-    const st = latestOf(connected.log!);
-    if (!st || st.phase !== "SINGLE_HAND_DECISION") break;
-    const turn = st.actingSeatIndex;
-    if (turn !== null) {
-      const s = seats.find((x) => x.seatIndex === turn);
-      if (s && s.socket.connected) {
-        s.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: false });
-      }
-    }
-    await sleep(80);
-  }
+  // No-op: Single hand decision phase removed
 }
 
 function legalMirror(hand: TnCard[], trick: PublicTwentyNineState["trick"]): TnCard[] {
@@ -408,20 +387,6 @@ async function playFullHand(
   await waitFor(null, () => latestOf(anyLog()), (s2) => s2.phase !== "TRUMP_SETUP", 5000);
   if (latestOf(anyLog())!.phase === "REDEALING") {
     throw new Error("hand was redealt - caller should retry");
-  }
-
-  // --- Single Hand Decision ---
-  for (let shGuard = 0; shGuard < 30; shGuard++) {
-    const current = latestOf(anyLog());
-    if (!current || current.phase !== "SINGLE_HAND_DECISION") break;
-    const acting = current.actingSeatIndex;
-    if (acting !== null) {
-      const h = humans.find((x) => x.seat.seatIndex === acting);
-      if (h) {
-        h.seat.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: false });
-      }
-    }
-    await sleep(60);
   }
 
   // --- Tricks ---
@@ -807,46 +772,6 @@ describe("twenty-nine: multiplayer integration", () => {
       s2.disconnect();
     },
     20000
-  );
-
-  it(
-    "SINGLE HAND mode: declaration plays solo, partner sits out with isInactive flag",
-    async () => {
-      const { seats } = await makeTnRoom(false);
-      const humans = seats.map((seat) => ({ seat, spent: new Set<string>() }));
-      
-      // Simple auction to TRUMP_SETUP
-      const bidder = await simpleAuctionToTrumpSetup(seats);
-      const bidderHuman = humans.find((h) => h.seat.seatIndex === bidder)!;
-      bidderHuman.seat.socket.emit("GAME29_DECLARE_TRUMP", { choice: "HEARTS" });
-
-      // Wait for SINGLE_HAND_DECISION
-      const shState = await waitFor(
-        null,
-        () => latestOf(seats[0]!.log),
-        (st) => st.phase === "SINGLE_HAND_DECISION",
-        5000
-      );
-      expect(shState.phase).toBe("SINGLE_HAND_DECISION");
-
-      // Acting seat declares single hand
-      const actingSeat = shState.actingSeatIndex!;
-      const declaringHuman = humans.find((h) => h.seat.seatIndex === actingSeat)!;
-      declaringHuman.seat.socket.emit("GAME29_SINGLE_HAND_DECISION", { declare: true });
-
-      // Wait for PLAYING phase with isSingleHand: true
-      const playState = await waitFor(
-        null,
-        () => latestOf(seats[0]!.log),
-        (st) => st.phase === "PLAYING" && st.isSingleHand === true,
-        5000
-      );
-      expect(playState.isSingleHand).toBe(true);
-      expect(playState.singleHandSeatIndex).toBe(actingSeat);
-      const inactivePartner = (actingSeat + 2) % 4;
-      expect(playState.seats[inactivePartner]!.isInactive).toBe(true);
-    },
-    30000
   );
 });
 
@@ -1957,14 +1882,14 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
       await pollUntil(
         () => {
           const st = latestOf(bidderClient.log);
-          return st?.phase === "SINGLE_HAND_DECISION" || st?.phase === "PLAYING" || st?.phase === "REDEALING";
+          return st?.phase === "PLAYING" || st?.phase === "REDEALING";
         },
         8000,
-        "single hand or playing or redeal"
+        "playing or redeal"
       );
 
       const room = ps.registry.get(code) as TwentyNineGameManager;
-      if (room.match.phase === "SINGLE_HAND_DECISION" || room.match.phase === "PLAYING") {
+      if (room.match.phase === "PLAYING") {
         // Verify batch 2 has EXACTLY 4 cards for the bidder and all other seats
         for (const s of seats) {
           const b2 = batchCardsOf(s, 2);
@@ -2038,10 +1963,10 @@ describe("twenty-nine: lobby seat lifecycle & host seat management", () => {
       await pollUntil(
         () => {
           const st = latestOf(bidderClient.log);
-          return st?.phase === "SINGLE_HAND_DECISION" || st?.phase === "PLAYING";
+          return st?.phase === "PLAYING";
         },
         8000,
-        "single hand or playing"
+        "playing"
       );
 
       // Pass single hand

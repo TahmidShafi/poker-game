@@ -140,3 +140,39 @@ body {
   background: rgba(216, 179, 106, 0.25);
   border-radius: 8px;
 }
+
+/* ==========================================================================
+   Royal Casino Palette (Login Screen)
+   ========================================================================== */
+:root {
+  --rc-bg: #0B1220;
+  --rc-surface: #162033;
+  --rc-gold: #D4AF37;
+  --rc-gold-bright: #F4C95D;
+  --rc-red: #B91C1C;
+  --rc-text: #F8FAFC;
+  --rc-text-muted: #94A3B8;
+}
+
+.royal-casino-bg {
+  background-color: #0B1220;
+  background-image:
+    radial-gradient(1100px 650px at 50% -10%, rgba(212, 175, 55, 0.14), transparent 70%),
+    radial-gradient(900px 550px at 90% 105%, rgba(185, 28, 28, 0.09), transparent 60%),
+    radial-gradient(800px 500px at 10% 95%, rgba(22, 32, 51, 0.95), transparent 70%);
+}
+
+.royal-card {
+  background: rgba(22, 32, 51, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(244, 201, 93, 0.08) inset,
+    0 1px 0 rgba(248, 250, 252, 0.12) inset;
+}
+
+.royal-card-accent-line {
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.6), rgba(244, 201, 93, 0.9), rgba(212, 175, 55, 0.6), transparent);
+}

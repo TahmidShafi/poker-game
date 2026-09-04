@@ -87,9 +87,7 @@ function SeatCardComponent({
           isActing
             ? "ring-[3px] ring-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.75)] scale-110 z-20"
             : "hover:scale-105 z-10"
-        } ${seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""} ${
-          seat.isInactive ? "opacity-40 grayscale" : ""
-        }`}
+        } ${seat.status === "DISCONNECTED" ? "opacity-60 grayscale" : ""}`}
       >
         {/* Host Remove Player Button */}
         {canRemove && onRemove && !empty && !isMe && (
@@ -143,9 +141,7 @@ function SeatCardComponent({
         <div className="mt-1 flex flex-col items-center">
           <div
             className={`flex items-center gap-1 rounded-full px-2 py-0.5 backdrop-blur-md border shadow-md max-w-[5.2rem] sm:max-w-[7.2rem] truncate ${
-              seat.isInactive
-                ? "bg-black/60 border-white/10 text-white/40"
-                : isActing
+              isActing
                 ? "bg-amber-500/25 border-amber-400/70 text-amber-300 ring-1 ring-amber-400/40"
                 : isMe
                 ? "bg-white/20 border-white/20 text-white font-black"
@@ -159,15 +155,10 @@ function SeatCardComponent({
               <span className="truncate">{isMe ? "YOU" : isTeammate ? "PARTNER" : seat.username}</span>
             </p>
           </div>
-          {seat.isInactive && (
-            <span className="text-[7.5px] font-bold uppercase tracking-wider text-white/40 mt-0.5">
-              Sitting Out
-            </span>
-          )}
-          {!seat.isInactive && seat.status === "DISCONNECTED" && (
+          {seat.status === "DISCONNECTED" && (
             <span className="text-[7.5px] font-black uppercase text-crimson mt-0.5">offline</span>
           )}
-          {!seat.isInactive && isActing && (
+          {isActing && (
             <span className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-amber-300 animate-pulse mt-0.5">
               Thinking
             </span>
@@ -337,15 +328,7 @@ function TrumpBannerComponent({ state }: { state: PublicTwentyNineState }) {
   
   let cardContent: React.ReactNode;
 
-  if (state.isSingleHand) {
-    cardContent = (
-      <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-amber-500/20 to-amber-700/30 rounded-lg shadow-card border border-amber-400/40 text-center p-1">
-        <span className="text-xl">👑</span>
-        <span className="text-[6.5px] font-black uppercase tracking-wider text-amber-300 mt-0.5">Solo</span>
-        <span className="text-[5.5px] font-bold text-white/50">No Trump</span>
-      </div>
-    );
-  } else if (state.trump.state === "NOT_SET") {
+  if (state.trump.state === "NOT_SET") {
     cardContent = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <span className="text-[8px] font-bold uppercase text-white/30">trump</span>
